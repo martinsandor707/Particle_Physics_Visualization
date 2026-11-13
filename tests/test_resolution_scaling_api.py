@@ -35,6 +35,16 @@ no-value and empty-range sentences of R-stats #3 and R-ui m2 on the recorded
 median body and on synthetic robust selections; no robust line through one
 window (F4); the tail share from N = 300 (F5); the c_sum note's signed median
 response (F8); and the route's summary (F10).
+
+**The noise fit** (the res-noise brief, Martin's decisions of 2026-11-13): on
+every served response, each mode's ``noise`` points are rebuilt from the wire's
+windows (every window from 1 GeV with N at the mode's threshold and a fit
+weight; in the 3-anchor mode the mode's points and the low anchor), the 0–1 GeV
+window never enters, the held list is the zeros of θ, ν counts the free terms,
+``noise_reason`` is the brief's sentence, the note keeps to 220 characters and
+the object to its byte guard, and a refit from the wire lands on the served
+terms. The two 1 GeV floors (``gates``, ``axis.energy``), the E view's curve
+sentence and the definition note are held verbatim.
 """
 
 from __future__ import annotations
@@ -66,6 +76,29 @@ ESTIMATORS = ("median", "robust", "sample")
 LITERATURE_WARNING = (
     "Note: comparing Median |rel. err.| against a σ/E literature curve (for unbiased Gaussian "
     "errors, median|R − 1| = 0.6745·σ/E; use Robust σ (IQR) for a σ-scaled comparison).")
+#: The res-noise brief §8 (Martin's decisions of 2026-11-13), verbatim: axis.energy.notes[1].
+E_VIEW_CURVES = (
+    "a₀/√E is drawn from 4 GeV, the lowest window edge it can use, and a/√E ⊕ b ⊕ c/E from 0 GeV, "
+    "fitted to windows from 1 GeV; each is solid over the windows it ran through and dashed "
+    "beyond, where it extrapolates its form, and a curve that leaves the top is clipped there "
+    "with a caret.")
+#: The server's definition note, with {sym} the estimator's symbol.
+NOISE_DEFINITION = (
+    "a/√E ⊕ b ⊕ c/E, the E view's second curve: ({sym})² = A/E + B + C/E² fitted by weighted "
+    "least squares with A, B, C ≥ 0 (a term the constraint holds at 0 is named), through every "
+    "fittable window from 1 GeV, or in the 3-anchor mode through the anchors and the lowest "
+    "fittable window from 1 GeV. Below 1 GeV a window's momenta reach nearly zero, so no single "
+    "abscissa carries its average of 1/E².")
+#: noise_reason: fewer than three noise-eligible windows, with {gate} the mode's threshold.
+NOISE_REASON_FEW = ("No a/√E ⊕ b ⊕ c/E fit: fewer than three windows from 1 GeV hold N ≥ {gate} "
+                    "with a fit weight.")
+NOISE_REASON_SCALE = "No a/√E ⊕ b ⊕ c/E fit: this series has no pooled scale c."
+#: The 3-anchor rule reached fewer than three windows though three or more are eligible.
+NOISE_REASON_ANCHORS = ("No a/√E ⊕ b ⊕ c/E fit: in the 3-anchor mode it would run through {k} "
+                        "window{s} of N ≥ {gate} with a fit weight, fewer than three.")
+#: A noise object's bytes on the wire: the brief's target is about 600; the recordings measure
+#: 596–628 (2026-11-13), so this guard catches growth, not the target itself.
+NOISE_BLOCK_GUARD = 650
 
 
 def _get(client, **params):
@@ -111,7 +144,8 @@ def _check_estimator_block(body, estimator):
     assert block["calibration"]["rule"] == ("median" if estimator == "median" else "sum")
     gates = rs.ESTIMATOR_GATES[estimator]
     assert body["gates"] == {**gates, "e_min_gev": 4.0, "anchor_low_gev": 5.0, "n_anchors": 3,
-                             "misfit_scale": rfit.MISFIT_SCALE, "tail_min_n": 300}
+                             "misfit_scale": rfit.MISFIT_SCALE, "tail_min_n": 300,
+                             "noise_min_gev": 1.0}
     return gates
 
 
@@ -199,6 +233,7 @@ def _common(body):
                 if mode[form] is not None:
                     assert mode[form]["band_quantile"] > 0
     _check_energy_axis(body)
+    _check_noise(body)
 
 
 def _check_weight_scale(series, estimator, gates):
@@ -257,6 +292,7 @@ def _check_energy_axis(body):
     assert y["zero_based"] and y["lo"] == 0.0 and y["hi"] > 0 and y["unit"] == "%"
     assert energy["y_min_gev"] == rs.E_VIEW_Y_MIN_GEV == 2.0
     assert energy["curve_min_gev"] == rs.E_MIN_GEV == 4.0
+    assert energy["noise_min_gev"] == rs.NOISE_MIN_GEV == 1.0
     assert len(energy["notes"]) == 3 and energy["rule"].startswith("E = 1/x²")
     basis = energy["notes"][0]
     assert ("provisional" in basis) == y["provisional"]
@@ -265,7 +301,96 @@ def _check_energy_axis(body):
     assert "No fitted curve, band or extrapolation sets it" in basis and "clipped there with a caret" in basis
     assert not re.search(r"\d+ (?:marks?|windows?) beyond it", basis)
     assert "fits over the windows" not in basis
-    assert f"to {x['max']:g} GeV" in energy["notes"][1]
+    assert energy["notes"][1] == E_VIEW_CURVES
+
+
+def _noise_eligible(series, threshold, estimator):
+    """The noise fit's windows read off the wire: N ≥ threshold, from 1 GeV, with a fit weight."""
+    return [w["bin"] for w in series["windows"]
+            if w["n"] >= threshold and w["p_lo"] >= rs.NOISE_MIN_GEV and _usable(w, estimator)]
+
+
+def _expected_noise_points(series, name, mode, estimator, gates):
+    """(points, low anchor, threshold) the res-noise brief §3.2 gives a mode, rebuilt from the wire."""
+    threshold = gates["whisker_n"] if mode["fallback"] else gates["fit_n"]
+    eligible = _noise_eligible(series, threshold, estimator)
+    if name == "all":
+        return eligible, None, threshold
+    low = next((k for k in eligible if k not in mode["points"]), None)
+    return sorted({*mode["points"], *([] if low is None else [low])}), low, threshold
+
+
+def _check_noise(body):
+    """fits[mode].noise and noise_reason on every series and mode: the points of each mode with the
+    low anchor, the 0–1 GeV window never, the held terms as the zeros of θ, ν over the free terms,
+    the reasons, the note's words and length, the object's size, and a refit from the wire."""
+    estimator = body["estimator"]["name"]
+    gates, symbol = body["gates"], body["estimator"]["symbol"]
+    assert gates["noise_min_gev"] == body["axis"]["energy"]["noise_min_gev"] == 1.0
+    definition = NOISE_DEFINITION.format(sym=symbol)
+    assert body["notes"].count(definition) == 1
+    fits_at = next(i for i, n in enumerate(body["notes"]) if n.startswith("Fits: "))
+    assert body["notes"][fits_at + 1] == definition
+    for s in body["series"]:
+        by_bin = {w["bin"]: w for w in s["windows"]}
+        for name, mode in s["fits"].items():
+            points, low, threshold = _expected_noise_points(s, name, mode, estimator, gates)
+            noise, reason = mode["noise"], mode["noise_reason"]
+            assert (noise is None) != (reason is None), (s["key"], name)
+            if len(points) < 3:
+                if len(_noise_eligible(s, threshold, estimator)) < 3:
+                    assert reason == NOISE_REASON_FEW.format(gate=threshold)
+                else:
+                    assert name == "anchors" and reason == NOISE_REASON_ANCHORS.format(
+                        k=len(points), s="s" if len(points) != 1 else "", gate=threshold)
+                continue
+            c = None if s["weight_scale"] is None else s["weight_scale"]["c"]
+            if estimator != "sample" and c is None:
+                assert reason == NOISE_REASON_SCALE
+                continue
+            assert reason is None and noise is not None, (s["key"], name, reason)
+            assert noise["form"] == "noise" and noise["points"] == points
+            assert noise["low_anchor"] == low and noise["n_points"] == len(points)
+            assert all(by_bin[k]["p_lo"] >= 1.0 for k in points)       # the 0–1 GeV window never
+            assert noise["span_gev"] == [by_bin[points[0]]["p_lo"],
+                                         max(by_bin[k]["p_hi"] for k in points)]
+            p = noise["params"]
+            held = [t for t in "abc" if p[f"{t}2"] == 0.0]
+            assert p["held"] == held and len(held) <= 2
+            assert noise["ndf"] == noise["n_points"] - (3 - len(held))
+            for t in "abc":
+                if t in held:
+                    assert p[t] == 0.0 and p[f"se_{t}"] is None and p[f"se_{t}2"] is None
+                else:
+                    assert p[f"{t}2"] > 0 and p[t] == approx(np.sqrt(p[f"{t}2"]), rel=REL)
+                    assert p[f"se_{t}"] == approx(p[f"se_{t}2"] / (2 * p[t]), rel=1e-4)
+            for pair, value in p["rho"].items():
+                assert (value is None) == (pair[0] in held or pair[2] in held), pair
+            assert (noise["p_value"] is None) == (noise["ndf"] == 0)
+            assert noise["provisional"] == mode["provisional"]
+            assert noise["misfit"] is (noise["ndf"] >= 1
+                                       and noise["scale_factor"] > gates["misfit_scale"])
+            assert noise["scale_factor"] >= 1.0 and noise["band_quantile"] > 0
+            note = noise["note"]
+            assert len(note) <= 220
+            assert note.startswith(f"{symbol} = a/√E ⊕ b ⊕ c/E over {len(points)} windows, ")
+            assert ("ν = 0, so no χ² test." in note) == (noise["ndf"] == 0)
+            if held:
+                assert rs.held_phrase(held) + "." in note
+            else:
+                assert "held there" not in note
+            assert ("No low anchor" in note) == (name == "anchors" and low is None)
+            assert "_stat" not in json.dumps(noise) and "curve" not in noise
+            size = len(json.dumps(noise, ensure_ascii=False, separators=(",", ":")).encode())
+            assert size <= NOISE_BLOCK_GUARD, (s["key"], name, size)
+            # A refit from the wire's six-figure windows lands on the served terms.
+            chosen = [by_bin[k] for k in points]
+            kappa = None if estimator == "sample" else [c / np.sqrt(w["n"]) for w in chosen]
+            fit = rfit.fit_noise([w["x"] for w in chosen], [w["value"] / 100 for w in chosen],
+                                 [w["n"] for w in chosen], kappa)
+            assert list(fit.held) == held, (s["key"], name)
+            for i, t in enumerate("abc"):
+                assert p[f"{t}2"] == approx(1e4 * fit.theta[i], rel=1e-3), (s["key"], name, t)
 
 
 def _served_window_extents(body, energy: bool):
@@ -895,6 +1020,31 @@ def test_the_sample_numbers_equal_the_two_shower_recording(synthetic_client):
     _sample_numbers_match(synthetic_client, "res_scaling_two")
 
 
+def test_the_noise_fit_takes_the_low_anchor_from_below_the_axis(synthetic_client):
+    """Sample, bins 2–17: the 3–4 GeV window (N = 20, off the 1/√E axis) is each 3-anchor fit's low
+    anchor and enters the all-windows fit; the 2–3 GeV window (N = 18 for shower A) does not.
+    Under median the deposits tie in every window, so no window carries a fit weight: no noise fit,
+    said so."""
+    body = _get(synthetic_client, estimator="sample")
+    fits = {s["key"]: s["fits"] for s in body["series"]}
+    a = fits["detector:a"]
+    assert a["anchors"]["points"] == [7, 10, 15]
+    assert a["anchors"]["noise"]["points"] == [3, 7, 10, 15]
+    assert a["anchors"]["noise"]["low_anchor"] == 3 and a["anchors"]["noise"]["span_gev"] == [3.0, 16.0]
+    assert a["all"]["noise"]["points"] == [3, 4, 7, 8, 10, 15]
+    assert a["all"]["noise"]["low_anchor"] is None
+    assert fits["detector:b"]["anchors"]["noise"]["points"] == [3, 9, 10, 17]
+    assert fits["network:b"]["all"]["noise"]["points"] == [3, 4, 9, 10, 12, 15, 17]
+    median = _get(synthetic_client, estimator="median")
+    for s in median["series"]:
+        for mode in s["fits"].values():
+            if s["source"] == "detector":
+                assert mode["noise"] is None
+                assert mode["noise_reason"] == NOISE_REASON_FEW.format(gate=20)
+            else:
+                assert mode["noise"] is not None and mode["noise_reason"] is None
+
+
 # ------------------------------------------------------------- one shower --
 
 
@@ -914,7 +1064,8 @@ def test_single_shower_hits_draw_the_detector_only_and_name_the_species(single_c
     share = top.iloc[0] / len(events)
     expected = (rs.SPECIES_CODES.get(top.index[0]) if share >= rs.DOMINANT_SHARE else None) or "Shower"
     assert series["shower_label"] == expected
-    (named,) = [n for n in body["notes"] if "named" in n]
+    # The noise fit's definition says a held term "is named"; the shower's naming note is the other.
+    (named,) = [n for n in body["notes"] if "named" in n and not n.startswith("a/√E ⊕ b ⊕ c/E,")]
     assert f"of the {len(events):,} selected events" in named and f"{100 * share:.1f}%" in named
     untyped = int(events["primary_type"].isna().sum())
     assert (f"{untyped:,} of them have no primary particle" in named) == (untyped > 0)
@@ -1127,6 +1278,23 @@ def test_the_sample_numbers_equal_the_single_shower_recordings(single_client, na
     _sample_numbers_match(single_client, name)
 
 
+def test_a_provisional_mode_makes_its_noise_fit_provisional(single_client):
+    """The single-shower hits fall back to N ≥ 8: the noise fit takes the 1–2 GeV window (N = 8) at that
+    gate and is provisional; under robust (N = 20 throughout) two windows remain, so no noise fit."""
+    body = _get(single_client, table_name=SINGLE_HITS_TABLE, estimator="sample")
+    (series,) = body["series"]
+    every, anchors = series["fits"]["all"], series["fits"]["anchors"]
+    assert every["fallback"] and anchors["fallback"]
+    assert every["noise"]["points"] == [1, 2, 5, 10, 15, 19] and every["noise"]["provisional"]
+    assert anchors["noise"]["points"] == [1, 5, 10, 19] and anchors["noise"]["low_anchor"] == 1
+    assert anchors["noise"]["provisional"]
+    robust = _get(single_client, table_name=SINGLE_HITS_TABLE, estimator="robust")
+    (series,) = robust["series"]
+    for mode in series["fits"].values():
+        assert mode["noise"] is None
+        assert mode["noise_reason"] == NOISE_REASON_FEW.format(gate=20)
+
+
 @pytest.mark.parametrize("estimator", ESTIMATORS)
 def test_the_xgboost_payload_holds_under_every_estimator(xgb_client, estimator):
     _common(_get(xgb_client, table_name=xgb_table(XGB_SOURCE), estimator=estimator))
@@ -1186,6 +1354,28 @@ def test_the_xgboost_payload_stays_under_the_byte_contract(xgb_client, estimator
 
 def test_the_sample_numbers_equal_the_xgboost_recording(xgb_client):
     _sample_numbers_match(xgb_client, "res_scaling_xgb")
+
+
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+def test_the_0_to_1_gev_window_never_enters_the_noise_fit(xgb_client, estimator):
+    """The deposit's 0–1 GeV window holds N = 60 with a fit weight, yet no noise fit takes it: from
+    1 GeV the deposit's eligible windows are 1–2, 7–8 and 10–11 GeV, in both modes."""
+    body = _get(xgb_client, table_name=xgb_table(XGB_SOURCE), estimator=estimator)
+    deposit = next(s for s in body["series"] if s["source"] == "detector")
+    zero = next(w for w in deposit["windows"] if w["bin"] == 0)
+    assert zero["p_lo"] == 0.0 and zero["n"] == 60
+    if estimator == "sample":
+        assert _usable(zero, estimator)
+    for s in body["series"]:
+        for mode in s["fits"].values():
+            if mode["noise"] is not None:
+                assert 0 not in mode["noise"]["points"]
+                assert mode["noise"]["span_gev"][0] >= 1.0
+    if estimator == "sample":
+        for name, mode in deposit["fits"].items():
+            assert mode["points"] == [7, 10]
+            assert mode["noise"]["points"] == [1, 7, 10]
+            assert mode["noise"]["low_anchor"] == (1 if name == "anchors" else None)
 
 
 # ---------------------------------------------------------- the estimator --

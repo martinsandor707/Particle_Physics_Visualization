@@ -138,12 +138,13 @@
     "name": "Robust σ/E [%]"
    },
    "curve_min_gev": 4.0,
+   "noise_min_gev": 1.0,
    "y_min_gev": 2.0,
    "data_max_gev": 18.0,
    "rule": "E = 1/x² of the 1/√E view's x = ⟨1/√p⟩: one exact bijection, so both views draw the same measurements.",
    "notes": [
     "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve, band or extrapolation sets it: one that leaves the top is clipped there with a caret.",
-    "Fitted curves are drawn from 4 GeV, the lowest window edge any fit can use, to 80 GeV: solid over the windows each fit ran through, dashed beyond, where the curve extrapolates its form.",
+    "a₀/√E is drawn from 4 GeV, the lowest window edge it can use, and a/√E ⊕ b ⊕ c/E from 0 GeV, fitted to windows from 1 GeV; each is solid over the windows it ran through and dashed beyond, where it extrapolates its form, and a curve that leaves the top is clipped there with a caret.",
     "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, slightly larger (Jensen's inequality), is in its tooltip."
    ]
   }
@@ -156,7 +157,8 @@
   "anchor_low_gev": 5.0,
   "n_anchors": 3,
   "misfit_scale": 5.0,
-  "tail_min_n": 300
+  "tail_min_n": 300,
+  "noise_min_gev": 1.0
  },
  "anchors": {
   "nominal_bins": [
@@ -1071,7 +1073,55 @@
      "span_gev": [
       7.0,
       16.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 4,
+      "ndf": 2,
+      "points": [
+       3,
+       7,
+       10,
+       15
+      ],
+      "span_gev": [
+       3.0,
+       16.0
+      ],
+      "low_anchor": 3,
+      "params": {
+       "a2": 0.0,
+       "b2": 3243.11,
+       "c2": 19693.6,
+       "se_a2": null,
+       "se_b2": 6307.54,
+       "se_c2": 198169.0,
+       "a": 0.0,
+       "b": 56.9484,
+       "c": 140.334,
+       "se_a": null,
+       "se_b": 55.3795,
+       "se_c": 706.061,
+       "held": [
+        "a"
+       ],
+       "rho": {
+        "a2b2": null,
+        "a2c2": null,
+        "b2c2": -0.623392
+       }
+      },
+      "chi2": 0.000461324,
+      "p_value": 0.999769,
+      "scale_factor": 1.0,
+      "iterations": 22,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "provisional": false,
+      "misfit": false,
+      "note": "σ/E = a/√E ⊕ b ⊕ c/E over 4 windows, 3–16 GeV: χ²/ν = 0.000461/2. a = 0, held there by the constraint a² ≥ 0."
+     },
+     "noise_reason": null
     },
     "all": {
      "points": [
@@ -1418,7 +1468,57 @@
      "span_gev": [
       4.0,
       16.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 6,
+      "ndf": 4,
+      "points": [
+       3,
+       4,
+       7,
+       8,
+       10,
+       15
+      ],
+      "span_gev": [
+       3.0,
+       16.0
+      ],
+      "low_anchor": null,
+      "params": {
+       "a2": 0.0,
+       "b2": 408.281,
+       "c2": 500835.0,
+       "se_a2": null,
+       "se_b2": 8290.75,
+       "se_c2": 871222.0,
+       "a": 0.0,
+       "b": 20.206,
+       "c": 707.697,
+       "se_a": null,
+       "se_b": 205.156,
+       "se_c": 615.533,
+       "held": [
+        "a"
+       ],
+       "rho": {
+        "a2b2": null,
+        "a2c2": null,
+        "b2c2": -0.736761
+       }
+      },
+      "chi2": 0.80875,
+      "p_value": 0.937271,
+      "scale_factor": 1.0,
+      "iterations": 32,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "provisional": false,
+      "misfit": false,
+      "note": "σ/E = a/√E ⊕ b ⊕ c/E over 6 windows, 3–16 GeV: χ²/ν = 0.809/4. a = 0, held there by the constraint a² ≥ 0."
+     },
+     "noise_reason": null
     }
    },
    "median_response_range": {
@@ -2328,7 +2428,56 @@
      "span_gev": [
       7.0,
       16.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 4,
+      "ndf": 3,
+      "points": [
+       3,
+       7,
+       10,
+       15
+      ],
+      "span_gev": [
+       3.0,
+       16.0
+      ],
+      "low_anchor": 3,
+      "params": {
+       "a2": 0.0,
+       "b2": 107064.0,
+       "c2": 0.0,
+       "se_a2": null,
+       "se_b2": 43033.6,
+       "se_c2": null,
+       "a": 0.0,
+       "b": 327.207,
+       "c": 0.0,
+       "se_a": null,
+       "se_b": 65.7591,
+       "se_c": null,
+       "held": [
+        "a",
+        "c"
+       ],
+       "rho": {
+        "a2b2": null,
+        "a2c2": null,
+        "b2c2": null
+       }
+      },
+      "chi2": 1.88378,
+      "p_value": 0.596874,
+      "scale_factor": 1.0,
+      "iterations": 2,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "provisional": false,
+      "misfit": false,
+      "note": "σ/E = a/√E ⊕ b ⊕ c/E over 4 windows, 3–16 GeV: χ²/ν = 1.88/3. a = 0 and c = 0, held there by the constraints a² ≥ 0 and c² ≥ 0."
+     },
+     "noise_reason": null
     },
     "all": {
      "points": [
@@ -2675,7 +2824,58 @@
      "span_gev": [
       4.0,
       16.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 6,
+      "ndf": 5,
+      "points": [
+       3,
+       4,
+       7,
+       8,
+       10,
+       15
+      ],
+      "span_gev": [
+       3.0,
+       16.0
+      ],
+      "low_anchor": null,
+      "params": {
+       "a2": 0.0,
+       "b2": 94823.0,
+       "c2": 0.0,
+       "se_a2": null,
+       "se_b2": 31304.1,
+       "se_c2": null,
+       "a": 0.0,
+       "b": 307.933,
+       "c": 0.0,
+       "se_a": null,
+       "se_b": 50.8293,
+       "se_c": null,
+       "held": [
+        "a",
+        "c"
+       ],
+       "rho": {
+        "a2b2": null,
+        "a2c2": null,
+        "b2c2": null
+       }
+      },
+      "chi2": 4.051,
+      "p_value": 0.542097,
+      "scale_factor": 1.0,
+      "iterations": 2,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "provisional": false,
+      "misfit": false,
+      "note": "σ/E = a/√E ⊕ b ⊕ c/E over 6 windows, 3–16 GeV: χ²/ν = 4.05/5. a = 0 and c = 0, held there by the constraints a² ≥ 0 and c² ≥ 0."
+     },
+     "noise_reason": null
     }
    },
    "median_response_range": {
@@ -3576,7 +3776,56 @@
      "span_gev": [
       9.0,
       18.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 4,
+      "ndf": 3,
+      "points": [
+       3,
+       9,
+       10,
+       17
+      ],
+      "span_gev": [
+       3.0,
+       18.0
+      ],
+      "low_anchor": 3,
+      "params": {
+       "a2": 0.0,
+       "b2": 5896250.0,
+       "c2": 0.0,
+       "se_a2": null,
+       "se_b2": 45760900.0,
+       "se_c2": null,
+       "a": 0.0,
+       "b": 2428.22,
+       "c": 0.0,
+       "se_a": null,
+       "se_b": 9422.72,
+       "se_c": null,
+       "held": [
+        "a",
+        "c"
+       ],
+       "rho": {
+        "a2b2": null,
+        "a2c2": null,
+        "b2c2": null
+       }
+      },
+      "chi2": 0.0517725,
+      "p_value": 0.996915,
+      "scale_factor": 1.0,
+      "iterations": 34,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "provisional": false,
+      "misfit": false,
+      "note": "σ/E = a/√E ⊕ b ⊕ c/E over 4 windows, 3–18 GeV: χ²/ν = 0.0518/3. a = 0 and c = 0, held there by the constraints a² ≥ 0 and c² ≥ 0."
+     },
+     "noise_reason": null
     },
     "all": {
      "points": [
@@ -3924,7 +4173,59 @@
      "span_gev": [
       4.0,
       18.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 7,
+      "ndf": 6,
+      "points": [
+       3,
+       4,
+       9,
+       10,
+       12,
+       15,
+       17
+      ],
+      "span_gev": [
+       3.0,
+       18.0
+      ],
+      "low_anchor": null,
+      "params": {
+       "a2": 0.0,
+       "b2": 10429900.0,
+       "c2": 0.0,
+       "se_a2": null,
+       "se_b2": 62179600.0,
+       "se_c2": null,
+       "a": 0.0,
+       "b": 3229.54,
+       "c": 0.0,
+       "se_a": null,
+       "se_b": 9626.71,
+       "se_c": null,
+       "held": [
+        "a",
+        "c"
+       ],
+       "rho": {
+        "a2b2": null,
+        "a2c2": null,
+        "b2c2": null
+       }
+      },
+      "chi2": 0.0374189,
+      "p_value": 0.999999,
+      "scale_factor": 1.0,
+      "iterations": 30,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "provisional": false,
+      "misfit": false,
+      "note": "σ/E = a/√E ⊕ b ⊕ c/E over 7 windows, 3–18 GeV: χ²/ν = 0.0374/6. a = 0 and c = 0, held there by the constraints a² ≥ 0 and c² ≥ 0."
+     },
+     "noise_reason": null
     }
    },
    "median_response_range": {
@@ -4825,7 +5126,55 @@
      "span_gev": [
       9.0,
       18.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 4,
+      "ndf": 2,
+      "points": [
+       3,
+       9,
+       10,
+       17
+      ],
+      "span_gev": [
+       3.0,
+       18.0
+      ],
+      "low_anchor": 3,
+      "params": {
+       "a2": 777.033,
+       "b2": 2571.18,
+       "c2": 0.0,
+       "se_a2": 10819.8,
+       "se_b2": 1806.67,
+       "se_c2": null,
+       "a": 27.8753,
+       "b": 50.7068,
+       "c": 0.0,
+       "se_a": 194.074,
+       "se_b": 17.8149,
+       "se_c": null,
+       "held": [
+        "c"
+       ],
+       "rho": {
+        "a2b2": -0.8392,
+        "a2c2": null,
+        "b2c2": null
+       }
+      },
+      "chi2": 3.22568,
+      "p_value": 0.19932,
+      "scale_factor": 1.26998,
+      "iterations": 15,
+      "converged": true,
+      "band_quantile": 4.303,
+      "provisional": false,
+      "misfit": false,
+      "note": "σ/E = a/√E ⊕ b ⊕ c/E over 4 windows, 3–18 GeV: χ²/ν = 3.23/2. c = 0, held there by the constraint c² ≥ 0."
+     },
+     "noise_reason": null
     },
     "all": {
      "points": [
@@ -5173,7 +5522,58 @@
      "span_gev": [
       4.0,
       18.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 7,
+      "ndf": 5,
+      "points": [
+       3,
+       4,
+       9,
+       10,
+       12,
+       15,
+       17
+      ],
+      "span_gev": [
+       3.0,
+       18.0
+      ],
+      "low_anchor": null,
+      "params": {
+       "a2": 622.739,
+       "b2": 3294.71,
+       "c2": 0.0,
+       "se_a2": 8877.46,
+       "se_b2": 1410.48,
+       "se_c2": null,
+       "a": 24.9547,
+       "b": 57.3995,
+       "c": 0.0,
+       "se_a": 177.871,
+       "se_b": 12.2865,
+       "se_c": null,
+       "held": [
+        "c"
+       ],
+       "rho": {
+        "a2b2": -0.847361,
+        "a2c2": null,
+        "b2c2": null
+       }
+      },
+      "chi2": 4.53053,
+      "p_value": 0.47581,
+      "scale_factor": 1.0,
+      "iterations": 13,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "provisional": false,
+      "misfit": false,
+      "note": "σ/E = a/√E ⊕ b ⊕ c/E over 7 windows, 3–18 GeV: χ²/ν = 4.53/5. c = 0, held there by the constraint c² ≥ 0."
+     },
+     "noise_reason": null
     }
    },
    "median_response_range": {
@@ -5235,6 +5635,7 @@
   "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
   "Robust σ/E is reported, drawn with its whisker, fitted and allowed to set the y range from N = 20 alone, the robust floor: quartiles of fewer events interpolate between single events. A window enters the fits and sets the y range from p ≥ 4 GeV.",
   "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights 1/se², se = c·ŷ/√N taken at the fitted value ŷ and iterated (half steps once the refits oscillate; the first fit takes c·value/√N), with c the series' pooled scale (weight_scale): the median of √N·κ over its windows of N ≥ 20 from 4 GeV with a fit weight, κ = SE/value each window's bootstrap relative SE. One c per series cancels in the fitted parameters and sets only χ², S and the errors; a window's own κ would put its measured value back into its weight, and bias the fits upward. χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG), and the band then takes Student's t₀.₉₇₅,ν rather than 1.96, since S is estimated from the fit's own ν. The band is the 95% confidence band of the line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, not drawn; its b and the affine b are different constant terms.",
+  "a/√E ⊕ b ⊕ c/E, the E view's second curve: (σ/E)² = A/E + B + C/E² fitted by weighted least squares with A, B, C ≥ 0 (a term the constraint holds at 0 is named), through every fittable window from 1 GeV, or in the 3-anchor mode through the anchors and the lowest fittable window from 1 GeV. Below 1 GeV a window's momenta reach nearly zero, so no single abscissa carries its average of 1/E².",
   "A fit whose residuals average more than 5 of the windows' own standard errors (ν ≥ 1 and S = √(χ²/ν) > 5) has a form that does not describe its windows: it is drawn faded, and said so in its tooltip, the fit table and the drawer. The size of the misfit decides, not the χ² p-value: a window of hundreds of events has so small a standard error that the test rejects a form for misfits no reader could see.",
   "Anchors: the lowest bin from 5 GeV (below it the sampling fraction is still rising), the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A fittable window holds N ≥ 20, lies from 4 GeV and carries a fit weight (a bootstrap SE of at least 10⁻⁶ of its value). A series whose anchor window is not fittable takes its nearest fittable window from 5 GeV in log E instead, and the substitution says why the anchor was not; with fewer than two such windows there is no fit, since the robust width has no weaker window to fall back on. The other mode fits every fittable window from 4 GeV, the 4–5 GeV window included, below the anchors' floor.",
   "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",

@@ -132,12 +132,13 @@
     "name": "σ/E [%]"
    },
    "curve_min_gev": 4.0,
+   "noise_min_gev": 1.0,
    "y_min_gev": 2.0,
    "data_max_gev": 20.0,
    "rule": "E = 1/x² of the 1/√E view's x = ⟨1/√p⟩: one exact bijection, so both views draw the same measurements.",
    "notes": [
     "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve, band or extrapolation sets it: one that leaves the top is clipped there with a caret.",
-    "Fitted curves are drawn from 4 GeV, the lowest window edge any fit can use, to 80 GeV: solid over the windows each fit ran through, dashed beyond, where the curve extrapolates its form.",
+    "a₀/√E is drawn from 4 GeV, the lowest window edge it can use, and a/√E ⊕ b ⊕ c/E from 0 GeV, fitted to windows from 1 GeV; each is solid over the windows it ran through and dashed beyond, where it extrapolates its form, and a curve that leaves the top is clipped there with a caret.",
     "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, slightly larger (Jensen's inequality), is in its tooltip."
    ]
   }
@@ -150,7 +151,8 @@
   "anchor_low_gev": 5.0,
   "n_anchors": 3,
   "misfit_scale": 5.0,
-  "tail_min_n": 300
+  "tail_min_n": 300,
+  "noise_min_gev": 1.0
  },
  "anchors": {
   "nominal_bins": [
@@ -866,7 +868,55 @@
      "span_gev": [
       5.0,
       20.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 4,
+      "ndf": 2,
+      "points": [
+       1,
+       5,
+       10,
+       19
+      ],
+      "span_gev": [
+       1.0,
+       20.0
+      ],
+      "low_anchor": 1,
+      "params": {
+       "a2": 0.0,
+       "b2": 7411.5,
+       "c2": 2257.09,
+       "se_a2": null,
+       "se_b2": 1123.16,
+       "se_c2": 16378.6,
+       "a": 0.0,
+       "b": 86.09,
+       "c": 47.5088,
+       "se_a": null,
+       "se_b": 6.52314,
+       "se_c": 172.374,
+       "held": [
+        "a"
+       ],
+       "rho": {
+        "a2b2": null,
+        "a2c2": null,
+        "b2c2": -0.292308
+       }
+      },
+      "chi2": 0.0225461,
+      "p_value": 0.98879,
+      "scale_factor": 1.0,
+      "iterations": 17,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "provisional": true,
+      "misfit": false,
+      "note": "σ/E = a/√E ⊕ b ⊕ c/E over 4 windows, 1–20 GeV: χ²/ν = 0.0225/2. a = 0, held there by the constraint a² ≥ 0."
+     },
+     "noise_reason": null
     },
     "all": {
      "points": [
@@ -1212,7 +1262,57 @@
      "span_gev": [
       5.0,
       20.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 6,
+      "ndf": 4,
+      "points": [
+       1,
+       2,
+       5,
+       10,
+       15,
+       19
+      ],
+      "span_gev": [
+       1.0,
+       20.0
+      ],
+      "low_anchor": null,
+      "params": {
+       "a2": 0.0,
+       "b2": 7570.1,
+       "c2": 1696.8,
+       "se_a2": null,
+       "se_b2": 1116.06,
+       "se_c2": 14074.0,
+       "a": 0.0,
+       "b": 87.0063,
+       "c": 41.1922,
+       "se_a": null,
+       "se_b": 6.41369,
+       "se_c": 170.833,
+       "held": [
+        "a"
+       ],
+       "rho": {
+        "a2b2": null,
+        "a2c2": null,
+        "b2c2": -0.373061
+       }
+      },
+      "chi2": 0.357618,
+      "p_value": 0.985797,
+      "scale_factor": 1.0,
+      "iterations": 25,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "provisional": true,
+      "misfit": false,
+      "note": "σ/E = a/√E ⊕ b ⊕ c/E over 6 windows, 1–20 GeV: χ²/ν = 0.358/4. a = 0, held there by the constraint a² ≥ 0."
+     },
+     "noise_reason": null
     }
    },
    "median_response_range": {
@@ -1247,6 +1347,7 @@
   "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
   "σ/E is reported from N = 2; a window is drawn with its whisker from N = 8, and enters the fits and sets the y range from N = 20 and p ≥ 4 GeV.",
   "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights 1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and iterated (half steps once the refits oscillate); χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG), and the band then takes Student's t₀.₉₇₅,ν rather than 1.96, since S is estimated from the fit's own ν. The band is the 95% confidence band of the line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, not drawn; its b and the affine b are different constant terms.",
+  "a/√E ⊕ b ⊕ c/E, the E view's second curve: (σ/E)² = A/E + B + C/E² fitted by weighted least squares with A, B, C ≥ 0 (a term the constraint holds at 0 is named), through every fittable window from 1 GeV, or in the 3-anchor mode through the anchors and the lowest fittable window from 1 GeV. Below 1 GeV a window's momenta reach nearly zero, so no single abscissa carries its average of 1/E².",
   "A fit whose residuals average more than 5 of the windows' own standard errors (ν ≥ 1 and S = √(χ²/ν) > 5) has a form that does not describe its windows: it is drawn faded, as a provisional fit is, and said so in its tooltip, the fit table and the drawer. The size of the misfit decides, not the χ² p-value: a window of hundreds of events has so small a standard error that the test rejects a form for misfits no reader could see.",
   "Anchors: the lowest bin from 5 GeV (below it the sampling fraction is still rising), the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A series whose anchor window holds N < 20 takes its nearest window from 5 GeV in log E with N ≥ 20 instead; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every window with N ≥ 20 from 4 GeV, the 4–5 GeV window included, below the anchors' floor.",
   "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",

@@ -359,6 +359,7 @@
       "x",
       "y",
       "curve_min_gev",
+      "noise_min_gev",
       "y_min_gev",
       "data_max_gev",
       "rule",
@@ -440,7 +441,11 @@
       },
       "curve_min_gev": {
        "type": "number",
-       "description": "No fitted curve is drawn below this energy (E_MIN_GEV)."
+       "description": "a₀/√E is drawn from this energy (E_MIN_GEV), the lowest window edge it can use."
+      },
+      "noise_min_gev": {
+       "const": 1.0,
+       "description": "The noise fit a/√E ⊕ b ⊕ c/E is fitted to windows from this energy (NOISE_MIN_GEV) and drawn from 0 GeV, solid over its own span_gev."
       },
       "y_min_gev": {
        "type": "number",
@@ -478,7 +483,8 @@
     "anchor_low_gev",
     "n_anchors",
     "misfit_scale",
-    "tail_min_n"
+    "tail_min_n",
+    "noise_min_gev"
    ],
    "properties": {
     "report_n": {
@@ -512,6 +518,10 @@
     "tail_min_n": {
      "const": 300,
      "description": "A window's tail_share is reported from this N (stats/robust_width.TAIL_MIN_N); null below, where a Gaussian sample exceeds 0.27% by chance."
+    },
+    "noise_min_gev": {
+     "const": 1.0,
+     "description": "The noise fit a/√E ⊕ b ⊕ c/E takes windows from this lower edge in GeV (NOISE_MIN_GEV), the 0–1 GeV window never: its momenta reach nearly zero, so no single abscissa carries its average of 1/E²."
     }
    },
    "additionalProperties": false,
@@ -1076,7 +1086,9 @@
     "affine",
     "pinned",
     "quadrature",
-    "span_gev"
+    "span_gev",
+    "noise",
+    "noise_reason"
    ],
    "properties": {
     "points": {
@@ -1175,6 +1187,24 @@
       }
      ],
      "description": "[smallest p_lo, largest p_hi] in GeV of the windows in points: the E view draws the mode's fits solid over it and dashed beyond; null without points."
+    },
+    "noise": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/noise"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "The noise fit σ/E = a/√E ⊕ b ⊕ c/E of this mode, or null with noise_reason."
+    },
+    "noise_reason": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "Null with a noise fit; otherwise one sentence saying why there is none (fewer than three windows from 1 GeV with a fit weight at the mode's threshold, or no pooled scale c)."
     }
    },
    "additionalProperties": false
@@ -1345,6 +1375,243 @@
       }
      ],
      "description": "Median and robust: the series' pooled scale c, the median of √N·κ over its n_windows fittable windows (N ≥ 20 from 4 GeV with κ ≥ KAPPA_FLOOR; with none, those of N ≥ the whisker gate), and the rule as a sentence. The fits weight window k by se = c·ŷ/√N; c cancels in the parameters and sets only χ², S and the errors. c is null when no window carries a fit weight. null under sample (delta-method weights)."
+    }
+   },
+   "additionalProperties": false
+  },
+  "noise": {
+   "type": "object",
+   "description": "σ/E = a/√E ⊕ b ⊕ c/E, fitted as (σ/E)² = A/E + B + C/E² by weighted least squares with A, B, C ≥ 0 (stats/resolution_fit.fit_noise). Compact: no _stat fields and no curve; the E view draws it from params. At most about 600 bytes.",
+   "required": [
+    "form",
+    "n_points",
+    "ndf",
+    "points",
+    "span_gev",
+    "low_anchor",
+    "params",
+    "chi2",
+    "p_value",
+    "scale_factor",
+    "iterations",
+    "converged",
+    "band_quantile",
+    "provisional",
+    "misfit",
+    "note"
+   ],
+   "properties": {
+    "form": {
+     "const": "noise"
+    },
+    "n_points": {
+     "type": "integer",
+     "minimum": 3
+    },
+    "ndf": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "n_points minus the free terms: a held term spends no degree of freedom."
+    },
+    "points": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "minItems": 3,
+     "description": "The windows fitted, ascending: every noise-eligible window from 1 GeV (all), or the mode's points and the low anchor (anchors)."
+    },
+    "span_gev": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 2,
+     "maxItems": 2,
+     "description": "[lowest p_lo, highest p_hi] of points: the curve is solid over it and dashed beyond, down to 0 GeV and up to the axis end."
+    },
+    "low_anchor": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "description": "3-anchor mode: the lowest noise-eligible window not among the anchors, or null when none is left (the anchors alone, said in the note); all windows: null."
+    },
+    "params": {
+     "type": "object",
+     "required": [
+      "a2",
+      "b2",
+      "c2",
+      "se_a2",
+      "se_b2",
+      "se_c2",
+      "a",
+      "b",
+      "c",
+      "se_a",
+      "se_b",
+      "se_c",
+      "held",
+      "rho"
+     ],
+     "properties": {
+      "a2": {
+       "type": "number",
+       "minimum": 0,
+       "description": "A = a² in %²·GeV; exactly 0 when held."
+      },
+      "b2": {
+       "type": "number",
+       "minimum": 0,
+       "description": "B = b² in %²; exactly 0 when held."
+      },
+      "c2": {
+       "type": "number",
+       "minimum": 0,
+       "description": "C = c² in %²·GeV²; exactly 0 when held."
+      },
+      "se_a2": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "minimum": 0,
+       "description": "Scaled by scale_factor when it is above 1; null when held."
+      },
+      "se_b2": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "minimum": 0
+      },
+      "se_c2": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "minimum": 0
+      },
+      "a": {
+       "type": "number",
+       "minimum": 0,
+       "description": "a = √A in %·√GeV; 0 when held."
+      },
+      "b": {
+       "type": "number",
+       "minimum": 0,
+       "description": "b = √B in %; 0 when held."
+      },
+      "c": {
+       "type": "number",
+       "minimum": 0,
+       "description": "c = √C in %·GeV; 0 when held."
+      },
+      "se_a": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "minimum": 0,
+       "description": "Delta method, se(A)/(2a); null when held."
+      },
+      "se_b": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "minimum": 0
+      },
+      "se_c": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "minimum": 0
+      },
+      "held": {
+       "type": "array",
+       "items": {
+        "enum": [
+         "a",
+         "b",
+         "c"
+        ]
+       },
+       "maxItems": 2,
+       "description": "The terms the constraint holds at 0, in the order a, b, c; the band is conditional on them."
+      },
+      "rho": {
+       "type": "object",
+       "required": [
+        "a2b2",
+        "a2c2",
+        "b2c2"
+       ],
+       "properties": {
+        "a2b2": {
+         "type": [
+          "number",
+          "null"
+         ]
+        },
+        "a2c2": {
+         "type": [
+          "number",
+          "null"
+         ]
+        },
+        "b2c2": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "additionalProperties": false,
+       "description": "Correlations of the squares (scale_factor cancels in them); null when either term is held."
+      }
+     },
+     "additionalProperties": false
+    },
+    "chi2": {
+     "type": "number"
+    },
+    "p_value": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "description": "Upper tail of χ²_ndf; null when ndf = 0."
+    },
+    "scale_factor": {
+     "type": "number",
+     "minimum": 1
+    },
+    "iterations": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "converged": {
+     "type": "boolean"
+    },
+    "band_quantile": {
+     "type": "number",
+     "exclusiveMinimum": 0,
+     "description": "The band's multiplier on √(gᵀΣg), g = (1/E, 1, 1/E²), in z = (σ/E)²: Student's t₀.₉₇₅,ndf when scale_factor > 1, else 1.96."
+    },
+    "provisional": {
+     "type": "boolean",
+     "description": "The mode fell back to the whisker gate."
+    },
+    "misfit": {
+     "type": "boolean",
+     "description": "ndf ≥ 1 and scale_factor > gates.misfit_scale."
+    },
+    "note": {
+     "type": "string",
+     "description": "The equation, the window count and span, χ²/ν (or ν = 0) and the held terms; at most 220 characters."
     }
    },
    "additionalProperties": false

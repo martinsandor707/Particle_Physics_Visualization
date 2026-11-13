@@ -11,7 +11,11 @@ The same response serves both of the card's views: the 1/√E view and the E
 view, σ/E against E in GeV with its ratio panel. The E view draws the same
 windows at E = 1/x², its curves from the fits' parameters, and reads its own
 axes from ``axis.energy`` and each mode's fitted ``span_gev``, so the view
-toggle sends no request either.
+toggle sends no request either. Each mode also carries the noise fit
+σ/E = a/√E ⊕ b ⊕ c/E (``fits[mode].noise``, or ``noise_reason`` saying why there
+is none; Martin's decisions, 2026-11-13): fitted with a², b², c² ≥ 0 to windows
+from 1 GeV (``gates.noise_min_gev``), drawn by the E view from 0 GeV, and served
+compact, with no curve and no unscaled errors.
 
 ``coord_system`` picks the energy network's input frame on two-shower data
 (the D-frame's view asks for ``lab``, whose networks it uses); on the other
@@ -111,5 +115,7 @@ def get_resolution_scaling(
     # about 140 bytes a window, and the estimator block and its notes 2–5 KB; each series' pooled
     # weight scale about 300 bytes. That fixture serves 63,197 bytes under median (its tied
     # deposits carry no fit), 76,075 under robust and 68,591 under sample (2026-11-12, after F1–F8).
+    # The noise fit adds 596–628 bytes per fitted mode and series, and its two notes about 560:
+    # 66,846 under median, 81,712 under robust and 74,210 under sample (2026-11-13).
     return budget.serve_measured(build, steps[0], shrink, _describe,
                                  remedy="a narrower momentum selection brings it under")
