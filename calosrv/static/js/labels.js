@@ -268,10 +268,11 @@ export const MODELS_LABELS = Object.freeze({
     { value: 'phi', label: 'φ', title: 'The azimuth φ output of the angle regressor; its residual is wrapped to (−π, π]' },
   ],
   // The resolution card's two views of one response: the reversed 1/√E axis, or the energy
-  // in GeV with the fits extrapolated dashed and a ratio panel. The choice repaints.
+  // in GeV with the fits extrapolated dashed and a ratio panel. The choice repaints. The E view
+  // draws a₀/√E and a/√E ⊕ b ⊕ c/E (Martin's decisions of 2026-11-13); a/√E ⊕ b is tabled.
   res_view: [
     { value: 'linear', label: '1/√E linear', title: 'The error scale against a reversed 1/√E axis: a pure stochastic term is a straight line into the origin' },
-    { value: 'energy', label: 'E (GeV) + ratio', title: 'The error scale against the energy in GeV, the a/√E ⊕ b and a₀/√E fits solid over their windows and dashed beyond, and a ratio panel' },
+    { value: 'energy', label: 'E (GeV) + ratio', title: 'The error scale against the energy in GeV, the a₀/√E fit from 4 GeV and the a/√E ⊕ b ⊕ c/E fit from 0 GeV, each solid over its windows and dashed beyond, and a ratio panel' },
   ],
   // The resolution card's estimator of each window (Martin's decisions of 2026-11-12): the
   // Model Error card's median relative error by default, a robust σ/E (IQR), or the sample
@@ -282,10 +283,11 @@ export const MODELS_LABELS = Object.freeze({
     { value: 'sample', label: 'Sample σ/μ', title: 's(R) / R̄ over every event of the window, tails included: the Physics page resolution card\'s estimator.' },
   ],
   // The windows control's words in the E view, where "all" also draws the windows below
-  // 4 GeV, as points no fit uses.
+  // 4 GeV: a/√E ⊕ b ⊕ c/E fits those from 1 GeV, and the 0–1 GeV window is a point no fit
+  // uses. In the 3-anchor mode a/√E ⊕ b ⊕ c/E adds the low anchor (Martin, 2026-11-13).
   res_windows_energy: [
-    { value: 'anchors', label: '3 anchors', title: 'Draw and fit the three anchor windows: the lowest from 5 GeV, the highest, and the one nearest their geometric-mean energy' },
-    { value: 'all', label: 'All windows', title: 'Draw every window, those below 4 GeV as points only; fit every window from 4 GeV with N ≥ 20' },
+    { value: 'anchors', label: '3 anchors', title: 'Draw and fit the three anchor windows: the lowest from 5 GeV, the highest, and the one nearest their geometric-mean energy; a/√E ⊕ b ⊕ c/E also runs through the lowest fittable window from 1 GeV, the low anchor' },
+    { value: 'all', label: 'All windows', title: 'Draw every window; fit a₀/√E through every window from 4 GeV and a/√E ⊕ b ⊕ c/E through every window from 1 GeV, each with N ≥ 20; a window below 1 GeV is a point only' },
   ],
   // The resolution card's windows: the three anchors its fits are defined on, or every
   // 1 GeV window from 4 GeV. Both are fitted in one response, so the choice repaints.
