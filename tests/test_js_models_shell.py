@@ -508,6 +508,9 @@ out.resScaling = {
       refControl: 'resReference' in ctl,
       windows: [ctl.resWindows.choices({ controls: lin }).map((c) => c.label),
                 ctl.resWindows.choices({ controls: en }).map((c) => c.label)],
+      windowTitles: [ctl.resWindows.choices({ controls: lin }).map((c) => c.title),
+                     ctl.resWindows.choices({ controls: en }).map((c) => c.title)],
+      viewTitles: ctl.resView.choices({}).map((c) => c.title),
       viewChoices: ctl.resView.choices({}).map((c) => c.value),
       sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resLiterature: 'e' })),
       opts: cards.cardOptions('res-scaling', { plan: plans.two_shower_hits, view: view(),
@@ -739,6 +742,17 @@ def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
     assert v["refControl"] is False, "one set of literature buttons (Martin, 2026-11-11): no separate reference control"
     assert v["windows"][0] == ["3 anchors", "All \u2265 4 GeV"]
     assert v["windows"][1] == ["3 anchors", "All windows"]
+    # The E view's windows titles (Martin's decisions of 2026-11-13): a/√E ⊕ b ⊕ c/E runs through windows from 1 GeV,
+    # the 3-anchor mode adding the low anchor; the 1/√E view's titles are untouched.
+    anchors_e, all_e = v["windowTitles"][1]
+    assert anchors_e.endswith("; a/√E ⊕ b ⊕ c/E also runs through the lowest fittable window from 1 GeV, the low anchor")
+    assert all_e == ("Draw every window; fit a₀/√E through every window from 4 GeV and a/√E ⊕ b ⊕ c/E through every window "
+                     "from 1 GeV, each with N ≥ 20; a window below 1 GeV is a point only")
+    assert not [x for x in v["windowTitles"][0] if "c/E" in x or "from 1 GeV" in x]
+    assert "below 4 GeV as points only" not in all_e
+    energy_title = v["viewTitles"][1]
+    assert "the a₀/√E fit from 4 GeV and the a/√E ⊕ b ⊕ c/E fit from 0 GeV, each solid over its windows and dashed beyond" in energy_title
+    assert "a/√E ⊕ b and" not in energy_title
     assert v["sameRequest"] is True
     assert v["opts"]["view"] == "energy" and v["opts"]["literature"] == ["e"] and "reference" not in v["opts"]
     assert v["inState"] == [False, False], "the view and the toggles are never in a link"

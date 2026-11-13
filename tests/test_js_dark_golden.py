@@ -127,6 +127,23 @@ and prints a table of SHA-256 digests, one per case:
     longer says "as a provisional fit is", since robust has no provisional
     fit.
 
+The noise term (2026-11-13, res-noise, Martin's decisions of that day: the E view draws a/√E ⊕ b ⊕ c/E from 0 GeV
+in place of a/√E ⊕ b, fitted with its squares held non-negative to windows from 1 GeV) re-recorded 368 of the
+2,869 cases, in the same two families and nothing else; the case-id set and the theme map did not move (measured
+against a dump of the golden commit, 97adcd1, and a dump at cf4d742 before the re-record):
+  - 248 `models/resolution/*` cases, 22 per recording and 14 for each robust single-shower recording. The two
+    1/√E fit tables gained the a/√E ⊕ b ⊕ c/E row, tabled only, the c column and the caption's constraint; the
+    1/√E options themselves (both modes, print, narrow card, one shower) did not move. On the E view every
+    option, on screen and in print, its two tables, the narrow card and one shower moved: the noise curve from
+    0 GeV with its entry caret, the 3-anchor mode's low anchor drawn, the ratio panel divided by the deposit's
+    noise fit with marks from 1 GeV, and the role lines of the 1–4 GeV windows. The robust single-shower
+    recordings serve no noise fit: their 3-anchor E options, which hold no fit, did not move, and their
+    all-windows ones moved only by those role lines and the 1.0 rule's wording.
+  - 120 `notes/models_resolution/*` drawers, 10 per recording: the 1/√E drawer's tabled sentence (both modes),
+    and on the E view the two drawn forms, the constraint, the low anchor, the floor, the held terms, the
+    naming caveat, the correlated terms, the entry at the top, the ratio reference from 1 GeV and its count
+    below 1 GeV, in place of the a/√E ⊕ b lines and "no curve is drawn below 4 GeV".
+
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
 behaviour, never code, so a refactor that reorders an object literal or
