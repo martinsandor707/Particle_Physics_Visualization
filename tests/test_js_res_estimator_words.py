@@ -60,12 +60,14 @@ BRIEF_ESTIMATORS = [
      "s(R) / R̄ over every event of the window, tails included: the Physics page resolution card's estimator."],
 ]
 
-#: brief-fix.md, "The weight label", `WEIGHT_LABELS` for median and robust, verbatim.
+#: res-robust brief-fix.md, "The weight label", `WEIGHT_LABELS` for median and robust, verbatim, as the lead
+#: qualified it for res-noise's second scale c_low (2026-11-13): "cancels" holds for the forms fitted from 4 GeV.
 BRIEF_FIX_WEIGHT = (
     "Fit weights 1/se², se = c·ŷ/√N recomputed at the fitted value ŷ and iterated, with c the series' pooled scale: "
     "the median of √N·κ over its windows of N ≥ 20 from 4 GeV, κ = SE/value each window's bootstrap relative SE. One c "
-    "per series cancels in the fitted parameters and sets only χ², S and the errors; a per-window κ would put each "
-    "window's own value back into its weight.")
+    "per series cancels in the fitted parameters of the forms fitted from 4 GeV and sets only χ², S and the errors; "
+    "the a/√E ⊕ b ⊕ c/E fit weights its windows below 4 GeV by a second scale, c_low, so there the ratio c_low/c "
+    "weighs them against the rest. A per-window κ would put each window's own value back into its weight.")
 
 #: brief section 4, the card titles per estimator: (1/√E view, E view).
 BRIEF_TITLES = {

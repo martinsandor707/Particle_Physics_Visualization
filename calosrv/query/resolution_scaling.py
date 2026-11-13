@@ -1498,7 +1498,9 @@ WEIGHT_LABELS: dict[str, str] = {
     "kappa": ("Fit weights 1/se², se = c·ŷ/√N recomputed at the fitted value ŷ and iterated, with "
               "c the series' pooled scale: the median of √N·κ over its windows of N ≥ 20 from "
               "4 GeV, κ = SE/value each window's bootstrap relative SE. One c per series cancels "
-              "in the fitted parameters and sets only χ², S and the errors; a per-window κ would "
+              "in the fitted parameters of the forms fitted from 4 GeV and sets only χ², S and the "
+              "errors; the a/√E ⊕ b ⊕ c/E fit weights its windows below 4 GeV by a second scale, "
+              "c_low, so there the ratio c_low/c weighs them against the rest. A per-window κ would "
               "put each window's own value back into its weight."),
     "delta": ("Fit weights 1/se², se = |r|·√(1/(2(N − 1)) + r²/N), the delta-method standard "
               "error of σ/μ, recomputed at the fitted value and iterated."),
