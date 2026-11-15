@@ -228,6 +228,16 @@ every recording but the empty state of the two robust one-shower recordings' 3 a
 curve), no 1/√E chart case, no fit table and no drawer. The caret where a literature curve leaves the top of the
 main panel says the units too and moves no case: no recording's top is low enough for it.
 
+The particle filter (2026-11-15, particle-filter/brief.md: one filter on p and θ that narrows the event pickers
+only). The recordings now carry `event.candidates`, so each event drawer gained its place line: 13 event and
+3-D-event drawer cases moved at c14f9a2 (the lead's re-record, against main's golden), and no id was added or
+removed there. This file then added 23 case ids, `notes/particle/*`, and moved none (measured against the c14f9a2
+golden): `eventNotes`, the hazard and `eventSelectionLine` on `event_raster_base_particle` in every frame and panel,
+and the Models page's paired event projections on it, recorded and doctored into the states the drawers tell apart
+(outside the pool, the other shower or both matching, outside the selection, no bound set); `voxelEventNotes` on
+`event_voxels_base_lab_particle` (outside the pool, with the hazard) and its doctored states; and the Selection
+scope's 3-D card, the cloud and the ensemble projections with a State whose `particleParams()` is set, and empty.
+
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
 behaviour, never code, so a refactor that reorders an object literal or
@@ -1575,6 +1585,101 @@ put('voxels/geometry', { camera: v.CAMERA, axes: v.cameraAxes(), heights: [300, 
   put('notes/models/consts', { titles: mn.MODELS_TITLES, headings: mn.MODELS_HEADINGS, builders: mn.MODELS_NOTE_BUILDERS });
   put('notes/voxels/consts', { titles: vn.VOXEL_TITLES, exception: vn.VOXEL_EXCEPTION, occlusion: vn.VOXEL_OCCLUSION, legible: vn.LEGIBLE_RAMP_NOTE });
   put('notes/xgb/consts', { titles: xn.XGB_TITLES, headings: xn.XGB_HEADINGS, builders: xn.XGB_NOTE_BUILDERS, low: xn.LOW_FIDELITY_R2 });
+}
+
+/* ---- the particle filter (added 2026-11-15, new case ids only: notes/particle/*) ----------------------------- */
+// The drawers' particle lines and hazard (panel_notes.js particleEventLines / outsideCandidates, voxel_notes.js),
+// on the two recordings made under a bound (p 2–3 GeV on the two-event baseline): the raster of event 0, in the
+// pool through shower A, and the Absolute 3-D event 1, outside the pool with no shower matching. Each is also
+// doctored into the other states the drawers tell apart. The Selection scope, the cloud and the ensemble
+// projections take a State whose particleParams() is non-empty (and one whose is empty, which adds nothing).
+{
+  const two = { display_name: 'Demo', capabilities: { n_showers: 2 } };
+  const one = { display_name: 'Demo', capabilities: { n_showers: 1 } };
+  const stubWith = (params) => ({ isTouched: (a) => a === 'e1', get: (k) => ({ e1_min: 2, e1_max: 5 })[k] ?? null,
+    particleParams: () => ({ ...params }), particleActive: () => Object.keys(params).length > 0 });
+  const pState = stubWith({ particle_p_min: 2, particle_p_max: 3 });
+  const tState = stubWith({ particle_theta_min: 20, particle_theta_max: 25 });
+  const offState = stubWith({});
+  const withCandidates = (payload, patch, event = {}) => {
+    const out = clone(payload);
+    Object.assign(out.event, event);
+    out.event.candidates = { ...out.event.candidates, ...patch };
+    return out;
+  };
+  const inactive = { particle: { active: false, p_gev: [null, null], theta_deg: [null, null], theta_rad: [null, null] } };
+  const raster = load('event_raster_base_particle');
+  const rasters = {
+    recorded: raster,
+    outside_pool: withCandidates(raster, { in_pool: false, index: null, matched: [] }),
+    other_shower: withCandidates(raster, { matched: ['b'] }),
+    both_showers: withCandidates(raster, { matched: ['a', 'b'] }),
+    outside_selection: withCandidates(raster, { in_pool: false, index: null, matched: [] }, { in_selection: false }),
+    inactive: withCandidates(raster, inactive),
+  };
+  const kinds = ['lab', 'trans', 'local'];
+  const panelIds = ['xy', 'xz', 'yz'];
+  for (const [name, payload] of Object.entries(rasters)) {
+    put(`notes/particle/event/event_raster_base_particle/${name}`, {
+      notes: Object.fromEntries(kinds.flatMap((kind) => panelIds.map((panelId) => [`${kind}:${panelId}`,
+        pn.eventNotes({ payload, kind, panelId, state: pState, experiment: two })]))),
+      bare: pn.eventNotes({ payload, kind: 'lab', panelId: 'xy' }),
+      hazards: pn.hazards(payload, 'xy'),
+      outside: pn.outsideCandidates(payload.event),
+      lines: pn.particleEventLines({ event: payload.event, drawn: payload.event.shower.key, showers: payload.event.shower, experiment: two }),
+      selectionLine: fv.eventSelectionLine(payload.event),
+    });
+    // The Models page's paired projections of the 3-D event: the same lines through eventNotes.
+    put(`notes/particle/voxel_projection/event_raster_base_particle/${name}`, Object.fromEntries(kinds.flatMap((kind) => panelIds.map(
+      (panelId) => [`${kind}:${panelId}`, vn.voxelProjectionNotes({ pair: 'event', payload, panelId, frameKind: kind,
+        state: pState, experiment: two })]))));
+  }
+  const voxels = load('event_voxels_base_lab_particle');
+  const voxelVariants = {
+    recorded: voxels,
+    in_pool: withCandidates(voxels, { in_pool: true, index: 0, matched: ['b'] }),
+    outside_selection: withCandidates(voxels, {}, { in_selection: false }),
+    // With no bound set the pool is the selection: event 1 is the second of two candidates, both showers matching.
+    inactive: withCandidates(voxels, { ...inactive, in_pool: true, index: 1, n_events: 2, matched: ['a', 'b'] }),
+  };
+  for (const [name, payload] of Object.entries(voxelVariants)) {
+    const model = v.decodeEventVoxels(payload);
+    const drawn = v.voxelOption(model, { palette: 'viridis' });
+    put(`notes/particle/voxel_event/event_voxels_base_lab_particle/${name}`, {
+      notes: vn.voxelEventNotes({ payload, drawn, state: pState, experiment: two }),
+      bare: vn.voxelEventNotes({ payload, drawn }),
+      outside: pn.outsideCandidates(payload.event),
+    });
+  }
+  // The Selection scope's 3-D card, the cloud and the ensemble projections: the ensemble line while a bound is set.
+  for (const [name, experiment, state] of [['selection_cells_base', two, pState], ['selection_cells_single', one, tState]]) {
+    const payload = load(name);
+    const drawn = v.voxelOption(v.decodeEventVoxels(payload), { palette: 'viridis' });
+    put(`notes/particle/selection/${name}`, {
+      on: vn.voxelEventNotes({ payload, drawn, state, experiment }),
+      off: vn.voxelEventNotes({ payload, drawn, state: offState, experiment }),
+    });
+  }
+  for (const [name, experiment, state] of [['voxels_base_local', two, pState], ['voxels_single_local', one, tState]]) {
+    const payload = load(name);
+    const drawn = v.voxelOption(v.decodeEnsembleVoxels(payload), { palette: 'viridis' });
+    put(`notes/particle/ensemble/${name}`, {
+      on: vn.voxelEnsembleNotes({ payload, drawn, state, experiment }),
+      off: vn.voxelEnsembleNotes({ payload, drawn, state: offState, experiment }),
+    });
+  }
+  for (const [name, experiment, state] of [['projections_base_lab', two, pState], ['projections_single_local', one, tState]]) {
+    const payload = load(name);
+    const args = { pair: 'ensemble', payload, panelId: 'yz', pairing: ['Paired with the 3-D view.'], title: 'yz Projection', experiment };
+    put(`notes/particle/ensemble_projection/${name}`, {
+      on: vn.voxelProjectionNotes({ ...args, state }),
+      off: vn.voxelProjectionNotes({ ...args, state: offState }),
+    });
+  }
+  put('notes/particle/ensemble_lines', {
+    two: pn.particleEnsembleLine(pState, two), one: pn.particleEnsembleLine(tState, one),
+    off: pn.particleEnsembleLine(offState, two), none: pn.particleEnsembleLine(null, two),
+  });
 }
 
 /* ---- the Methodology figures --------------------------------------------------------------------------- */

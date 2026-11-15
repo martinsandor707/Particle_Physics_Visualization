@@ -34,7 +34,10 @@ Around the plan:
   link landing below the sticky head with its drawer and the way back, a
   catalogue card landing with no experiment open, a switch bringing the bench
   bar, the sidebar, the notices and the head's height in line, the bench bar's
-  writes, the banner carrying the warnings of the subpage on show only, and the
+  writes, the banner carrying the warnings of the subpage on show only, the
+  particle filter block (adopted where the 3-D event pair is offered, its
+  ``/api/event/candidates`` count asked once and written, θ alone on one
+  shower, hidden on the aggregate, kept to Views by ``models.css``), and the
   page's audit of the ids it writes;
 * ``controls/admin.js``: the model-runs list as the route serves it, and Rescan models:
   a POST to the scan route, then the list read again with GET, which queues
@@ -2436,6 +2439,96 @@ def test_the_page_banner_carries_the_warnings_of_the_subpage_on_show(page_banner
     assert b["error"]["bannerError"] and b["error"]["shown"]["banner"]
     assert any("503" in line or "refused" in line for line in b["error"]["banner"]), b["error"]["banner"]
     assert b["errorAfterSwitch"]["banner"] == b["error"]["banner"] and b["errorAfterSwitch"]["shown"]["banner"]
+
+
+_PARTICLE = r"""
+// The particle filter block (controls/particle_filter.js), mounted by models_main.js: adopted on an experiment
+// that offers the 3-D event pair, its count asked for and written, hidden where no event is offered.
+const picker = await import(new URL('./event_picker.js', pageArgs.main).href);
+const block = await import(new URL('./controls/particle_filter.js', pageArgs.main).href);
+const candidatesAsked = () => requests.filter((r) => r.path.startsWith('/api/event/candidates'));
+const particleView = () => ({
+  groupHidden: document.getElementById('group-particle').hidden,
+  pHidden: document.getElementById('ctl-particle-p').hidden,
+  thetaHidden: document.getElementById('ctl-particle-theta').hidden,
+  count: text('particle-count'),
+  scope: text('particle-scope'),
+  clearDisabled: document.getElementById('particle-clear').disabled,
+  ppDisabled: document.getElementById('pp-num-lo').disabled,
+  ptDisabled: document.getElementById('pt-num-lo').disabled,
+  asked: candidatesAsked().map((r) => r.path),
+  msub: app.dataset.msub,
+});
+const answered = pageArgs.routes['/api/event/candidates'];
+out.expected = {
+  count: block.blockLines(answered, { nShowers: 2 }).join(''),
+  scope: picker.scopeNote({ nShowers: 2 }),
+  scopeSingle: picker.scopeNote({ nShowers: 1 }),
+};
+out.particleBoot = particleView();
+// The subpages: the block's hidden attribute is the plan's; Distillations and Performance hide it by CSS.
+out.particleTabs = [];
+for (const msub of ['distill', 'perf', 'views']) { tab(msub); await idle(100); out.particleTabs.push(particleView()); }
+// An experiment with no 3-D event pair (the event-level aggregate): hidden, and nothing asked.
+const select = document.getElementById('experiment-select');
+const switchTo = async (name) => { select.value = name; select.dispatch('change'); await idle(); };
+const before = candidatesAsked().length;
+await switchTo('single_events');
+out.particleAggregate = { ...particleView(), newRequests: candidatesAsked().length - before };
+// One shower of hits: shown again, θ alone.
+await switchTo('single_hits');
+out.particleSingle = { ...particleView(), newRequests: candidatesAsked().length - before };
+out.particleErrors = [...consoleErrors];
+"""
+
+
+@pytest.fixture(scope="module")
+def page_particle() -> dict:
+    return _page("/models", _PARTICLE)
+
+
+def test_the_particle_filter_is_adopted_where_the_3d_event_pair_is_offered(page_particle):
+    p = page_particle
+    boot = p["particleBoot"]
+    assert p["boot"]["errors"] == [] and p["particleErrors"] == []
+    # The two-shower baseline offers the 3-D event pair: the block is shown, its count asked for once under the
+    # selection's filters alone (no particle key while no bound is set), and the answer written as the block's
+    # own lines; the scope note is the two-shower sentence and Clear waits for a bound.
+    assert boot["msub"] == "views" and boot["groupHidden"] is False
+    assert not boot["pHidden"] and not boot["thetaHidden"]
+    assert len(boot["asked"]) == 1, boot["asked"]
+    asked = boot["asked"][0]
+    assert asked.startswith("/api/event/candidates?") and "table_name=experiment_baseline" in asked
+    assert "particle_" not in asked
+    assert boot["count"] == p["expected"]["count"] and boot["count"].startswith("Particle filter off:")
+    assert boot["scope"] == p["expected"]["scope"]
+    assert boot["clearDisabled"] is True
+    # The domains came from the answer's bounds, so the fields are enabled.
+    assert boot["ppDisabled"] is False and boot["ptDisabled"] is False
+
+
+def test_the_particle_filter_answer_is_the_only_request_it_sends_and_its_css_keeps_it_to_views(page_particle):
+    tabs = page_particle["particleTabs"]
+    # A subpage switch neither asks for the count again nor touches the hidden attribute: models.css hides the
+    # block on Distillations and Performance (the Longitudinal Channels' way).
+    assert [t["msub"] for t in tabs] == ["distill", "perf", "views"]
+    assert all(t["groupHidden"] is False for t in tabs)
+    assert all(t["asked"] == page_particle["particleBoot"]["asked"] for t in tabs)
+    css = _strip_comments((JS.parent / "css" / "models.css").read_text(encoding="utf-8"))
+    rule = re.search(r'\.app\[data-msub="distill"\] #group-particle,\s*\.app\[data-msub="perf"\] #group-particle'
+                     r'\s*\{\s*display: none;\s*\}', css)
+    assert rule, "models.css must hide the particle filter off Views"
+    assert '.app[data-msub="views"] #group-particle' not in css
+
+
+def test_the_particle_filter_hides_where_no_event_is_offered_and_is_theta_alone_on_one_shower(page_particle):
+    aggregate, single = page_particle["particleAggregate"], page_particle["particleSingle"]
+    # The event-level aggregate offers no 3-D event: hidden, with no request.
+    assert aggregate["groupHidden"] is True and aggregate["newRequests"] == 0
+    # One shower of hits: shown, the momentum control hidden, the count asked for once on that experiment.
+    assert single["groupHidden"] is False and single["pHidden"] is True and single["thetaHidden"] is False
+    assert single["newRequests"] == 1 and "table_name=single_hits" in single["asked"][-1]
+    assert single["scope"] == page_particle["expected"]["scopeSingle"]
 
 
 def test_the_page_audits_its_markup_for_every_id_it_writes():
