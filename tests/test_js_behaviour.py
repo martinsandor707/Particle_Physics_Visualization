@@ -2509,6 +2509,11 @@ out.hazards = {
 };
 out.outside = raster(outside);
 out.outsideSelection = raster(outsideSelection);
+const outsideSelectionOff = clone(rasterOff);
+outsideSelectionOff.event.in_selection = false;
+out.outsideSelectionOff = raster(outsideSelectionOff);
+out.outsideSelectionPair = dump(vn.voxelProjectionNotes({ pair: 'event', payload: outsideSelection, panelId: 'yz',
+  frameKind: 'lab', experiment: two }));
 out.inactiveOut = raster(inactiveOut);
 out.noBlock = raster(noBlock);
 out.expOutside = expected(outside.event, 'a', outside.event.shower, two);
@@ -2648,6 +2653,21 @@ def test_an_event_outside_the_pool_gets_the_hazard_and_its_reason(particle_notes
     assert not any(line.startswith("Not a candidate") for line in _selection(particle_notes["outsideSelection"]))
     # An inactive filter still states the event's place: the frame gate refused it.
     assert _selection(particle_notes["inactiveOut"])[-1].startswith("Not a candidate: it has no defined separation")
+
+
+def test_an_event_outside_the_selection_says_once_what_previous_next_walk(particle_notes):
+    """Review S1 / U5: the Disclosures follow eventSelectionLine, so one drawer never says both."""
+    for name in ("outsideSelection", "outsideSelectionPair"):
+        text = _everything(particle_notes[name])
+        assert "previous / next walk the candidates." in text, name
+        assert ("This event lies outside the current selection and is drawn as asked; the previous / next controls "
+                "walk the candidates.") in particle_notes[name]["sections"]["Disclosures"], name
+        assert "walk the selection" not in text, name
+    # No bound set: both say the selection, as before.
+    off = particle_notes["outsideSelectionOff"]
+    assert ("This event lies outside the current selection and is drawn as asked; the previous / next controls "
+            "walk the selection.") in off["sections"]["Disclosures"]
+    assert "walk the candidates" not in _everything(off)
 
 
 def test_a_response_without_a_candidates_block_moves_nothing(particle_notes):

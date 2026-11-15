@@ -202,8 +202,10 @@ const ROUTES = {
 };
 // A gate holds /api/projections responses in flight while `gateOn`, so a scenario
 // can change the mode before a response lands (the LG-C1 races); `openGates` lets them land.
+// A scenario may gate other routes by editing `gatedPaths` (the particle filter's pick race).
 const gates = [];
 let gateOn = false;
+const gatedPaths = new Set(['/api/projections']);
 const openGates = () => { gateOn = false; for (const release of gates.splice(0)) release(); };
 globalThis.fetch = async (url) => {
   const u = new URL(String(url));
@@ -213,7 +215,7 @@ globalThis.fetch = async (url) => {
   const answer = route ? route(u.searchParams) : { __status: 404, detail: 'not recorded' };
   const status = answer?.__status ?? 200;
   const body = answer?.__status ? { detail: answer.detail } : answer;
-  if (gateOn && u.pathname === '/api/projections') await new Promise((release) => gates.push(release));
+  if (gateOn && gatedPaths.has(u.pathname)) await new Promise((release) => gates.push(release));
   return {
     ok: status < 400, status, headers: { get: () => 'application/json' },
     json: async () => body, text: async () => JSON.stringify(body),

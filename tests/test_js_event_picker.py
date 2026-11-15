@@ -22,6 +22,8 @@ Skipped when ``node`` is not on the PATH.
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from test_js_physics_shell import _FAKE_DOM, HYPHEN_NUMBER, JS, NODE, _path, _payload, _run
 
@@ -164,6 +166,9 @@ out.count = {
   off: ep.countLine(two({ particle: echo(), n_events: 20268 })),
   offOne: ep.countLine(two({ particle: echo(), n_events: 1 })),
   offSingle: ep.countLine(one({ particle: echo(), n_events: 5000 })),
+  offGated: ep.countLine(two({ particle: echo(), n_selection: 20325, n_unplaceable: 57, n_events: 20268 })),
+  offGatedSingle: ep.countLine(one({ particle: echo(), n_selection: 5000, n_unplaceable: 3, n_events: 4997 })),
+  offGatedOne: ep.countLine(two({ particle: echo(), n_selection: 2, n_unplaceable: 1, n_events: 1 })),
   fixtureOff: ep.countLine(P.off),
   fixtureParticle: ep.countLine(P.particle),
   fixtureEmpty: ep.countLine(P.empty),
@@ -177,11 +182,14 @@ out.empty = {
   offSingle: ep.emptyLine(one({ particle: echo(), n_events: 0 })),
   single: ep.emptyLine(one({ n_events: 0 })),
   singleNamed: ep.emptyLine(two({ n_events: 0, particle: echo([null, null], [20, 25]) }), { nShowers: 1 }),
+  // Review S2: the only match is a shower of an event the frame gate refuses.
+  gated: ep.emptyLine(two({ n_selection: 2, n_unplaceable: 1, n_events: 0, particle: echo([6, 7]) })),
 };
 out.unplaceable = {
   two: ep.unplaceableLine(two({ n_unplaceable: 57 })),
   twoOne: ep.unplaceableLine(two({ n_unplaceable: 1 })),
   single: ep.unplaceableLine(one({ n_unplaceable: 57 })),
+  singleOne: ep.unplaceableLine(one({ n_unplaceable: 1 })),
   none: ep.unplaceableLine(P.off),
 };
 out.place = {
@@ -285,6 +293,10 @@ out.pure = {
   },
 };
 out.pure.droppedLine = pf.droppedLine(out.pure.dropOutside.dropped);
+out.pure.droppedTwo = pf.droppedLine([...out.pure.dropOutside.dropped,
+  { axis: 'theta', lo: 30, hi: 40, domain: [16.2, 26.5] }]);
+out.pure.failedLine = pf.failedLine(Object.assign(new Error('Service Unavailable'), { status: 503 }));
+out.pure.failedBare = pf.failedLine(null);
 out.pure.droppedNone = pf.droppedLine([]);
 
 // ---- the block on the fake document
@@ -323,8 +335,10 @@ window.location.hash = '#table_name=experiment_baseline&particle_theta_max=40&pa
 const state = new st.State();
 let commits = 0;
 const seen = [];
+const reported = [];
 const control = pf.mountParticleFilter({ state, onCommit: () => { commits += 1; },
-  onCandidates: (payload) => seen.push(payload.candidates.n_events) });
+  onCandidates: (payload) => seen.push(payload?.candidates?.n_events ?? null),
+  onError: (error, context) => reported.push(`${context}: ${error.message}`) });
 block.before = {
   disabled: ['pp-lo', 'pp-num-lo', 'pt-hi', 'pt-num-hi'].map((id) => byId(id).disabled),
   payload: control.payload, active: control.active,
@@ -397,10 +411,38 @@ block.disabled = { hidden: byId('group-particle').hidden, requests: requests.len
 // A failure that is not an abort is rethrown; an abort is null.
 await control.adopt({ table_name: 'experiment_baseline' }, { enabled: true, nShowers: 2 });
 block.restoredHint = { text: byId('particle-theta-hint').textContent, markup: THETA_HINT };
+const okFetch = globalThis.fetch;
 globalThis.fetch = async () => ({ ok: false, status: 500, statusText: 'Boom', json: async () => ({ detail: 'Boom.' }) });
+seen.length = 0;
 try { await control.refresh(); block.error = 'none'; } catch (error) { block.error = error.message; }
+// Review U3: the failed count leaves no stale line or pool behind.
+block.failed = { count: byId('particle-count').textContent, payload: control.payload, seen: [...seen],
+  reported: [...reported] };
 globalThis.fetch = async () => { const e = new Error('gone'); e.name = 'AbortError'; throw e; };
 block.abort = await control.refresh();
+// Review U3: a count that fails after the block's own commit is caught and reported through onError, never
+// left as an unhandled rejection; onCommit still runs.
+const unhandled = [];
+const onUnhandled = (reason) => unhandled.push(String(reason?.message ?? reason));
+process.on('unhandledRejection', onUnhandled);
+globalThis.fetch = okFetch;
+await control.refresh();
+const commitsBefore = commits;
+seen.length = 0;
+globalThis.fetch = async () => ({ ok: false, status: 503, statusText: 'Service Unavailable',
+  json: async () => ({ detail: 'Service Unavailable' }) });
+byId('pp-hi').value = String(Math.round((3 - control.sliders.p.min) / 0.05));
+byId('pp-hi').dispatch('change');
+await settle();
+const afterSlider = { count: byId('particle-count').textContent, payload: control.payload, seen: [...seen],
+  reported: [...reported], commits: commits - commitsBefore };
+byId('particle-clear').click();
+await settle();
+await new Promise((resolve) => setTimeout(resolve, 5));
+process.off('unhandledRejection', onUnhandled);
+block.commitFailure = { afterSlider, afterClear: { count: byId('particle-count').textContent,
+  reported: [...reported], commits: commits - commitsBefore }, unhandled };
+globalThis.fetch = okFetch;
 out.block = block;
 
 // Every sentence written above.
@@ -479,14 +521,39 @@ def test_the_particle_filter_is_never_an_admin_default(r):
 
 
 def test_the_interval_is_the_servers_own_string(r):
+    # Fails in a worktree that has the client's θ radians and not yet the server's (pf-fixs changes
+    # ParticleSpec.interval_text in lockstep, brief-fix decision 2); kept as the parity check.
     for bounds, client, echo in zip(INTERVALS, r["intervals"], r["intervalsEcho"], strict=True):
         p_min, p_max, t_min, t_max = bounds
         server = ParticleSpec(p_min=p_min, p_max=p_max, theta_min_deg=t_min, theta_max_deg=t_max).interval_text()
         assert client == server, bounds
         assert echo == server, bounds
-    assert r["intervals"][0] == f"p in 5.00{EN}6.00 GeV and θ in 10.0{EN}15.0°"
-    assert r["intervals"][1:5] == ["p ≥ 5.00 GeV", "p ≤ 6.00 GeV", "θ ≥ 10.0°", "θ ≤ 15.0°"]
+
+
+def _agreed_interval(p_min, p_max, t_min, t_max) -> str:
+    """Brief-fix decision 2, written out in Python: p to 2 decimals; θ to 1 with math.radians(θ) to 3 beside it."""
+    def axis(symbol, lo, hi, digits, unit, rad):
+        extra = (lambda *v: f" ({EN.join(f'{math.radians(x):.{3}f}' for x in v)} rad)") if rad else (lambda *v: "")
+        if lo is not None and hi is not None:
+            return f"{symbol} in {lo:.{digits}f}{EN}{hi:.{digits}f}{unit}{extra(lo, hi)}"
+        if lo is not None:
+            return f"{symbol} ≥ {lo:.{digits}f}{unit}{extra(lo)}"
+        if hi is not None:
+            return f"{symbol} ≤ {hi:.{digits}f}{unit}{extra(hi)}"
+        return ""
+    return " and ".join(x for x in (axis("p", p_min, p_max, 2, " GeV", False),
+                                    axis("θ", t_min, t_max, 1, "°", True)) if x)
+
+
+def test_the_interval_writes_theta_in_degrees_with_radians_beside_them(r):
+    """Review S5, brief-fix decision 2: the agreed format, exactly, from the view-state keys and from the echo."""
+    assert r["intervals"][0] == f"p in 5.00{EN}6.00 GeV and θ in 10.0{EN}15.0° (0.175{EN}0.262 rad)"
+    assert r["intervals"][1:5] == ["p ≥ 5.00 GeV", "p ≤ 6.00 GeV", "θ ≥ 10.0° (0.175 rad)", "θ ≤ 15.0° (0.262 rad)"]
+    assert r["intervals"][6] == f"θ in 20.0{EN}25.0° (0.349{EN}0.436 rad)"
     assert r["intervals"][-1] == ""
+    for bounds, client, echo in zip(INTERVALS, r["intervals"], r["intervalsEcho"], strict=True):
+        assert client == _agreed_interval(*bounds), bounds
+        assert echo == client, bounds
 
 
 def test_the_interval_matches_the_recorded_server_warning(r):
@@ -587,36 +654,51 @@ def test_count_lines_two_showers(r):
 
 def test_count_lines_one_shower_and_off(r):
     c = r["count"]
-    assert c["single"] == f"N = 312 events whose shower has θ in 10.0{EN}15.0°, of the 5,000 selected by p."
-    assert c["singleOne"] == f"N = 1 event whose shower has θ in 10.0{EN}15.0°, of the 5,000 selected by p."
-    assert c["fixtureSingle"] == f"N = 73 events whose shower has θ in 20.0{EN}25.0°, of the 287 selected by p."
+    t1015 = f"θ in 10.0{EN}15.0° (0.175{EN}0.262 rad)"
+    assert c["single"] == f"N = 312 events whose shower has {t1015}, of the 5,000 selected by p."
+    assert c["singleOne"] == f"N = 1 event whose shower has {t1015}, of the 5,000 selected by p."
+    assert c["fixtureSingle"] == (f"N = 73 events whose shower has θ in 20.0{EN}25.0° (0.349{EN}0.436 rad), of the "
+                                  "287 selected by p.")
     assert c["off"] == "Particle filter off: the pickers draw from all 20,268 selected events."
     assert c["offSingle"] == "Particle filter off: the pickers draw from all 5,000 selected events."
     assert c["fixtureOff"] == "Particle filter off: the pickers draw from all 2 selected events."
     assert c["offOne"] == "Particle filter off: the pickers draw from the 1 selected event."
+    # Review U6: with selected events the frame gate refuses, never "all".
+    assert c["offGated"] == ("Particle filter off: the pickers draw from the 20,268 of the 20,325 selected events "
+                             "with a defined separation.")
+    assert c["offGatedSingle"] == ("Particle filter off: the pickers draw from the 4,997 of the 5,000 selected events "
+                                   "with an incident direction and an entry point.")
+    assert c["offGatedOne"] == ("Particle filter off: the pickers draw from the 1 of the 2 selected events with a "
+                                "defined separation.")
 
 
 def test_empty_lines(r):
     e = r["empty"]
-    assert e["fixture"] == (f"N = 0: no selected event holds a shower with p in 5.00{EN}6.00 GeV that deposited "
-                            "energy. Widen the particle filter, or E₁, E₂ and D.")
+    # Review S2: qualified as the server's 404 detail is, by the frame gate.
+    assert e["fixture"] == (f"N = 0: no selected event with a defined separation holds a shower with p in "
+                            f"5.00{EN}6.00 GeV that deposited energy. Widen the particle filter, or E₁, E₂ and D.")
+    assert e["gated"] == (f"N = 0: no selected event with a defined separation holds a shower with p in "
+                          f"6.00{EN}7.00 GeV that deposited energy. Widen the particle filter, or E₁, E₂ and D.")
     assert e["nonEmpty"] == ""
     assert e["off"] == "N = 0: the selection holds no event to draw. Widen E₁, E₂ or D."
     assert e["offSingle"] == "N = 0: the selection holds no event to draw. Widen p."
-    assert e["single"] == (f"N = 0: no selected event holds its shower at θ in 10.0{EN}15.0°. Widen the particle "
-                           "filter, or p.")
-    assert e["singleNamed"] == (f"N = 0: no selected event holds its shower at θ in 20.0{EN}25.0°. Widen the "
-                                "particle filter, or p.")
+    assert e["single"] == (f"N = 0: no selected event with an incident direction and an entry point has its shower "
+                           f"at θ in 10.0{EN}15.0° (0.175{EN}0.262 rad). Widen the particle filter, or p.")
+    assert e["singleNamed"] == (f"N = 0: no selected event with an incident direction and an entry point has its "
+                                f"shower at θ in 20.0{EN}25.0° (0.349{EN}0.436 rad). Widen the particle filter, or p.")
 
 
 def test_unplaceable_lines(r):
     u = r["unplaceable"]
+    # Review S6, brief-fix: such an event has no shower A, so it is drawn by number with shower B.
     assert u["two"] == ("57 selected events have no defined separation (shower A deposited no energy) and are never "
-                        "offered; type an event number to draw one.")
+                        "offered; to draw one, type its number and choose shower B.")
     assert u["twoOne"] == ("1 selected event has no defined separation (shower A deposited no energy) and is never "
-                           "offered; type an event number to draw it.")
-    assert u["single"] == ("57 selected events have no incident direction or entry point and are never offered; "
-                           "type an event number to draw one.")
+                           "offered; to draw it, type its number and choose shower B.")
+    assert u["single"] == ("57 selected events have no incident direction or entry point, so the per-shower frames "
+                           "cannot place them and they are never offered.")
+    assert u["singleOne"] == ("1 selected event has no incident direction or entry point, so the per-shower frames "
+                              "cannot place it and it is never offered.")
     assert u["none"] == ""
 
 
@@ -657,12 +739,12 @@ def test_the_other_lines_and_titles(r):
     assert m["replaced"] == "Event 123 left the candidates; event 456 replaces it."
     assert m["replacedBig"] == "Event 20,123 left the candidates; event 4 replaces it.", \
         "grouped as every client caption writes an event number"
-    assert m["ensemble"] == (f"The particle filter (p in 5.00{EN}6.00 GeV and θ in 10.0{EN}15.0°) narrows the event "
-                             "pickers only; this view draws the whole selection of E₁, E₂ and D.")
-    assert m["ensembleSingle"] == (f"The particle filter (θ in 10.0{EN}15.0°) narrows the event pickers only; this "
-                                   "view draws the whole selection of p.")
-    assert m["ensembleState"] == ("The particle filter (θ ≥ 10.0°) narrows the event pickers only; this view draws "
-                                  "the whole selection of E₁, E₂ and D.")
+    assert m["ensemble"] == (f"The particle filter (p in 5.00{EN}6.00 GeV and θ in 10.0{EN}15.0° (0.175{EN}0.262 rad)) "
+                             "narrows the event pickers only; this view draws the whole selection of E₁, E₂ and D.")
+    assert m["ensembleSingle"] == (f"The particle filter (θ in 10.0{EN}15.0° (0.175{EN}0.262 rad)) narrows the event "
+                                   "pickers only; this view draws the whole selection of p.")
+    assert m["ensembleState"] == ("The particle filter (θ ≥ 10.0° (0.175 rad)) narrows the event pickers only; this "
+                                  "view draws the whole selection of E₁, E₂ and D.")
     assert m["ensembleOff"] == "" and m["ensembleEmpty"] == ""
     assert m["scope"] == ("Narrows only which events the pickers offer (Pick for me, Most tilted, previous / next, "
                           "and the 3-D view's Densest). The ensemble panels follow E₁, E₂ and D.")
@@ -742,8 +824,11 @@ def test_a_new_domain_drops_the_bounds_it_cannot_hold(r):
     assert [d["axis"] for d in pure["dropOutside"]["dropped"]] == ["p"]
     assert pure["dropInverted"]["patch"] == {"particle_p_min": None, "particle_p_max": None}
     assert pure["dropNoDomain"] == {"patch": {}, "dropped": []}
-    assert pure["droppedLine"] == ("Dropped from the particle filter, outside this experiment's range: p ≥ 18.50 GeV "
-                                   f"(this experiment's range: 2.70{EN}17.90 GeV).")
+    assert pure["droppedLine"] == ("Dropped from the particle filter, outside this experiment's range: p ≥ 18.50 GeV, "
+                                   f"against a range of 2.70{EN}17.90 GeV.")
+    assert pure["droppedTwo"] == ("Dropped from the particle filter, outside this experiment's range: p ≥ 18.50 GeV, "
+                                  f"against a range of 2.70{EN}17.90 GeV; θ in 30.0{EN}40.0° (0.524{EN}0.698 rad), "
+                                  f"against a range of 16.2{EN}26.5° (0.283{EN}0.463 rad).")
     assert pure["droppedNone"] == ""
 
 
@@ -775,8 +860,8 @@ def test_adopting_an_experiment_takes_its_domains_and_drops_what_does_not_fit(r)
     assert "particle_theta_max" not in adopt["hash"] and "particle_p_max=3" in adopt["hash"]
     assert adopt["lines"] == [
         r["count"]["fixtureParticle"],
-        f"Dropped from the particle filter, outside this experiment's range: θ ≤ 40.0° (this experiment's range: "
-        f"16.2{EN}26.5°).",
+        f"Dropped from the particle filter, outside this experiment's range: θ ≤ 40.0° (0.698 rad), against a range "
+        f"of 16.2{EN}26.5° (0.283{EN}0.463 rad).",
     ]
     assert adopt["domains"] == {"p": [2.7, 17.9], "theta": [16.2, 26.5]}
     # RangeSlider snaps its own domain again (17.900000000000002); its values are rounded.
@@ -843,6 +928,31 @@ def test_a_disabled_block_hides_and_asks_nothing(r):
 def test_a_failure_is_rethrown_and_an_abort_is_null(r):
     assert r["block"]["error"] == "Boom."
     assert r["block"]["abort"] is None
+
+
+def test_a_failed_count_leaves_no_stale_line_or_pool(r):
+    """Review U3: refresh() rethrows (the pages report it), after dropping the previous filter's count and pool."""
+    failed = r["block"]["failed"]
+    assert failed["count"] == r["pure"]["failedLine"].replace("Service Unavailable", "Boom.")
+    assert failed["payload"] is None and failed["seen"] == [None], "the page is told there is no count"
+    assert failed["reported"] == [], "a page-driven refresh is reported by the page, not twice"
+    assert r["pure"]["failedLine"] == ("The candidates could not be counted (Service Unavailable); the pickers still "
+                                       "draw from them.")
+    assert r["pure"]["failedBare"] == "The candidates could not be counted; the pickers still draw from them."
+
+
+def test_a_count_that_fails_after_the_blocks_own_commit_is_reported_and_caught(r):
+    """Review U3: a slider commit and Clear: the failure goes to onError, never to an unhandled rejection."""
+    got = r["block"]["commitFailure"]
+    assert got["unhandled"] == []
+    slider = got["afterSlider"]
+    assert slider["commits"] == 1, "onCommit still runs, so the page follows the new state"
+    assert slider["payload"] is None and slider["seen"] == [None]
+    assert slider["reported"] == ["particle filter: Service Unavailable"]
+    assert slider["count"] == r["pure"]["failedLine"]
+    clear = got["afterClear"]
+    assert clear["commits"] == 2 and clear["reported"] == ["particle filter: Service Unavailable"] * 2
+    assert clear["count"] == r["pure"]["failedLine"]
 
 
 def test_the_recorded_fixtures_are_the_shapes_read_here():

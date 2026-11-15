@@ -531,8 +531,8 @@ const inspector = new EventInspector({
 /* The E1, E2 and D sliders and the undefined-D option, adopted per experiment:
  * a single shower filters on its incident momentum p alone. Dragging asks for
  * the sampled preview, a release for the exact refresh. A commit moves the
- * candidates too: the pickers' draws start again, the particle block counts
- * afresh, and the pinned event's reload applies the follow policy. */
+ * candidates too: the particle block counts afresh and the pinned event's
+ * reload applies the follow policy; the pickers' draw counter carries on. */
 const filters = new FilterBlock({
   state,
   onPreview: () => requestPreview(),
@@ -553,6 +553,8 @@ const particle = mountParticleFilter({
   state,
   onCommit: () => inspector.particleCommitted(),
   onCandidates: (payload) => inspector.setCandidates(payload),
+  // A count that fails after the block's own commit or Clear: on the banner, as refreshParticle's.
+  onError: (error, context) => { if (!isAbort(error)) reportError(error, context); },
 });
 
 /** Ask the block for the candidates again; a failure is said on the banner, a superseded request is not. */
@@ -1634,7 +1636,7 @@ async function activateExperiment(experiment) {
   // before the one hash write, so a link carries no raw dataset bound.
   filters.adopt(experiment, pagePlan.axes);
   // The Particle Filter after the filters: shown where the Event Inspector is
-  // offered, θ alone on one shower; the draws start again on a new experiment.
+  // offered, θ alone on one shower; the draws start again on a new experiment only.
   inspector.setExperiment({ nShowers: pagePlan.nShowers });
   particle.adopt(experiment, {
     enabled: pagePlan.eventInspector,

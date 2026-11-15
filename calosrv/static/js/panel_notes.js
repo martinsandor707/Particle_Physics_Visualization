@@ -723,8 +723,10 @@ export function eventNotes({
   if (payload.coordinates?.note) disclosures.push(payload.coordinates.note);
   for (const note of payload.grid?.notes ?? []) disclosures.push(note);
   if (event.in_selection === false) {
+    // As frame_views.js eventSelectionLine words it: the candidates while a particle bound is set.
+    const walked = event.candidates?.particle?.active === true ? 'the candidates' : 'the selection';
     disclosures.push('This event lies outside the current selection and is drawn as asked; '
-      + 'the previous / next controls walk the selection.');
+      + `the previous / next controls walk ${walked}.`);
   }
   notes.section(SECTION.disclosures, disclosures);
 

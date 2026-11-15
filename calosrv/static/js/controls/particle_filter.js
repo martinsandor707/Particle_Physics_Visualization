@@ -14,7 +14,10 @@
  * null, so a link carries only a bound that narrows. A drag previews nothing:
  * the count is cheap and is asked for on release. After its own commit the
  * block refreshes itself, then calls `onCommit()`; the page calls `refresh()`
- * after a filter (E₁, E₂, D) commit, since that moves the pool too.
+ * after a filter (E₁, E₂, D) commit, since that moves the pool too. A count
+ * that fails leaves no stale line or pool behind: the block says it could not
+ * count, the pages are told there is no count, and a failure after the
+ * block's own commit is reported through `onError` (the pages' banner).
  *
  * On an experiment switch (`adopt`) a bound that no longer fits the new
  * domain is dropped, with its axis's other bound, as E₁'s is, and the block
@@ -29,6 +32,7 @@ import { RangeSlider } from './range_slider.js';
 import { getJson, isAbort } from '../api.js';
 import { relabel, restoreLabel } from '../page_common.js';
 import { snapDomain } from '../state.js';
+import { typographic } from '../format.js';
 import {
   CANDIDATES_ROUTE, PARTICLE_STEP, countLine, emptyLine, intervalText, scopeNote, unplaceableLine,
 } from '../event_picker.js';
@@ -125,7 +129,12 @@ export function droppedBounds(values, domains) {
   return { patch, dropped };
 }
 
-/** The once-only line naming what an experiment switch dropped ('' when nothing was). */
+/**
+ * The once-only line naming what an experiment switch dropped ('' when nothing
+ * was): each dropped interval, and the domain it was judged against, both as
+ * `intervalText` writes them (θ in degrees with radians beside them, so the
+ * domain follows the interval rather than nesting in a parenthesis).
+ */
 export function droppedLine(dropped) {
   if (!dropped?.length) return '';
   const parts = dropped.map(({ axis, lo, hi, domain }) => {
@@ -133,7 +142,7 @@ export function droppedLine(dropped) {
     const was = intervalText({ [`particle_${axis}_min`]: lo, [`particle_${axis}_max`]: hi });
     const range = intervalText({ [`particle_${axis}_min`]: domain[0], [`particle_${axis}_max`]: domain[1] })
       .replace(`${spec.symbol} in `, '');
-    return `${was} (this experiment's range: ${range})`;
+    return `${was}, against a range of ${range}`;
   });
   return `Dropped from the particle filter, outside this experiment's range: ${parts.join('; ')}.`;
 }
@@ -149,6 +158,12 @@ export function blockLines(payload, { nShowers, notice = '' } = {}) {
     .filter(Boolean);
 }
 
+/** The block's line in place of the count when the count could not be had. */
+export function failedLine(error) {
+  const why = typographic(String(error?.message ?? error ?? '').trim());
+  return `The candidates could not be counted${why ? ` (${why})` : ''}; the pickers still draw from them.`;
+}
+
 /* ------------------------------------------------------------ the block -- */
 
 export class ParticleFilter {
@@ -159,13 +174,16 @@ export class ParticleFilter {
    * @param {() => void} [options.onCommit] after a particle commit (the block has refreshed itself)
    * @param {(payload: object) => void} [options.onCandidates] every candidates payload, as it lands
    * @param {string} [options.abortKey] the request's abort key, aborted with the page's others on a switch
+   * @param {(error: Error, context: string) => void} [options.onError] a count that failed after the
+   *   block's own commit or Clear (the pages wire their `reportError`, so the banner says so)
    */
   constructor({ state, doc = globalThis.document, onCommit = () => {}, onCandidates = () => {},
-    abortKey = 'event-candidates' } = {}) {
+    abortKey = 'event-candidates', onError = (error) => globalThis.console?.error?.(error) } = {}) {
     this.state = state;
     this.doc = doc;
     this.onCommit = onCommit;
     this.onCandidates = onCandidates;
+    this.onError = onError;
     this.abortKey = abortKey;
     this.enabled = false;
     this.nShowers = 2;
@@ -236,7 +254,8 @@ export class ParticleFilter {
    * GET /api/event/candidates under the filters and the particle filter:
    * the slider domains from its `bounds`, the block's lines, then
    * `onCandidates(payload)`. Null when the block is disabled or the request
-   * was superseded; any other error is rethrown.
+   * was superseded; any other error leaves no stale count behind (`failed`)
+   * and is rethrown.
    */
   async refresh() {
     if (!this.enabled) return null;
@@ -245,6 +264,7 @@ export class ParticleFilter {
       payload = await getJson(CANDIDATES_ROUTE, this.params(), this.abortKey);
     } catch (error) {
       if (isAbort(error)) return null;
+      this.failed(error);
       throw error;
     }
     this.applyBounds(payload?.bounds);
@@ -299,14 +319,34 @@ export class ParticleFilter {
     return this.committed();
   }
 
+  /**
+   * After the block's own commit or Clear: the count again, then `onCommit()`.
+   * Nothing awaits the returned promise (the slider and the Clear button drop
+   * it), so a failed count is reported here, through `onError`, never left as
+   * an unhandled rejection; `refresh` has already dropped the stale count.
+   */
   async committed() {
     let result = null;
     try {
       result = await this.refresh();
+    } catch (error) {
+      this.onError(error, 'particle filter');
     } finally {
       this.onCommit();
     }
     return result;
+  }
+
+  /**
+   * A count that failed: the block says so in place of its lines, forgets the
+   * last payload, and tells the page there is no count (`onCandidates(null)`),
+   * so neither page keeps the previous filter's pool, nor its N = 0 lock.
+   */
+  failed(error) {
+    this.last = null;
+    this.notice = '';
+    this.writeLines([failedLine(error)]);
+    this.onCandidates(null);
   }
 
   /**

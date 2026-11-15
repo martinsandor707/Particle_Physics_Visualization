@@ -3099,7 +3099,7 @@ const BOUND = { particle_p_min: 2, particle_p_max: 3 };
   out.densestOn.expected = expectedLines(out.densestOn);
 }
 
-/* 4. Pick for me: uniform, FIRST_SEED, the draw counter; a commit restarts it. Most tilted: the seed counter. */
+/* 4. Pick for me: uniform, FIRST_SEED, the draw counter, carried across commits. Most tilted: the seed counter. */
 {
   const ctx = await make({ values: BOUND, server: { matched: { 1: ['b'], 2: ['a', 'b'], 4: ['a'] } } });
   const { section } = ctx;
@@ -3130,6 +3130,9 @@ const BOUND = { particle_p_min: 2, particle_p_max: 3 };
   c.densest.fire('click'); await idle(section);
   const densest = snap(ctx, n5);
   out.pickers = { first, second, afterCommit, third, afterFilters, tilted1, tilted2, densest };
+  // An experiment switch (models_main.js clearExperimentViews → reset) is the one restart.
+  section.reset();
+  out.pickerReset = { draw: section.draw, seed: section.seed };
 }
 
 /* 5. The steps walk the pool, asking for the neighbour's matching shower in the first request. */
@@ -3172,8 +3175,9 @@ const BOUND = { particle_p_min: 2, particle_p_max: 3 };
 
 /* 7. The follow policy after a commit: replace a picked event that left the pool, flag a typed one, keep one inside. */
 {
-  // Picked with no bound (event 0), then a bound event 0 does not meet: the next uniform draw replaces it.
-  const ctx = await make({ server: { matched: { 3: ['a'], 5: ['b'] } } });
+  // Picked with no bound (event 9, draw 0), then a bound event 9 does not meet: the next uniform draw (draw 1,
+  // the counter carried across the commit) replaces it.
+  const ctx = await make({ server: { matched: { 3: ['b'], 5: ['a'] } } });
   const { section, state } = ctx;
   await section.refresh(); await idle(section);
   section.pairs.event.gl.controls.pick.fire('click'); await idle(section);
@@ -3265,6 +3269,79 @@ const BOUND = { particle_p_min: 2, particle_p_max: 3 };
   out.ensemble = { selection, committed, cleared, cloud, line: ep.ensembleLine(BOUND, { nShowers: 2 }) };
 }
 
+/* 11. A replacement draw in flight when the reader types an event replaces nothing (review U2). */
+{
+  const ctx = await make({ server: { matched: { 3: ['a'], 5: ['b'] } } });
+  const { section, state } = ctx;
+  await section.refresh(); await idle(section);
+  section.pairs.event.gl.controls.pick.fire('click'); await idle(section);
+  const picked = state.values.voxel_event;
+  const inner = globalThis.fetch;
+  const held = [];
+  globalThis.fetch = async (url) => {
+    if (new URL(String(url)).pathname === '/api/event/pick') await new Promise((release) => held.push(release));
+    return inner(url);
+  };
+  Object.assign(state.values, BOUND);
+  section.particleCommitted();
+  const loading = section.refresh().catch(() => null);
+  for (let i = 0; i < 400 && !held.length; i += 1) await tick();
+  const heldCount = held.length;
+  section.setEvent(1, { origin: 'typed' });
+  await tick();
+  for (const release of held.splice(0)) release();
+  await loading; await idle(section);
+  globalThis.fetch = inner;
+  out.race = { picked, heldCount, ...snap(ctx), replaced: section.replaced,
+    replacedLine: ep.replacedLine(picked, 3) };
+}
+
+/* 12. A commit that keeps the picked event drops the pick's rule sentence (review U4). */
+{
+  const ctx = await make({ values: BOUND, server: { matched: { 1: ['b'], 2: ['a', 'b'], 4: ['a'] } } });
+  const { section, state } = ctx;
+  await section.refresh(); await idle(section);
+  section.pairs.event.gl.controls.pick.fire('click'); await idle(section);
+  const picked = snap(ctx);
+  state.values.particle_p_max = 3.5;
+  section.particleCommitted();
+  const n0 = ctx.requests.length;
+  await section.refresh(); await idle(section);
+  const kept = snap(ctx, n0);
+  kept.expected = expectedLines(kept);
+  out.keep = { picked, kept };
+}
+
+/* 13. One constant for both pages' step titles; the event-number field says the densest candidate (review U5). */
+{
+  const ctx = await make({ values: BOUND });
+  const number = ctx.section.pairs.event.gl.controls.number
+    ?? [...(ctx.section.pairs.event.gl.controls.bar?.children ?? [])].find((el) => el.dataset?.voxelEvent === '');
+  out.stepConstants = { same: vv.STEP_TITLES === ep.STEP_TITLES, steps: ep.STEP_TITLES,
+    numberLabel: vv.EVENT_NUMBER_LABEL, numberTitle: vv.EVENT_NUMBER_TITLE,
+    field: number ? { aria: number.getAttribute('aria-label'), title: number.title } : null };
+}
+
+/* 10. A stored "Both" in a per-shower frame (drawn as A) survives every picker and step with no bound (U1). */
+{
+  const runs = {};
+  for (const [name, act] of [
+    ['pick', (s) => s.pairs.event.gl.controls.pick.fire('click')],
+    ['tilted', (s) => s.pairs.event.gl.controls.tilted.fire('click')],
+    ['next', (s) => s.pairs.event.gl.controls.next.fire('click')],
+    ['prev', (s) => s.pairs.event.gl.controls.prev.fire('click')],
+  ]) {
+    const ctx = await make({ values: { voxel_event: 3, voxel_shower: 'both', frame: 'local' } });
+    await ctx.section.refresh(); await idle(ctx.section);
+    const before = { stored: ctx.state.values.voxel_shower, drawn: ctx.section.eventView().shower };
+    act(ctx.section); await idle(ctx.section);
+    const after = { stored: ctx.state.values.voxel_shower, event: ctx.state.values.voxel_event };
+    ctx.state.values.frame = 'lab';
+    runs[name] = { before, after, lab: ctx.section.eventView().shower, errors: ctx.errors };
+  }
+  out.bothKept = runs;
+}
+
 console.log(JSON.stringify(out));
 """
 
@@ -3350,7 +3427,7 @@ def test_the_densest_is_the_pools_and_asks_for_a_matching_shower_first(pickers):
     assert on["errors"] == []
 
 
-def test_pick_for_me_is_uniform_with_the_first_seed_and_a_draw_counter_that_restarts(pickers):
+def test_pick_for_me_is_uniform_with_the_first_seed_and_a_draw_counter_carried_across_commits(pickers):
     p = pickers["pickers"]
     first = [q for path, q in p["first"]["requests"] if path == "/api/event/pick"]
     assert first == [{"table_name": "experiment_baseline", "particle_p_min": "2", "particle_p_max": "3",
@@ -3367,11 +3444,13 @@ def test_pick_for_me_is_uniform_with_the_first_seed_and_a_draw_counter_that_rest
     assert p["first"]["expected"]["place"] in sparse and p["first"]["expected"]["match"] in sparse
     second = [q for path, q in p["second"]["requests"] if path == "/api/event/pick"]
     assert [(q["rule"], q["seed"], q["draw"]) for q in second] == [("uniform", "42", "1")]
-    # A commit restarts the counter; the next click takes draw 0 again.
-    assert p["afterCommit"] == {"draw": 0, "followPending": True}
+    # The counter carries across a commit (brief-fix decision 1): the next click takes draw 2, never draw 0
+    # again, so a commit that leaves the pool as it was replays no event.
+    assert p["afterCommit"] == {"draw": 2, "followPending": True}
     third = [q for path, q in p["third"]["requests"] if path == "/api/event/pick"]
-    assert [(q["rule"], q["seed"], q["draw"]) for q in third] == [("uniform", "42", "0")]
-    assert p["afterFilters"] == {"draw": 0}
+    assert [(q["rule"], q["seed"], q["draw"]) for q in third] == [("uniform", "42", "2")]
+    assert p["afterFilters"] == {"draw": 3}
+    assert pickers["pickerReset"] == {"draw": 0, "seed": 42}, "an experiment switch restarts both counters"
 
 
 def test_most_tilted_takes_the_next_seed_and_densest_stays(pickers):
@@ -3454,20 +3533,21 @@ def test_a_picked_event_that_leaves_the_pool_is_replaced_by_the_next_uniform_dra
     assert f["picked"]["origin"] == "pick" and f["picked"]["state"]["voxel_event"] == 9
     r = f["replaced"]
     paths = [(path, q.get("format"), q.get("event_number"), q.get("rule"), q.get("draw")) for path, q in r["requests"]]
-    # The fresh response of event 9 (outside the pool), then one uniform draw (draw 0), then the replacement's pair.
+    # The fresh response of event 9 (outside the pool), then one uniform draw (draw 1: the pick took draw 0 and
+    # the counter carries across the commit), then the replacement's pair.
     assert paths[0][:3] in (("/api/event", None, "9"), ("/api/event", "voxels", "9"))
     picks = [p for p in paths if p[0] == "/api/event/pick"]
-    assert picks == [("/api/event/pick", None, None, "uniform", "0")]
-    assert {p[2] for p in paths if p[0] == "/api/event"} == {"9", "5"}
-    assert r["state"]["voxel_event"] == 5 and r["origin"] == "replace" and r["draw"] == 1
-    assert r["state"]["voxel_shower"] == "b", "event 5 matches with B"
+    assert picks == [("/api/event/pick", None, None, "uniform", "1")]
+    assert {p[2] for p in paths if p[0] == "/api/event"} == {"9", "3"}
+    assert r["state"]["voxel_event"] == 3 and r["origin"] == "replace" and r["draw"] == 2
+    assert r["state"]["voxel_shower"] == "b", "event 3 matches with B"
     sparse = r["cards"]["vox-event"]["sparse"]
     assert r["replacedLine"] in sparse and r["replacedLine"].startswith("Event 9 left the candidates")
     assert r["expected"]["place"] in sparse and r["expected"]["match"] in sparse
     assert r["errors"] == []
     # A further commit the event survives: kept, no pick.
     kept = f["kept"]
-    assert not [p for p, _ in kept["requests"] if p == "/api/event/pick"] and kept["state"]["voxel_event"] == 5
+    assert not [p for p, _ in kept["requests"] if p == "/api/event/pick"] and kept["state"]["voxel_event"] == 3
 
 
 def test_a_linked_or_typed_event_outside_the_pool_is_drawn_as_asked_and_flagged(pickers):
@@ -3487,7 +3567,7 @@ def test_n_zero_shows_the_empty_line_in_place_of_the_plots_and_asks_nothing(pick
     empty = pickers["empty"]
     assert not [p for p, _ in empty["requests"] if p in ("/api/event/pick", "/api/event")], empty["requests"]
     line = empty["expected"]
-    assert line.startswith("N = 0: no selected event holds a shower with p in 5.00–6.00 GeV")
+    assert line.startswith("N = 0: no selected event with a defined separation holds a shower with p in 5.00–6.00 GeV")
     for card in ("vox-event", "vproj-xy", "vproj-xz", "vproj-yz"):
         got = empty["cards"][card]
         assert got["message"] == line and got["kind"] == "empty", card
@@ -3534,6 +3614,56 @@ def test_the_selection_and_the_cloud_say_what_the_particle_filter_narrows_and_as
     assert all(not _particle_keys(q) for p, q in e["cloud"]["requests"] if p in ("/api/voxels", "/api/projections"))
 
 
+@pytest.mark.parametrize("name", ["pick", "tilted", "next", "prev"])
+def test_a_picker_or_step_keeps_a_stored_both_that_a_per_shower_frame_draws_as_a(pickers, name):
+    """Review U1: with no bound, a stored voxel_shower=both drawn as A in Local is never overwritten by the focus."""
+    run = pickers["bothKept"][name]
+    assert run["before"] == {"stored": "both", "drawn": "a"}
+    assert run["after"]["event"] != 3, "the control pinned another event"
+    assert run["after"]["stored"] == "both", run
+    assert run["lab"] == "both", "back in the Absolute frame both showers are drawn"
+    assert run["errors"] == []
+
+
+def test_a_replacement_in_flight_never_replaces_an_event_the_reader_typed(pickers):
+    """Review U2 (Page 2): the uniform draw held while the reader typed event 1 lands and replaces nothing."""
+    race = pickers["race"]
+    assert race["picked"] == 9 and race["heldCount"] == 1
+    assert race["state"]["voxel_event"] == 1 and race["origin"] == "typed"
+    assert race["replaced"] is None
+    assert race["draw"] == 1, "the draw that replaced nothing is not counted"
+    sparse = race["cards"]["vox-event"]["sparse"] or []
+    assert race["replacedLine"] not in sparse and not any("left the candidates" in line for line in sparse)
+    assert race["drawn"]["event_number"] == 1
+    assert race["errors"] == []
+
+
+def test_a_commit_that_keeps_the_picked_event_drops_the_picks_rule_sentence(pickers):
+    """Review U4 (Page 2): after a keep, the caption no longer carries the previous pool's rule sentence."""
+    k = pickers["keep"]
+    rule = "The uniform rule's sentence for event 4."
+    assert k["picked"]["state"]["voxel_event"] == 4 and rule in k["picked"]["cards"]["vox-event"]["sparse"]
+    kept = k["kept"]
+    assert kept["state"]["voxel_event"] == 4 and not [p for p, _ in kept["requests"] if p == "/api/event/pick"]
+    sparse = kept["cards"]["vox-event"]["sparse"]
+    assert rule not in sparse and "drawn uniformly at random" not in sparse[0]
+    assert kept["expected"]["place"] in sparse and kept["expected"]["match"] in sparse
+
+
+def test_both_pages_step_titles_are_one_constant_and_the_number_field_names_the_densest_candidate(pickers):
+    """Review U5: Page 2's ‹ › read event_picker.js STEP_TITLES; the field says the densest candidate event."""
+    c = pickers["stepConstants"]
+    assert c["same"] is True
+    assert c["steps"] == {"prev": "The previous candidate event, in event-number order",
+                          "next": "The next candidate event, in event-number order"}
+    assert c["numberLabel"] == "Event number (empty: the densest candidate event)"
+    assert c["numberTitle"] == "Event number; empty draws the densest candidate event"
+    assert c["field"] == {"aria": c["numberLabel"], "title": c["numberTitle"]}
+    src = (JS / "voxel_views.js").read_text(encoding="utf-8")
+    assert "number.setAttribute('aria-label', EVENT_NUMBER_LABEL);" in src and "number.title = EVENT_NUMBER_TITLE;" in src
+    assert "densest event of the selection')" not in src
+
+
 def test_no_rendered_picker_sentence_signs_a_number_with_a_hyphen(pickers):
     runs = [pickers["densestOn"], pickers["bothDensest"], pickers["follow"]["replaced"], pickers["empty"],
             pickers["ensemble"]["selection"], *pickers["pickers"].values()]
@@ -3544,7 +3674,7 @@ def test_no_rendered_picker_sentence_signs_a_number_with_a_hyphen(pickers):
 
 def test_the_models_page_mounts_the_particle_filter_and_wires_its_commits():
     """models_main.js (brief 8.1, 8.3, 8.4a): one block; a particle commit refreshes the 3-D views alone; an E1/E2/D
-    commit resets the counter and refreshes the block; the experiment switch aborts its request."""
+    commit refreshes the block (the draw counter carries on); the experiment switch aborts its request."""
     from test_layout_assets import _strip_comments
 
     src = _strip_comments((JS / "models_main.js").read_text(encoding="utf-8"))
@@ -3552,6 +3682,8 @@ def test_the_models_page_mounts_the_particle_filter_and_wires_its_commits():
     assert "import { mountParticleFilter } from './controls/particle_filter.js';" in src
     mount = re.search(r"mountParticleFilter\(\{(.*?)\}\);", src, re.S).group(1)
     assert "onCommit: () => onParticleCommit()" in mount and "voxels?.setCandidates?.(payload)" in mount
+    # Review U3: a count that fails after the block's own commit reaches the banner.
+    assert "onError: (error, context) => { if (!isAbort(error)) reportError(error, context); }" in mount
     commit = re.search(r"function onParticleCommit\(\) \{(.*?)\n\}", src, re.S).group(1)
     assert "voxels.particleCommitted" in commit and "voxels.refresh()" in commit
     for forbidden in ("refreshAll", "models.refresh", "particle.refresh"):

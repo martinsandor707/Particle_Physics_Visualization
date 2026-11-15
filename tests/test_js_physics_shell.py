@@ -1841,10 +1841,14 @@ ROUTES['/api/event/pick'] = (q) => {
   body.matched = world.pickMatched ?? ['a', 'b'];
   return body;
 };
-ROUTES['/api/event/candidates'] = () => load(world.candidates);
-// The markup's step titles, which N = 0 replaces and N > 0 gives back.
-byId('event-prev').setAttribute('title', 'The previous event of the current selection');
-byId('event-next').setAttribute('title', 'The next event of the current selection');
+ROUTES['/api/event/candidates'] = () => (world.candidatesFail
+  ? { __status: 503, detail: 'Service Unavailable' } : load(world.candidates));
+// The markup's step titles (index.html carries event_picker.js STEP_TITLES), which N = 0 replaces and N > 0
+// gives back.
+byId('event-prev').setAttribute('title', pf.STEP_TITLES.prev);
+byId('event-next').setAttribute('title', pf.STEP_TITLES.next);
+const unhandled = [];
+process.on('unhandledRejection', (reason) => unhandled.push(String(reason?.message ?? reason)));
 """
 
 _PARTICLE_SCENARIOS = r"""
@@ -1979,6 +1983,56 @@ if (scenario === 'empty') {
   out.back = titles();
 }
 
+if (scenario === 'race') {
+  // Review U2: a follow-policy replacement still in flight when the reader types an event number lands
+  // afterwards and replaces nothing; the typed event stays.
+  byId('event-pick').click();
+  await settle();
+  const pinned = Number(new URLSearchParams(location.hash.slice(1)).get('event'));
+  out.pinned = pinned;
+  world.inPool[pinned] = false;
+  world.pickEvents = [1 - pinned];
+  gatedPaths.clear();
+  gatedPaths.add('/api/event/pick');
+  gateOn = true;
+  const at = requests.length;
+  await commitP(3);
+  out.held = after(at).map((r) => r.path);
+  const typed = byId('event-number');
+  typed.value = '7';
+  typed.dispatch('change');
+  await settle();
+  out.typedHash = location.hash;
+  openGates();
+  await settle();
+  out.after = { hash: location.hash, caption: caption(), requests: after(at).map((r) => [r.path, r.params.event_number ?? null]) };
+  out.expected = { replaced: pf.replacedLine(pinned, 1 - pinned) };
+}
+
+if (scenario === 'countFail') {
+  // Review U3: N = 0 shuts the pickers; a widened filter whose count fails leaves neither the N = 0 line nor
+  // the lock standing, says so in the block and on the banner, and leaves no unhandled rejection.
+  world.candidates = 'candidates_base_empty';
+  await commitP(5);
+  out.empty = { count: byId('particle-count').textContent, pick: button('event-pick') };
+  world.candidatesFail = true;
+  await commitP(3);
+  await settle();
+  out.failed = { count: byId('particle-count').textContent, pick: button('event-pick'), tilted: button('event-pick-tilted'),
+    banner: byId('banner-text').textContent, hash: location.hash, unhandled: [...unhandled] };
+  out.expected = { empty: pf.emptyLine(load('candidates_base_empty'), { nShowers: 2 }), pick: pf.PICK_TITLE };
+}
+
+if (scenario === 'keep') {
+  // Review U4: a commit that keeps the picked event drops the pick's rule sentence, which named the previous pool.
+  byId('event-pick').click();
+  await settle();
+  out.picked = caption();
+  await commitP(3);
+  out.kept = { caption: caption(), hash: location.hash };
+  out.expected = { rule: load('pick_base_uniform').rule };
+}
+
 if (scenario === 'open3d') {
   out.link = link();
   out.hash = location.hash;
@@ -2030,6 +2084,21 @@ def particle_empty():
 
 
 @pytest.fixture(scope="module")
+def particle_race():
+    return _particle_run("", "race")
+
+
+@pytest.fixture(scope="module")
+def particle_count_fail():
+    return _particle_run("", "countFail")
+
+
+@pytest.fixture(scope="module")
+def particle_keep():
+    return _particle_run("", "keep")
+
+
+@pytest.fixture(scope="module")
 def particle_open3d():
     return _particle_run("#event=0&shower=b&frame=canonical", "open3d")
 
@@ -2077,8 +2146,9 @@ def test_a_particle_commit_asks_for_the_candidates_and_the_pinned_event_and_repl
     assert candidates["particle_p_min"] == "3" and "event_number" not in candidates
     assert event["particle_p_min"] == "3"
     assert event["event_number"] == str(particle_pick["pinnedBeforeCommit"])
-    # The commit started the draws again: the replacement is draw 0 of the uniform shuffle.
-    assert (pick["rule"], pick["seed"], pick["draw"], pick["particle_p_min"]) == ("uniform", "42", "0", "3")
+    # The draw counter carries across the commit (brief-fix decision 1): two Pick for me clicks drew 0 and 1,
+    # so the replacement is draw 2 of the uniform shuffle.
+    assert (pick["rule"], pick["seed"], pick["draw"], pick["particle_p_min"]) == ("uniform", "42", "2", "3")
     assert replacement["event_number"] == str(1 - particle_pick["pinnedBeforeCommit"])
     assert particle_pick["expected"]["replaced"] in commit["caption"]
     assert f"event={1 - particle_pick['pinnedBeforeCommit']}" in commit["hash"]
@@ -2098,8 +2168,8 @@ def test_a_filter_commit_counts_again_and_its_refresh_follows_the_pinned_event(p
     assert paths[0] == "/api/event/candidates"
     assert "/api/projections" in paths
     picks = [r["params"] for r in commit["requests"] if r["path"] == "/api/event/pick"]
-    # Two clicks drew 0 and 1; the commit reset the counter, so the replacement is draw 0 again.
-    assert len(picks) == 1 and picks[0]["draw"] == "0" and picks[0]["e1_min"] == "3"
+    # Two clicks drew 0 and 1; the counter carries across the commit, so the replacement is draw 2.
+    assert len(picks) == 1 and picks[0]["draw"] == "2" and picks[0]["e1_min"] == "3"
     assert paths.count("/api/event") == 2
     assert particle_filters["expected"]["replaced"] in commit["caption"]
 
@@ -2127,8 +2197,40 @@ def test_n_0_shuts_every_picker_with_the_empty_line_and_n_above_0_gives_the_titl
     back = particle_empty["back"]
     assert back["pick"] == {"disabled": False, "title": expected["pick"]}
     assert back["tilted"] == {"disabled": False, "title": expected["tilted"]}
-    assert back["prev"]["title"] == "The previous event of the current selection"
-    assert back["next"]["title"] == "The next event of the current selection"
+    # Review U5: Page 1's steps take event_picker.js STEP_TITLES, the Models page's wording.
+    assert back["prev"]["title"] == "The previous candidate event, in event-number order"
+    assert back["next"]["title"] == "The next candidate event, in event-number order"
+
+
+def test_a_replacement_in_flight_never_replaces_an_event_the_reader_typed(particle_race):
+    """Review U2: the held uniform draw lands after the reader typed 7: event 7 stays, no replacement line."""
+    race = particle_race
+    assert race["held"][:3] == ["/api/event/candidates", "/api/event", "/api/event/pick"]
+    assert "event=7" in race["typedHash"]
+    assert "event=7" in race["after"]["hash"], race["after"]
+    assert race["expected"]["replaced"] not in race["after"]["caption"]
+    assert "left the candidates" not in race["after"]["caption"]
+
+
+def test_a_failed_count_after_the_blocks_commit_is_reported_and_drops_the_n_0_lock(particle_count_fail):
+    """Review U3, on Page 1: the block says it could not count, the banner says why, the pickers reopen."""
+    run = particle_count_fail
+    assert run["empty"]["count"] == run["expected"]["empty"] and run["empty"]["pick"]["disabled"] is True
+    failed = run["failed"]
+    assert failed["count"].startswith("The candidates could not be counted")
+    assert "particle filter" in failed["banner"] and "Service Unavailable" in failed["banner"]
+    assert failed["pick"] == {"disabled": False, "title": run["expected"]["pick"]}
+    assert failed["tilted"]["disabled"] is False
+    assert "particle_p_min=3" in failed["hash"]
+    assert failed["unhandled"] == []
+
+
+def test_a_commit_that_keeps_the_picked_event_drops_the_picks_rule_sentence(particle_keep):
+    """Review U4: the rule sentence named the previous pool and draw; after a keep it is gone."""
+    run = particle_keep
+    assert run["expected"]["rule"] in run["picked"]
+    assert "particle_p_min=3" in run["kept"]["hash"] and "event=" in run["kept"]["hash"]
+    assert run["expected"]["rule"] not in run["kept"]["caption"]
 
 
 def test_open_in_3d_from_the_d_frame_says_it_opens_in_the_absolute_frame(particle_open3d):
@@ -2149,3 +2251,22 @@ def test_main_mounts_the_particle_filter_and_aborts_its_request_on_a_switch():
         assert f"'{id_}'" in required, id_
     inspector = (JS / "event_inspector.js").read_text(encoding="utf-8")
     assert "'/api/event/pick'" in inspector and "innerHTML" not in inspector
+    # Review U3: a count that fails after the block's own commit reaches the banner.
+    mount = re.search(r"mountParticleFilter\(\{(.*?)\}\);", main, re.DOTALL).group(1)
+    assert "onError: (error, context) => { if (!isAbort(error)) reportError(error, context); }" in mount
+
+
+def test_page_1s_step_titles_in_the_markup_are_the_shared_constant():
+    """Review U5: index.html's ‹ Prev / Next › carry event_picker.js STEP_TITLES, which event_inspector.js reads."""
+    picker = (JS / "event_picker.js").read_text(encoding="utf-8")
+    block = re.search(r"export const STEP_TITLES = Object\.freeze\(\{(.*?)\}\);", picker, re.DOTALL).group(1)
+    titles = dict(re.findall(r"(prev|next): '([^']+)'", block))
+    assert titles == {"prev": "The previous candidate event, in event-number order",
+                      "next": "The next candidate event, in event-number order"}
+    html = (JS.parent / "index.html").read_text(encoding="utf-8")
+    for key in ("prev", "next"):
+        button = re.search(rf'<button[^>]*id="event-{key}"[^>]*>', html, re.DOTALL).group(0)
+        assert f'title="{titles[key]}"' in button, key
+    assert "of the current selection" not in html
+    inspector = (JS / "event_inspector.js").read_text(encoding="utf-8")
+    assert "this.stepTitles = { prev: STEP_TITLES.prev, next: STEP_TITLES.next };" in inspector

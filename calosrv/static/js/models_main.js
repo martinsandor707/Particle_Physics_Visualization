@@ -48,9 +48,10 @@
  * particle commit refreshes the 3-D views alone (the event pair's key holds
  * the filter; the selection and the cloud only say they draw the whole
  * selection): no other card reads it, so none is asked. An E₁/E₂/D commit
- * also asks the block for its new count. Either restarts the 3-D view's
- * uniform draw counter and lets the pinned event's fresh response decide
- * whether it stays (voxel_views.js `filtersCommitted`).
+ * also asks the block for its new count. Either lets the pinned event's
+ * fresh response decide whether it stays (voxel_views.js `filtersCommitted`);
+ * the 3-D view's uniform draw counter carries on, restarting only on an
+ * experiment switch.
  */
 
 import { getJson, debounce, DEBOUNCE_MS, isAbort, abortRequest } from './api.js';
@@ -318,6 +319,8 @@ const particle = mountParticleFilter({
   state,
   onCommit: () => onParticleCommit(),
   onCandidates: (payload) => voxels?.setCandidates?.(payload),
+  // A count that fails after the block's own commit or Clear: on the banner, as refreshParticle's.
+  onError: (error, context) => { if (!isAbort(error)) reportError(error, context); },
 });
 
 /** Whether the block is offered: where the experiment offers the 3-D event view (brief section 8.4a). */
@@ -343,8 +346,8 @@ function refreshParticle() {
 }
 
 /**
- * A particle commit: the 3-D views' draw counter restarts, and they alone
- * are refreshed - the event pair asks for its event again, the selection and
+ * A particle commit: the 3-D views alone are refreshed (their draw counter
+ * carries on) - the event pair asks for its event again, the selection and
  * the cloud only rewrite their captions. No other card reads the filter.
  */
 function onParticleCommit() {
@@ -787,9 +790,9 @@ const STATUS_IDS = ['stat-events', 'stat-kind', 'stat-latency'];
 
 /* The filter sliders, adopted per experiment: a release refreshes the cards
  * in view (the Models page draws no sampled preview while dragging). The pool
- * moves with them: the 3-D view's draw counter restarts, its pinned event's
- * fresh response decides whether it stays, and the Particle Filter's count is
- * asked for again. */
+ * moves with them: the 3-D view's pinned event's fresh response decides
+ * whether it stays, and the Particle Filter's count is asked for again; the
+ * draw counter carries on. */
 const filters = new FilterBlock({
   state,
   onCommit: () => {

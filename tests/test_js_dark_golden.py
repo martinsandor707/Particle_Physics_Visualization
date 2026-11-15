@@ -237,6 +237,10 @@ and the Models page's paired event projections on it, recorded and doctored into
 (outside the pool, the other shower or both matching, outside the selection, no bound set); `voxelEventNotes` on
 `event_voxels_base_lab_particle` (outside the pool, with the hazard) and its doctored states; and the Selection
 scope's 3-D card, the cloud and the ensemble projections with a State whose `particleParams()` is set, and empty.
+The review round (particle-filter/brief-fix.md) re-recorded 7 of them and no other case, with no id added or
+removed (measured against the 8087a89 golden): θ's bounds now carry their radians (S5), the outside-selection
+drawer's disclosure walks the candidates while a bound is set (S1), and the doctored `in_pool` 3-D event echoes a
+bound shower B meets (p 6–7 GeV) with no server warning (S10).
 
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
@@ -1637,7 +1641,15 @@ put('voxels/geometry', { camera: v.CAMERA, axes: v.cameraAxes(), heights: [300, 
   const voxels = load('event_voxels_base_lab_particle');
   const voxelVariants = {
     recorded: voxels,
-    in_pool: withCandidates(voxels, { in_pool: true, index: 0, matched: ['b'] }),
+    // Review S10: in the pool through shower B, so the echo is a bound B meets (p 6–7 GeV, B at 6.39 GeV, the
+    // pool's only event, with no neighbour) and the server's outside-pool warning, recorded under p 2–3 GeV, goes.
+    in_pool: (() => {
+      const out = withCandidates(voxels, { particle: { active: true, p_gev: [6, 7], theta_deg: [null, null],
+        theta_rad: [null, null] }, in_pool: true, index: 0, n_events: 1, matched: ['b'], prev_matched: null,
+        next_matched: null }, { prev: null, next: null });
+      out.meta = { ...out.meta, warnings: [] };
+      return out;
+    })(),
     outside_selection: withCandidates(voxels, {}, { in_selection: false }),
     // With no bound set the pool is the selection: event 1 is the second of two candidates, both showers matching.
     inactive: withCandidates(voxels, { ...inactive, in_pool: true, index: 1, n_events: 2, matched: ['a', 'b'] }),

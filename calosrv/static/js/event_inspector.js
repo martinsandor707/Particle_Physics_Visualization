@@ -14,8 +14,10 @@
  * Two pickers draw from the candidates. "Pick for me" is the uniform rule: a
  * seeded shuffle of the candidates in event-number order (seed 42), each
  * click the next draw, so no event repeats until all have been drawn; the
- * draw counter starts again whenever the candidates can change (a filter or
- * particle commit, an experiment switch). "Most tilted" reproduces the
+ * draw counter carries on across filter and particle commits (entry k of a
+ * fresh shuffle is as uniform as entry 1, and a restart would replay entry 1
+ * after a commit that left the pool as it was) and starts again only on an
+ * experiment switch. "Most tilted" reproduces the
  * notebook's `_select_events`, a seeded draw from the densest, most tilted
  * candidates, each click the next seed from 42. Every response states its
  * rule, seed and draw, and the caption shows it. The requests are built by
@@ -45,7 +47,7 @@ import { eventRowLabel, eventSelectionLine } from './frame_views.js';
 import { wireLiveLinks } from './page_common.js';
 import {
   FIRST_SEED, pickParams, followDecision, focusShower, emptyLine, placeLine, matchLine, replacedLine,
-  pickerTitle, open3dTitle, eventIn3dHref,
+  pickerTitle, open3dTitle, eventIn3dHref, STEP_TITLES,
 } from './event_picker.js';
 import { GRID_ROWS, GRID_COLS, DEPTH_COLS } from './panels/frame_grid.js';
 import { gridReserve } from './panels/depth_groups.js';
@@ -93,7 +95,7 @@ export class EventInspector {
     this.payload = null;
     // Most tilted's seed: 42 first, then the next one per click, never reset.
     this.seed = FIRST_SEED;
-    // Pick for me's draw: the k-th entry of the seeded shuffle; 0 whenever the candidates can change.
+    // Pick for me's draw: the k-th entry of the seeded shuffle; carried across commits, 0 on an experiment switch.
     this.draw = 0;
     // The pinned event's origin (ORIGINS), in memory only: a link's event is the reader's own.
     this.origin = state.get('event') !== null ? 'link' : null;
@@ -118,11 +120,9 @@ export class EventInspector {
       gridClose: document.getElementById('event-grid-close'),
       open3d: document.getElementById('event-open-3d'),
     };
-    // The steps' own titles, given back when the candidates are no longer empty.
-    this.stepTitles = {
-      prev: this.dom.prev?.getAttribute?.('title') || this.dom.prev?.title || '',
-      next: this.dom.next?.getAttribute?.('title') || this.dom.next?.title || '',
-    };
+    // The steps' own titles (event_picker.js STEP_TITLES, which the markup
+    // carries too), given back when the candidates are no longer empty.
+    this.stepTitles = { prev: STEP_TITLES.prev, next: STEP_TITLES.next };
     this.wire();
   }
 
@@ -224,22 +224,26 @@ export class EventInspector {
   }
 
   /**
-   * After an E1, E2 or D commit: the candidates may change, so the draws
-   * start again, and the pinned event's next load (the page's refresh)
-   * applies the follow policy.
+   * After an E1, E2 or D commit: the candidates may change, so the pinned
+   * event's next load (the page's refresh) applies the follow policy. The
+   * draw counter carries on; the pick's rule sentence and a replacement's
+   * line go, since they named the previous pool.
    */
   filtersCommitted() {
-    this.draw = 0;
+    this.pickRule = null;
+    this.replaced = null;
     this.followNext = this.pinned;
   }
 
   /**
    * After a particle commit (the block has already refreshed its count): the
-   * draws start again and the pinned event alone is asked for again, under
-   * the follow policy. Nothing else is requested.
+   * pinned event alone is asked for again, under the follow policy. Nothing
+   * else is requested. The draw counter carries on; the pick's rule sentence
+   * and a replacement's line go.
    */
   particleCommitted() {
-    this.draw = 0;
+    this.pickRule = null;
+    this.replaced = null;
     if (!this.pinned) {
       this.syncControls();
       return Promise.resolve(null);
@@ -358,6 +362,10 @@ export class EventInspector {
       this.onError(error, 'pick an event');
       return null;
     }
+    // A replacement draw that lands after the reader moved on (typed or stepped
+    // to another event while it was in flight) replaces nothing: the event the
+    // reader chose is never swapped out. The draw is not counted.
+    if (replacing !== null && replacing !== undefined && this.state.get('event') !== replacing) return null;
     if (rule === 'uniform') this.draw += 1;
     else this.seed += 1;
     const shower = focusShower({ current: this.state.get('shower'), matched: payload.matched });

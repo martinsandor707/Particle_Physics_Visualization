@@ -127,7 +127,7 @@ import { LazyCards, requestKey, isRefusal } from './lazy_cards.js';
 import { describeError, writeSparseNote, webglAvailable, wireLiveLinks } from './page_common.js';
 import {
   FIRST_SEED, pickParams, followDecision, focusShower, placeLine, matchLine, replacedLine, ensembleLine, emptyLine,
-  pickerTitle, eventIn2dHref, OPEN_2D_TITLE, PICK_TITLE, TILTED_TITLE,
+  pickerTitle, eventIn2dHref, OPEN_2D_TITLE, PICK_TITLE, TILTED_TITLE, STEP_TITLES as PICKER_STEP_TITLES,
 } from './event_picker.js';
 import { apiFrame } from './state.js';
 import { viewFrame } from './capabilities.js';
@@ -200,10 +200,11 @@ const MATCHED_MEMO_SIZE = 256;
 export const PICKER_LABELS = Object.freeze({ uniform: 'Pick for me', tilted: 'Most tilted', densest: 'Densest' });
 export const DENSEST_TITLE = 'The candidate event with the most detector cells (the High_energy notebook\'s idxmax, '
   + 'under the filters and the particle filter; not written to the link)';
-export const STEP_TITLES = Object.freeze({
-  prev: 'The previous candidate event, in event-number order',
-  next: 'The next candidate event, in event-number order',
-});
+/** ‹ ›'s titles: one constant for both pages (event_picker.js). */
+export const STEP_TITLES = PICKER_STEP_TITLES;
+/** The event-number field: empty draws the densest of the candidates (Densest's own rule). */
+export const EVENT_NUMBER_LABEL = 'Event number (empty: the densest candidate event)';
+export const EVENT_NUMBER_TITLE = 'Event number; empty draws the densest candidate event';
 /** The 2-D link's text: the Physics page's Event Inspector on the drawn event. */
 export const OPEN_2D_LABEL = '2-D ↗';
 
@@ -838,7 +839,7 @@ export class VoxelSection {
     this.generation = 0;
     // The event pickers (see "The event pickers and the particle filter"):
     // Most tilted's seed counts on from FIRST_SEED; Pick for me's draw counter
-    // restarts at 0 whenever the pool can change.
+    // counts on across commits and restarts at 0 on an experiment switch only.
     this.seed = FIRST_SEED;
     this.draw = 0;
     // Where the pinned event came from, in memory only: a link at load, else
@@ -982,8 +983,8 @@ export class VoxelSection {
       number.step = '1';
       number.placeholder = 'densest';
       number.dataset.voxelEvent = '';
-      number.setAttribute('aria-label', 'Event number (empty: the densest event of the selection)');
-      number.title = 'Event number; empty draws the densest event of the selection';
+      number.setAttribute('aria-label', EVENT_NUMBER_LABEL);
+      number.title = EVENT_NUMBER_TITLE;
       number.addEventListener('change', () => {
         const raw = number.value.trim();
         const n = Number(raw);
@@ -1117,13 +1118,18 @@ export class VoxelSection {
    * only: the caller loads.
    */
   pin(eventNumber, { origin = 'typed', shower = null, picked = null, replaced = null } = {}) {
+    // The shower drawn now, which `focusShower` started from: the stored value
+    // can differ (a stored "Both" draws shower A in a per-shower frame), and a
+    // focus that only repeats the drawn shower must not overwrite the reader's
+    // stored choice. The densest path compares with `view.shower` the same way.
+    const drawn = shower ? this.eventView().shower : null;
     this.origin = Number.isInteger(eventNumber) ? origin : 'densest';
     this.picked = picked;
     this.replaced = replaced;
     // The reader (or a picker) chose: no earlier commit decides about this event.
     this.followPending = false;
     const patch = { voxel_event: eventNumber, voxel_scope: 'event' };
-    if (shower && shower !== this.value('voxel_shower')) patch.voxel_shower = shower;
+    if (shower && shower !== drawn) patch.voxel_shower = shower;
     this.state?.set?.(patch);
   }
 
@@ -1323,13 +1329,17 @@ export class VoxelSection {
   }
 
   /**
-   * A filter (E₁, E₂, D) commit: the pool can change, so the uniform draw
-   * counter restarts and the pinned event's fresh response decides whether it
-   * stays (`followDecision`). The event pair reloads by its own key.
+   * A filter (E₁, E₂, D) commit: the pool can change, so the pinned event's
+   * fresh response decides whether it stays (`followDecision`). The uniform
+   * draw counter carries on (only an experiment switch, `reset`, restarts it):
+   * entry k of a fresh shuffle is as uniform as entry 1, and a restart would
+   * replay entry 1 after a commit that left the pool as it was. The pick's
+   * rule sentence goes: it named the previous pool. The event pair reloads by
+   * its own key.
    */
   filtersCommitted() {
-    this.draw = 0;
     this.followPending = true;
+    this.picked = null;
     this.replaced = null;
   }
 
@@ -1752,9 +1762,12 @@ export class VoxelSection {
   /**
    * A pinned event that left the candidates and that the page chose itself:
    * the next uniform draw takes its place, with a matching shower, and is
-   * loaded in this load's place. False when nothing replaced it (the pool
-   * turned out empty, or the draw failed, which is reported): it is then
-   * drawn as asked, flagged.
+   * loaded in this load's place. True when this load is over: the event was
+   * replaced, or the reader pinned another event while the draw was in flight
+   * (that event is the reader's own, has its own load and is never replaced;
+   * the draw is not counted). False when nothing replaced it (the pool turned
+   * out empty, or the draw failed, which is reported): it is then drawn as
+   * asked, flagged.
    */
   async replaceEvent(old, view) {
     let payload;
@@ -1767,8 +1780,10 @@ export class VoxelSection {
       if (isAbort(error)) throw error;
       if (emptyPick(error)) this.markEmpty();
       else this.onError(error, 'replace the event');
-      return false;
+      // Drawn as asked, unless the reader has pinned another event meanwhile.
+      return this.value('voxel_event') !== old;
     }
+    if (this.value('voxel_event') !== old) return true;
     this.draw += 1;
     const n = payload.event_number;
     this.rememberMatched(n, payload.matched);

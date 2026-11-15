@@ -22,8 +22,9 @@
  * one goes through the U+2212 helpers (format.js, scale.js). `intervalText`
  * writes exactly the string the server's `ParticleSpec.interval_text()`
  * writes, so a server warning and a client caption name one interval: p to
- * two decimals and θ to one, an en dash between two bounds, rounded half to
- * even on an exact tie as Python's format does.
+ * two decimals and θ to one with its radians to three beside it, an en dash
+ * between two bounds, rounded half to even on an exact tie as Python's
+ * format does.
  *
  * ## The follow policy and the shower focus
  *
@@ -189,20 +190,35 @@ export function particleIsActive(particle) {
   return [...p, ...theta].some((v) => v !== null);
 }
 
-function interval(symbol, [lo, hi], digits, unit) {
-  if (lo !== null && hi !== null) return `${symbol} in ${fixed(lo, digits)}${EN_DASH}${fixed(hi, digits)}${unit}`;
-  if (lo !== null) return `${symbol} ≥ ${fixed(lo, digits)}${unit}`;
-  if (hi !== null) return `${symbol} ≤ ${fixed(hi, digits)}${unit}`;
+/** Degrees to radians as the server's `math.radians` computes them: deg × (π / 180), in that order. */
+function radians(deg) {
+  return Number(deg) * (Math.PI / 180);
+}
+
+/**
+ * One axis's interval. `radiansToo` (θ) writes the bounds in radians to three
+ * decimals beside the degrees: "θ in 10.0–15.0° (0.175–0.262 rad)".
+ */
+function interval(symbol, [lo, hi], digits, unit, { radiansToo = false } = {}) {
+  const rad = (...values) => (radiansToo ? ` (${values.map((v) => fixed(radians(v), 3)).join(EN_DASH)} rad)` : '');
+  if (lo !== null && hi !== null) {
+    return `${symbol} in ${fixed(lo, digits)}${EN_DASH}${fixed(hi, digits)}${unit}${rad(lo, hi)}`;
+  }
+  if (lo !== null) return `${symbol} ≥ ${fixed(lo, digits)}${unit}${rad(lo)}`;
+  if (hi !== null) return `${symbol} ≤ ${fixed(hi, digits)}${unit}${rad(hi)}`;
   return '';
 }
 
 /**
- * "p in 5.00–6.00 GeV and θ in 10.0–15.0°" ('' when no bound is set): the
- * server's `ParticleSpec.interval_text()`, character for character.
+ * "p in 5.00–6.00 GeV and θ in 10.0–15.0° (0.175–0.262 rad)" ('' when no
+ * bound is set): the server's `ParticleSpec.interval_text()`, character for
+ * character. θ's bounds are written in degrees with radians beside them
+ * (Martin's decision 4).
  */
 export function intervalText(particle) {
   const { p, theta } = particleBounds(particle);
-  return [interval('p', p, 2, ' GeV'), interval('θ', theta, 1, '°')].filter(Boolean).join(' and ');
+  return [interval('p', p, 2, ' GeV'), interval('θ', theta, 1, '°', { radiansToo: true })]
+    .filter(Boolean).join(' and ');
 }
 
 /* --------------------------------------------------------------- sentences -- */
@@ -245,6 +261,12 @@ export function countLine(payload, { nShowers } = {}) {
   const n = Number(c.n_events ?? 0);
   if (!particleIsActive(c.particle)) {
     if (n === 0) return 'Particle filter off: the selection holds no event the pickers can draw.';
+    // Some selected events fail the frame gate: the pickers draw from the others, never "all".
+    if (Number(c.n_unplaceable ?? 0) > 0) {
+      const gate = two ? 'with a defined separation' : 'with an incident direction and an entry point';
+      return `Particle filter off: the pickers draw from the ${count(n)} of the ${count(c.n_selection ?? 0)} `
+        + `selected events ${gate}.`;
+    }
     if (n === 1) return 'Particle filter off: the pickers draw from the 1 selected event.';
     return `Particle filter off: the pickers draw from all ${count(n)} selected events.`;
   }
@@ -269,23 +291,33 @@ export function emptyLine(payload, { nShowers } = {}) {
   if (!particleIsActive(c.particle)) {
     return `N = 0: the selection holds no event to draw. Widen ${two ? 'E₁, E₂ or D' : 'p'}.`;
   }
+  // Qualified as the server's 404 detail is: an event the frame gate refuses may hold a matching shower.
   const text = intervalText(c.particle);
   return two
-    ? `N = 0: no selected event holds a shower with ${text} that deposited energy. `
+    ? `N = 0: no selected event with a defined separation holds a shower with ${text} that deposited energy. `
       + 'Widen the particle filter, or E₁, E₂ and D.'
-    : `N = 0: no selected event holds its shower at ${text}. Widen the particle filter, or p.`;
+    : `N = 0: no selected event with an incident direction and an entry point has its shower at ${text}. `
+      + 'Widen the particle filter, or p.';
 }
 
-/** The selected events the frame gate refuses ('' when none): never offered, still drawable by number. */
+/**
+ * The selected events the frame gate refuses ('' when none): never offered.
+ * On two showers such an event has no shower A, so it is drawn by its number
+ * with shower B; on one shower the per-shower frames cannot place it at all.
+ */
 export function unplaceableLine(payload, { nShowers } = {}) {
   const c = payload?.candidates ?? payload ?? {};
   const n = Number(c.n_unplaceable ?? 0);
   if (!(n > 0)) return '';
   const two = twoShowers(nShowers, c);
   const one = n === 1;
-  const what = two ? 'no defined separation (shower A deposited no energy)' : 'no incident direction or entry point';
-  return `${plural(n, 'selected event')} ${one ? 'has' : 'have'} ${what} and ${one ? 'is' : 'are'} never offered; `
-    + `type an event number to draw ${one ? 'it' : 'one'}.`;
+  if (two) {
+    return `${plural(n, 'selected event')} ${one ? 'has' : 'have'} no defined separation (shower A deposited no `
+      + `energy) and ${one ? 'is' : 'are'} never offered; to draw ${one ? 'it' : 'one'}, type its number and `
+      + 'choose shower B.';
+  }
+  return `${plural(n, 'selected event')} ${one ? 'has' : 'have'} no incident direction or entry point, so the `
+    + `per-shower frames cannot place ${one ? 'it' : 'them'} and ${one ? 'it is' : 'they are'} never offered.`;
 }
 
 /**
@@ -392,6 +424,15 @@ export const PICK_TITLE = 'A candidate event drawn uniformly at random under the
 export const TILTED_TITLE = "The reference notebook's showcase rule on the candidates: events with more hits "
   + 'than the mean, the 20 with the largest incident angle of a matching shower, one drawn at random. '
   + 'Each click takes the next seed.';
+/**
+ * The previous / next controls' titles on both pages (Page 1's ‹ Prev / Next ›,
+ * whose markup in index.html carries the same text, and Page 2's ‹ ›): they
+ * walk the candidates, which skips selected events the pool leaves out.
+ */
+export const STEP_TITLES = Object.freeze({
+  prev: 'The previous candidate event, in event-number order',
+  next: 'The next candidate event, in event-number order',
+});
 export const OPEN_3D_TITLE = "Open this event and shower in the Models page's 3-D view, with every filter; "
   + 'the Physics page keeps its own event.';
 export const OPEN_3D_DFRAME_NOTE = ' The D-frame draws no single event, so the 3-D view opens in the Absolute frame.';
