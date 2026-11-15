@@ -710,11 +710,12 @@ def test_a_switch_repaints_the_resolution_cards_e_view_without_a_request(live_se
     """The res-scaling card's E view (σ/E against E with its ratio panel, the π± literature reference in force) under
     a theme switch from either theme: no request; the axis labels and the canvas note take the new theme's muted ink
     and the 1.0 rule its text ink; the π± curve, the only literature curve drawn (Martin, 2026-11-11), takes its
-    identity colour for the new card on its dotted line, its end label and its legend swatch; the picture is redrawn
+    identity colour for the new card on its dotted line, its end label and its legend swatch, whose entry reads "π±
+    lit. — σ/E = 27.2/√E ⊕ 1.0" with no % sign in either theme (c406217); the picture is redrawn
     (its pixels change) with every curve where it was, the two grids, the axes and the 600 px plot kept; a switch
     back returns the option exactly. The baseline's two events draw no window, so the page is served the recorded
     two-shower responses (test_browser_models.py RES_TWO, by the request's estimator), still asked for and counted."""
-    from test_browser_models import RES_TWO, _OPTION, _res_press, _serve_res_fixture
+    from test_browser_models import LITERATURE_LEGEND, RES_TWO, _OPTION, _res_press, _serve_res_fixture
 
     other = OTHER[scheme]
     with live_server["playwright"].sync_playwright() as p:
@@ -739,6 +740,8 @@ def test_a_switch_repaints_the_resolution_cards_e_view_without_a_request(live_se
         assert before["literatureLabels"] == [["π±", TEXT[scheme]]], before["literatureLabels"]
         assert before["literatureKeys"] == [LITERATURE_PI[scheme]], before["literatureKeys"]
         assert [c for _, c in before["swatches"]] == [LITERATURE_PI[scheme]], before["swatches"]
+        # Its legend entry as the figure's legend prints it, no % sign by the values (Martin, 2026-11-15, c406217).
+        assert [n for n, _ in before["swatches"]] == [LITERATURE_LEGEND["pi"]], before["swatches"]
         assert before["note"] and {fill for _, fill in before["note"]} == {MUTED[scheme]}, before["note"]
 
         assert _toggle(page, requests) == [], "a theme switch asked the service"
@@ -749,6 +752,7 @@ def test_a_switch_repaints_the_resolution_cards_e_view_without_a_request(live_se
         assert after["literatureLabels"] == [["π±", TEXT[other]]], after["literatureLabels"]
         assert after["literatureKeys"] == [LITERATURE_PI[other]], after["literatureKeys"]
         assert [c for _, c in after["swatches"]] == [LITERATURE_PI[other]], after["swatches"]
+        assert [n for n, _ in after["swatches"]] == [LITERATURE_LEGEND["pi"]], after["swatches"]
         assert [t for t, _ in after["note"]] == [t for t, _ in before["note"]], (before["note"], after["note"])
         assert {fill for _, fill in after["note"]} == {MUTED[other]}, after["note"]
         # The same picture in the new ink: grids, axes, series and every curve's pixels kept, the canvas repainted.

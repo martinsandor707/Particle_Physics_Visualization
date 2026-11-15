@@ -51,15 +51,19 @@ page is checked as a reader meets it:
   1/√E view, which keeps its bands, comes back identical;
 * the resolution card's Estimator control (Martin's decisions of 2026-11-12), on the recorded two-shower responses
   served by the request's estimator: View, Estimator, Windows, Shower, Literature in that order, Median |rel. err.|
-  pressed by default; each switch one request carrying the new estimator, the other choices kept; the title, the
+  pressed by default, the View and literature buttons with their titles (the E view's naming one curve per series
+  and no band; each equation without a % sign, its units beside it); each switch one request carrying the new
+  estimator, the other choices kept; the title, the
   y axis and the export's est-<name> follow it; under the median in the E view with a curve on, the note band, the
   drawer, the Details hazard and the curve and ratio tooltips carry the literature disclosure, and under Robust σ
   (IQR) or with no curve none do; every tooltip keeps to the 20% cap under each estimator; screens of both views
   under each estimator in both themes (CALOSRV_RES_SCREENS);
 * the single-curve round (Martin's directive of 2026-11-15), read back from the live chart in both themes, under
   each estimator, both window modes, the literature curves on and off: one fitted-curve family per series and
-  panel, no band, edge or reference-band series, a 1–4 GeV window's tooltip naming the one pooled scale c, and the
-  drawer's no-band sentence once with no envelope;
+  panel, no band, edge or reference-band series, each ratio curve's tooltip with its terms, χ²/ν and S and the
+  no-band line once, the literature legend entries and tooltips without a % sign by the values and with their
+  units, a 1–4 GeV window's tooltip naming the one pooled scale c, and the drawer's no-band sentence once with no
+  envelope, its pooled-scale clause on the 1–4 GeV windows' residuals under median and robust;
 * a series switched off on the resolution card's legend (Martin's bugs of
   2026-11-11, both views, on the recorded two-shower response) stays off
   across the window switch with no page error, and switched back on draws
@@ -1258,6 +1262,27 @@ def _drawn_form(mf):
     return "pinned" if isinstance(a0, (int, float)) and math.isfinite(a0) else None
 
 
+#: Why a series has no fit from 4 GeV (panels/resolution_scaling.js `fitMissingReason`, review-ui F2 and
+#: review-docs M3, 19f6ab2), verbatim, as the fit table's cells and the drawer give it.
+DECLINED_REASON = "Robust σ (IQR) fits no line through fewer than two fittable windows"
+NO_SCALE_REASON = "no window from 4 GeV carries a fit weight, so this series has no pooled scale"
+TOO_FEW_WINDOWS = "too few windows"
+
+
+def _fit_missing_reason(payload, s, mode):
+    """The causes `fitMissingReason` can give for a series' missing fit from 4 GeV, as a tuple of the ones the payload
+    allows: no pooled scale where `weight_scale.c` is null; under the robust estimator with no fitted window, the
+    decline or too few windows (which of the two turns on the windows' fittability, the panel's to judge); else too
+    few windows."""
+    ws = s.get("weight_scale")
+    if payload["estimator"]["name"] == "robust" and not s["fits"][mode].get("points"):
+        return (DECLINED_REASON, NO_SCALE_REASON, TOO_FEW_WINDOWS) if ws and ws.get("c") is None \
+            else (DECLINED_REASON, TOO_FEW_WINDOWS)
+    if ws and ws.get("c") is None:
+        return (NO_SCALE_REASON,)
+    return (TOO_FEW_WINDOWS,)
+
+
 def _assert_e_view_curves(view, payload, mode):
     """The E view's fitted curves as drawn (res-noise brief §0 decision 2, §4.1; CLAUDE.md §5 "One fitted curve per
     series", "Solid and dashed").
@@ -1542,16 +1567,38 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
             assert not any(f.startswith("Quadrature a/√E ⊕ b — drawn") for f in table_e["fits"]), table_e
             # One curve per series (Martin's directive of 2026-11-15): the Fit cells name the one drawn, a/√E ⊕ b ⊕ c/E
             # where drawable, else a₀/√E; beside a drawn a/√E ⊕ b ⊕ c/E, a₀/√E is table only. Four rows per series.
+            # Each cell, series by series, as `energyTableName` writes it (review-ui F2 and fa85fe8): a missing fit
+            # from 4 GeV gives its true cause (`_fit_missing_reason`) in the a₀/√E cell, and the affine and
+            # quadrature cells say "— not fitted: <the same cause>"; a₀/√E is "table only" only beside a drawn
+            # a/√E ⊕ b ⊕ c/E. The cells come in series order, four per series.
             forms = [_drawn_form(s["fits"]["anchors"]) for s in payload["series"]]
             cells = table_e["fits"]
             assert len([f for f in cells if f.startswith("Origin-pinned a₀/√E ⊕ 0 — ")]) == len(forms), cells
             assert cells.count("a/√E ⊕ b ⊕ c/E — drawn") == forms.count("noise"), (cells, forms)
-            assert cells.count("Origin-pinned a₀/√E ⊕ 0 — table only on this view") == forms.count("noise"), cells
             assert cells.count("Origin-pinned a₀/√E ⊕ 0 — drawn: no a/√E ⊕ b ⊕ c/E fit") == forms.count("pinned"), \
                 (cells, forms)
-            assert cells.count("Origin-pinned a₀/√E ⊕ 0 — not drawn: too few windows") == forms.count(None), cells
             assert len([f for f in cells if f.startswith("a/√E ⊕ b ⊕ c/E — not drawn: ")]) == \
                 len(forms) - forms.count("noise"), cells
+            pinned_cells = [f for f in cells if f.startswith("Origin-pinned a₀/√E ⊕ 0 — ")]
+            affine_cells = [f for f in cells if f.startswith("Affine a/√E + b — ")]
+            quad_cells = [f for f in cells if f.startswith("Quadrature a/√E ⊕ b — ")]
+            assert len(affine_cells) == len(quad_cells) == len(forms), cells
+            for s, form, pinned, affine, quad in zip(payload["series"], forms, pinned_cells, affine_cells, quad_cells):
+                mf = s["fits"]["anchors"]
+                reasons = _fit_missing_reason(payload, s, "anchors")
+                if mf.get("pinned") is None or mf["pinned"]["params"].get("a0") is None:
+                    assert any(pinned == f"Origin-pinned a₀/√E ⊕ 0 — not drawn: {r}" for r in reasons), \
+                        (s["key"], pinned, reasons)
+                elif form == "noise":
+                    assert pinned == "Origin-pinned a₀/√E ⊕ 0 — table only on this view", (s["key"], pinned)
+                if mf.get("affine") is None:
+                    assert any(affine == f"Affine a/√E + b — not fitted: {r}" for r in reasons), (s["key"], affine)
+                else:
+                    assert affine == "Affine a/√E + b — drawn in the 1/√E view", (s["key"], affine)
+                if mf.get("quadrature") is None:
+                    assert any(quad == f"Quadrature a/√E ⊕ b — not fitted: {r}" for r in reasons), (s["key"], quad)
+                else:
+                    assert quad.startswith("Quadrature a/√E ⊕ b — table only"), (s["key"], quad)
             e_series = page.evaluate(_RES_SERIES)
 
             # Every window, then the anchors again: a repaint, and the curves keep the rules.
@@ -1728,6 +1775,16 @@ RES_ESTIMATOR_BUTTONS = {
                "s(R) / R̄ over every event of the window, tails included: the Physics page resolution card's "
                "estimator."),
 }
+#: The View buttons, verbatim (labels.js MODELS_LABELS.res_view): the E view's title names one fitted curve per
+#: series with no band (Martin's directive of 2026-11-15; review-ui F1, 19f6ab2).
+RES_VIEW_BUTTONS = {
+    "linear": ("1/√E linear",
+               "The error scale against a reversed 1/√E axis: a pure stochastic term is a straight line into the origin"),
+    "energy": ("E (GeV) + ratio",
+               "The error scale against the energy in GeV: one fitted curve per series, its a/√E ⊕ b ⊕ c/E from 0 GeV "
+               "(a₀/√E from 4 GeV where a series has none), solid over its windows and dashed beyond, with no band; and "
+               "a ratio panel"),
+}
 #: The card's title per estimator and view (brief §4 `cardTitle`): a median relative error is not a resolution.
 RES_TITLES = {
     "median": {"linear": "Median Relative Error vs. 1/√E", "energy": "Median Relative Error vs. E"},
@@ -1832,6 +1889,14 @@ def test_the_estimator_control_reloads_the_card_once_and_keeps_every_other_choic
         assert [page.get_attribute(f'.main .card[data-panel="res-scaling"] .seg[aria-label="Estimator"] '
                                    f'button:nth-child({i + 1})', "data-res-estimator")
                 for i in range(3)] == list(RES_ESTIMATORS)
+        # The View buttons and their titles (labels.js res_view; the E view's title says one curve per series and
+        # no band, review-ui F1, 19f6ab2), the 1/√E view pressed at open.
+        view = next(g for g in controls if g["label"] == "View")
+        assert view["buttons"] == [[label, "true" if value == "linear" else "false", title]
+                                   for value, (label, title) in RES_VIEW_BUTTONS.items()], view
+        # The literature toggles' titles: the equation without a % sign, its units beside it (c406217).
+        assert [[t[0], t[3]] for t in page.evaluate(_RES_LIT_TOGGLES)] == \
+            [[LITERATURE[key][0], LITERATURE_TITLE[key]] for key in ("pi", "e")]
 
         # The reader's other choices, none of them the defaults: the E view, every window, shower B, e± alone.
         before = len(requests)
@@ -2381,6 +2446,75 @@ ENERGY_NO_BAND_TEXT = "No band is drawn on this view: the standard errors above 
 #: The drawer's one no-band sentence on the E view (models_notes.js `resolutionEnergyNotes`, What is drawn), verbatim.
 DRAWER_NO_BAND = ("No band is drawn round a fitted curve on this view: each curve's tooltip and the fit table give its "
                   "terms with their standard errors, χ²/ν and S, and every window keeps its whisker.")
+#: The drawer's pooled-scale line ends with this clause under the median and the robust estimators, in both views
+#: (models_notes.js `pooledScaleLine`; review-stats S2, FX-notes, 28d58e5), verbatim; the sample estimator has no
+#: pooled scale and no such line.
+POOLED_CLAUSE = ("The a/√E ⊕ b ⊕ c/E fit weights its windows of 1–4 GeV by the same c, se = c·ŷ/√N, which they do not "
+                 "enter, so their residuals count in S and the misfit verdict at c·ŷ/√N, not at their own bootstrap errors.")
+#: The ratio panel's curve tooltip (panels/resolution_scaling.js `ratioFitTip`, review-ui F4, 19f6ab2): its title
+#: line per drawn form, and the explanation it gives before the no-band line, verbatim.
+RATIO_FIT_NAME = {"noise": "a/√E ⊕ b ⊕ c/E fit", "pinned": "Origin-pinned fit a₀/√E ⊕ 0"}
+RATIO_FIT_EXPLAINED = "The fitted curve divided by the reference at each E, the reference held exact."
+
+
+def _assert_noise_terms(line, params, where):
+    """The terms line of an a/√E ⊕ b ⊕ c/E tooltip (`noiseTermsText`): every term with its SE and unit, its square
+    with the square's SE where the term's SE exceeds it (brief-fix m4), or the held phrase."""
+    held = params["held"]
+    terms = line.split("; ")
+    assert len(terms) == 3, (where, line)
+    for t, term in zip("abc", terms):
+        body = term.removeprefix("the noise term c/E: ") if t == "c" else term
+        assert (t == "c") is term.startswith("the noise term c/E: "), (where, term)
+        if t in held:
+            assert body == f"{t} = 0, held there by the constraint {t}² ≥ 0", (where, term)
+        elif params[f"se_{t}"] > params[t]:
+            # A symmetric error larger than the value would reach below 0 for a term that cannot: its square.
+            assert re.fullmatch(rf"{t}² = {_NUM} ± {_NUM} {re.escape(NOISE_SQUARE_UNITS[t])}", body), (where, term)
+        else:
+            assert re.fullmatch(rf"{t} = {_NUM} ± {_NUM} {re.escape(NOISE_UNITS[t])}", body), (where, term)
+
+
+def _assert_chi2_line(line, fit, where):
+    """A drawn fit's χ²/ν line on the E view (`energyChi2Line`, review-ui N1 and F4): "χ²/ν = …/ν, p = …; S = …" with
+    its S where ν ≥ 1, else the ν = 0 sentence that the curve passes through its points."""
+    if fit["ndf"] > 0 and fit.get("p_value") is not None:
+        m = re.fullmatch(rf"χ²/ν = {_NUM}/(\d+), p = {_NUM}; S = ([\d.]+)", line)
+        assert m and int(m.group(1)) == fit["ndf"], (where, line, fit["ndf"])
+        scale = fit["scale_factor"] if fit.get("scale_factor") is not None else 1
+        assert float(m.group(2)) == pytest.approx(scale, rel=5e-3), (where, line, scale)
+    else:
+        assert re.fullmatch(r"ν = 0: no χ² test: the curve passes through its \d+ points? exactly", line), (where, line)
+
+
+def _assert_ratio_fit_tip(text, s, payload, mode, where):
+    """A fitted curve's tooltip on the ratio panel (review-ui F4, 19f6ab2): the series; "<fit> ÷ <reference>"; the
+    drawn fit's terms with their SEs (a/√E ⊕ b ⊕ c/E's terms, or a₀/√E with ± SE(a₀)); its χ²/ν line with S; the
+    explanation; and the no-band line, once, the one mention of a band. A literature reference is named without a
+    % sign by its values (c406217)."""
+    lines = _noise_tip_lines(text)
+    flat = _flat(text)
+    mf = s["fits"][mode]
+    form = _drawn_form(mf)
+    assert form in RATIO_FIT_NAME, (where, s["key"], form)
+    fit = mf[form]
+    assert lines[0] == s["label"], (where, lines[:2])
+    head = f"{RATIO_FIT_NAME[form]} ÷ "
+    assert lines[1].startswith(head) and len(lines[1]) > len(head), (where, lines[1])
+    assert "%" not in lines[1], (where, lines[1])
+    if form == "noise":
+        _assert_noise_terms(lines[2], fit["params"], where)
+    else:
+        sym = payload["estimator"].get("symbol") or "σ/E"
+        assert re.fullmatch(rf"{re.escape(sym)} = \({_NUM} ± {_NUM}\)%/√E ⊕ 0 \(b ≡ 0, through the origin\)",
+                            lines[2]), (where, lines[2])
+    _assert_chi2_line(lines[3], fit, where)
+    assert lines[4] == RATIO_FIT_EXPLAINED, (where, lines[4])
+    assert lines[5] == ENERGY_NO_BAND_TEXT, (where, lines[5])
+    # The no-band line is the one place the word "band" appears, and it appears once.
+    assert flat.count(ENERGY_NO_BAND_TEXT) == 1, (where, flat[-500:])
+    assert "band" not in flat.replace(ENERGY_NO_BAND_TEXT, "").lower(), (where, flat[-500:])
+    assert "envelope" not in flat.lower() and "conditional on" not in flat, (where, flat[-500:])
 
 
 def _noise_tip_lines(text):
@@ -2402,18 +2536,7 @@ def _assert_noise_tip(text, s, noise, payload, mode, where):
     assert lines[0] == s["label"], (where, lines[:2])
     assert lines[1].endswith(" = a/√E ⊕ b ⊕ c/E") and (sym is None or lines[1] == f"{sym} = a/√E ⊕ b ⊕ c/E"), \
         (where, lines[1])
-    terms = lines[2].split("; ")
-    assert len(terms) == 3, (where, lines[2])
-    for t, term in zip("abc", terms):
-        body = term.removeprefix("the noise term c/E: ") if t == "c" else term
-        assert (t == "c") is term.startswith("the noise term c/E: "), (where, term)
-        if t in held:
-            assert body == f"{t} = 0, held there by the constraint {t}² ≥ 0", (where, term)
-        elif params[f"se_{t}"] > params[t]:
-            # A symmetric error larger than the value would reach below 0 for a term that cannot: its square.
-            assert re.fullmatch(rf"{t}² = {_NUM} ± {_NUM} {re.escape(NOISE_SQUARE_UNITS[t])}", body), (where, term)
-        else:
-            assert re.fullmatch(rf"{t} = {_NUM} ± {_NUM} {re.escape(NOISE_UNITS[t])}", body), (where, term)
+    _assert_noise_terms(lines[2], params, where)
     assert "held non-negative, so every term is real." in flat, where
     if noise["ndf"] > 0:
         assert re.search(r"χ²/ν = .+; S = [\d.]+", flat), (where, flat[:300])
@@ -2730,6 +2853,56 @@ _RES_CURVE_RUNS = """() => {
 }"""
 
 
+#: The literature curves' runs on both grids, as `_RES_CURVE_RUNS` reads the fitted curves: per series id
+#: `literature|<key>[|ratio]`, its key, panel and polylines' points in viewport pixels, to hover.
+_RES_LIT_RUNS = """() => {
+  const host = document.getElementById('plot-res-scaling');
+  const inst = echarts.getInstanceByDom(host);
+  const c = host.getBoundingClientRect();
+  const out = [];
+  inst.getModel().eachSeries((s) => {
+    const m = /^literature\\|([a-z]+)(\\|ratio)?$/.exec(s.get('id') || '');
+    if (!m) return;
+    const px = [];
+    inst.getViewOfSeriesModel(s).group.traverse((el) => {
+      if (el.isGroup || el.invisible || el.ignore || el.type !== 'polyline' || !el.shape?.points?.length) return;
+      px.push(...el.shape.points.map(([x, y]) => [c.left + x, c.top + y]));
+    });
+    out.push({ key: m[1], ratio: Boolean(m[2]), px });
+  });
+  return out;
+}"""
+
+#: The legend entries of the live chart: every name its legend lists.
+_RES_LEGEND_NAMES = """() => ((echarts.getInstanceByDom(document.getElementById('plot-res-scaling')).getOption().legend
+  || [])[0]?.data || []).map((d) => (typeof d === 'string' ? d : d.name))"""
+
+#: The two literature curves as the card writes them (catalog/resolution_refs.js `referenceEquation`, Martin's request
+#: of 2026-11-15, c406217): the figure's legend, no % sign by the values; the units said apart (`REFERENCE_UNITS`).
+LITERATURE = {"pi": ("π±", "σ/E = 27.2/√E ⊕ 1.0"), "e": ("e±", "σ/E = 14.0/√E ⊕ 0.4")}
+REFERENCE_UNITS = "σ/E in percent, E in GeV"
+#: The legend entry of each curve (panels/resolution_scaling.js `energyModel`: `${particle} lit. — ${equation}`).
+LITERATURE_LEGEND = {key: f"{particle} lit. — {eq}" for key, (particle, eq) in LITERATURE.items()}
+#: Each toggle's title (models_cards.js `RES_LITERATURE_CONTROL`), verbatim.
+LITERATURE_TITLE = {key: (f"Draw or hide {eq} ({REFERENCE_UNITS}); transcribed from the supplied figure's legend; no "
+                          "interval reported. The ratio panel divides by the curve drawn, by the one the windows lie "
+                          "farther from when both are, and by each shower's deposit fit when neither is.")
+                    for key, (_, eq) in LITERATURE.items()}
+#: The drawer's transcription line (models_notes.js `resolutionEnergyNotes`), verbatim from the equations on.
+LITERATURE_TRANSCRIBED = (f"{LITERATURE['pi'][1]} and {LITERATURE['e'][1]}, transcribed as the legend prints them, "
+                          f"{REFERENCE_UNITS}.")
+#: A literature curve that rises less than this above its panel's floor lies on the axis line and on the other curve,
+#: so its own tooltip cannot be hovered apart (robust on the recorded two-shower response: 0 to 5,500%).
+LIT_SQUEEZED_PX = 6
+#: Either literature equation, written anywhere: its two % slots, which must stay empty (c406217).
+LITERATURE_ANY = re.compile(r"(?:27\.2|14\.0)(%?)/√E ⊕ (?:1\.0|0\.4)(%?)")
+
+
+def _percent_literature(texts):
+    """Every text that writes a literature equation with a % sign by its values."""
+    return [t for t in texts for m in LITERATURE_ANY.finditer(_flat(t)) if m.group(1) or m.group(2)]
+
+
 def _set_literature(page, on):
     """Both literature curves on or both off (`π± | e±`, card controls): click each toggle not already as asked."""
     for key, particle in (("pi", "π±"), ("e", "e±")):
@@ -2776,9 +2949,17 @@ def test_the_e_view_draws_one_curve_per_series_with_no_band_and_one_pooled_scale
       curves keep the solid-and-dashed rules (`_assert_e_view_curves`).
     - **No band.** No series id contains `|band|`, `|edges|` or `|reference|`. Every fitted curve's main-panel
       tooltip carries the no-band line once; no tooltip read names a band sentence, the envelope or c_low.
+    - **The ratio curve's tooltip** (review-ui F4): every series whose curve reaches the ratio panel yields one; it
+      names "<fit> ÷ <reference>", the drawn fit's terms with their SEs, its χ²/ν line with S, the explanation, and
+      the no-band line once, the only mention of a band (`_assert_ratio_fit_tip`).
+    - **The literature curves** (c406217): with the curves on, both legend entries read "<particle> lit. — σ/E =
+      27.2/√E ⊕ 1.0" (and 14.0/√E ⊕ 0.4); no legend entry, tooltip or drawer writes a literature equation with a %
+      sign by its values; each main-panel curve's tooltip gives its equation and says "σ/E in percent, E in GeV".
     - **One pooled scale.** Under the median and the robust estimators a 1–4 GeV window's tooltip prints its series'
       one c, "pooled over its windows from 4 GeV", never c_low (`_se_lines`).
-    - **The drawer.** The Details drawer carries the no-band sentence once and never says "envelope" or "c_low".
+    - **The drawer.** The Details drawer carries the no-band sentence once and never says "envelope" or "c_low";
+      under median and robust its pooled-scale line ends with the clause on the 1–4 GeV windows' residuals
+      (review-stats S2), under sample there is none; with the curves on, its transcription line names the units.
     - **The cap, and no "exact".** Every tooltip read keeps to the 20% readout cap and says "exact" only in the kept
       reference phrase.
     - **No request** but the estimator's."""
@@ -2793,7 +2974,9 @@ def test_the_e_view_draws_one_curve_per_series_with_no_band_and_one_pooled_scale
         both = '.main .card[data-panel="res-scaling"] button[data-models-shower="both"]'
         assert page.get_attribute(both, "aria-pressed") == "true", "both showers on show"
         assert requests[before:] == [], f"the view asked the service: {requests[before:]}"
-        seen = {"families": 0, "noise": 0, "curve tips": 0, "ratio tips": 0, "low": 0, "drawers": 0, "tips": 0}
+        seen = {"families": 0, "noise": 0, "curve tips": 0, "ratio tips": 0, "literature tips": 0, "low": 0,
+                "drawers": 0, "tips": 0}
+        squeezed = {"literature squeezed": 0}
         for est in RES_ESTIMATORS:
             payload = _fixture_payload(RES_TWO, est)
             if est != DEFAULT_ESTIMATOR:
@@ -2839,18 +3022,67 @@ def test_the_e_view_draws_one_curve_per_series_with_no_band_and_one_pooled_scale
                             if panel == "main" and ENERGY_NO_BAND_TEXT in _flat(got[1]["text"]):
                                 curve_tips[(run["key"], panel)] = got[1]["text"]
                                 break
+                    by_key = {s["key"]: s for s in payload["series"]}
                     for (key, panel), text in curve_tips.items():
                         flat = _flat(text)
                         if panel == "main":
                             assert flat.count(ENERGY_NO_BAND_TEXT) == 1, (where, key, flat[-500:])
                             seen["curve tips"] += 1
                         else:
-                            # The ratio of a curve carries no band, and says none.
-                            assert "band" not in flat.lower(), (where, key, flat[-500:])
+                            # The ratio of a curve (review-ui F4): its terms with their SEs, its χ²/ν line with S,
+                            # and the no-band line once, the one mention of a band; no band is drawn round it.
+                            _assert_ratio_fit_tip(text, by_key[key], payload, mode, f"{where}, {key}, ratio")
                             seen["ratio tips"] += 1
                     shown_main = {k for k, panel in families if panel == "main"}
                     assert shown_main <= {k for k, panel in curve_tips if panel == "main"}, \
                         (where, sorted(shown_main), sorted(curve_tips))
+                    # Every series whose one curve reaches the ratio panel yields its own ratio-curve tooltip there.
+                    ratio_runs = {r["key"] for r in runs if r["ratio"] and r["px"]}
+                    assert ratio_runs <= {k for k, panel in curve_tips if panel == "ratio"}, \
+                        (where, sorted(ratio_runs), sorted(curve_tips))
+
+                    # The literature curves (c406217): each legend entry and equation without a % sign by its values;
+                    # the main curve's tooltip says the units (REFERENCE_UNITS).
+                    legend = page.evaluate(_RES_LEGEND_NAMES)
+                    assert _percent_literature(legend) == [], (where, legend)
+                    if lit:
+                        assert set(LITERATURE_LEGEND.values()) <= set(legend), (where, legend)
+                        lit_tips, lit_heads, rise = {}, {}, {}
+                        # A curve's points inside its own grid (part of it is clipped above the top), up to 40 of
+                        # them spread along it: a window marker or a fitted curve can lie over any one of them.
+                        chart = page.evaluate(_BOXES, "plot-res-scaling")["chart"]
+                        grids = [{k: v + (chart["left"] if k in ("left", "right") else chart["top"])
+                                  for k, v in r.items()} for r in view["rects"]]
+                        for run in page.evaluate(_RES_LIT_RUNS):
+                            panel = "ratio" if run["ratio"] else "main"
+                            particle = LITERATURE[run["key"]][0]
+                            box = grids[1 if run["ratio"] else 0]
+                            inside = [pt for pt in run["px"] if _within(pt, box)]
+                            # How far the curve rises above the grid's floor, in pixels, where it is drawn.
+                            rise[(run["key"], panel)] = max((box["bottom"] - y for _, y in inside), default=0)
+                            step = max(1, len(inside) // 40)
+                            for got in _hover_points(page, inside[step // 2::step], where):
+                                found.append(got)
+                                head = _noise_tip_lines(got[1]["text"])[0]
+                                lit_heads.setdefault((run["key"], panel), []).append(head)
+                                if head == f"{particle} literature curve" or head.startswith(f"{particle} literature curve ÷ "):
+                                    lit_tips[(run["key"], panel)] = got[1]["text"]
+                                    break
+                        for key, (particle, eq) in LITERATURE.items():
+                            text = lit_tips.get((key, "main"))
+                            if text is None and rise.get((key, "main"), 0) < LIT_SQUEEZED_PX:
+                                # Under a tall axis both curves lie in the panel's bottom pixels, on the axis line
+                                # and on each other (robust, 0 to 5,500% on the recording): nothing to hover apart.
+                                squeezed["literature squeezed"] += 1
+                                continue
+                            assert text is not None, (where, key, "no main-panel literature tooltip read",
+                                                      lit_heads, rise, view["y"][0])
+                            lines = _noise_tip_lines(text)
+                            assert lines[1] == eq, (where, key, lines[:3])
+                            assert f", {REFERENCE_UNITS}; no interval reported;" in _flat(text), (where, key, text[:400])
+                            seen["literature tips"] += 1
+                        assert any(panel == "main" for _, panel in lit_tips), (where, sorted(lit_tips), lit_heads)
+                        assert any(panel == "ratio" for _, panel in lit_tips), (where, sorted(lit_tips))
 
                     # Every window: its SE line names the one pooled scale (D3).
                     windows = _hover_windows(page)
@@ -2871,18 +3103,24 @@ def test_the_e_view_draws_one_curve_per_series_with_no_band_and_one_pooled_scale
                             assert _noise_tip_lines(text)[0] in by_label, (where, flat[:120])
                     assert _says_exact(texts) == [], (where, _says_exact(texts))
                     assert _hyphen_negatives(texts) == [], (where, _hyphen_negatives(texts))
+                    assert _percent_literature(texts) == [], (where, _percent_literature(texts)[:2])
                     _assert_capped(page, found, where)
 
-                    # The drawer: the no-band sentence once, no envelope, no second scale.
+                    # The drawer: the no-band sentence once, no envelope, no second scale; the pooled-scale line
+                    # ends with the clause on the 1–4 GeV windows (review-stats S2) under median and robust only;
+                    # the literature transcription line names the units.
                     _, _, body = _drawer(page, "res-scaling")
                     flat = _flat(body)
                     assert flat.count(DRAWER_NO_BAND) == 1, (where, flat[:600])
                     assert "envelope" not in flat.lower() and "c_low" not in flat, (where, flat[:600])
+                    assert flat.count(POOLED_CLAUSE) == (0 if est == "sample" else 1), (where, flat[:900])
+                    assert flat.count(LITERATURE_TRANSCRIBED) == (1 if lit else 0), (where, flat[-900:])
+                    assert _percent_literature([body]) == [], where
                     seen["drawers"] += 1
             assert _res_press(page, "res-windows", "anchors")
             _set_literature(page, True)
             assert requests[mark:] == [], f"{scheme}, {est}: a card control asked the service: {requests[mark:]}"
-        print(f"res-scaling single curve, {scheme}: {seen}")
+        print(f"res-scaling single curve, {scheme}: {seen}, {squeezed}")
         assert all(seen.values()), seen
         assert [q.get("estimator") for q in _requests_of(requests, "/api/resolution-scaling")] == list(RES_ESTIMATORS)
         browser.close()
