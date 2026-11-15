@@ -64,10 +64,17 @@ export function referenceValue(entry, energyGeV) {
   return Math.sqrt((entry.a * entry.a) / energyGeV + entry.b * entry.b);
 }
 
-/** The equation with the printed decimals: "σ/E = 27.2%/√E ⊕ 1.0%". */
+/**
+ * The equation as the figure's legend prints it, with its printed decimals and no % sign by the values:
+ * "σ/E = 27.2/√E ⊕ 1.0" (Martin's request, 2026-11-15). σ/E is in percent and E in GeV, as on the card's
+ * axes; `REFERENCE_UNITS` says so where the equation is read alone (tooltips, the drawer, the button titles).
+ */
 export function referenceEquation(entry) {
-  return `σ/E = ${entry.a.toFixed(entry.dp.a)}%/√E ⊕ ${entry.b.toFixed(entry.dp.b)}%`;
+  return `σ/E = ${entry.a.toFixed(entry.dp.a)}/√E ⊕ ${entry.b.toFixed(entry.dp.b)}`;
 }
+
+/** The units of `referenceEquation`, said wherever the equation is read away from the axes. */
+export const REFERENCE_UNITS = 'σ/E in percent, E in GeV';
 
 /** The button label: "π± 27.2/√E ⊕ 1.0". */
 export function referenceLabel(entry) {

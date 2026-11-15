@@ -80,6 +80,7 @@ Sections 2 through 5 below apply **identically to both architectures**.
       - no interval is fabricated or derived;
       - every curve, and every ratio taken against one, says "no interval reported" (tooltip, drawer, hazard);
       - the legend's printed decimals are kept;
+      - the card writes each curve as the figure's legend prints it, with no % sign by the values: "σ/E = 27.2/√E ⊕ 1.0" (`resolution_refs.js` `referenceEquation`; Martin's request, 2026-11-15). σ/E is in percent and E in GeV, as on the card's axes; the tooltips, the drawer and the button titles say so (`REFERENCE_UNITS`);
       - a curve never sets a range;
       - the drawer says the curves describe that simulation's particles in its η range, never this dataset's detector.
     - **Left out on purpose:** the figure's Yellow Report requirement bands, whose parameters it does not print, and its digitized points.

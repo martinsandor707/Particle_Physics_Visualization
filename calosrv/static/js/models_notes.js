@@ -27,7 +27,7 @@ import {
   resolutionModel, modeLabel, DRAWN_FORMS, energyModel, ENERGY_FORMS, RATIO_STEPS, ratioTickLabel, referenceChoiceText,
   weightState, declinedWindow, declinedText, RES_DECOMPOSITION,
 } from './panels/resolution_scaling.js';
-import { REFERENCE_SOURCE, RESOLUTION_REFERENCES, referenceEquation } from './catalog/resolution_refs.js';
+import { REFERENCE_SOURCE, RESOLUTION_REFERENCES, REFERENCE_UNITS, referenceEquation } from './catalog/resolution_refs.js';
 import { LITERATURE_HUES } from './palette.js';
 import { perfModel, perfQuantities, SOURCE_LABELS, isEnergyMedianRel, MEDIAN_REL_RECONCILIATION } from './panels/perf_bins.js';
 import { residualModel, featureHistModel, HISTOGRAM_FLOOR } from './panels/distribution.js';
@@ -1435,7 +1435,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   // The literature curves drawn.
   if (model.literature.length) {
     dis.push(`The literature curves are the two legend curves of one figure, ${REFERENCE_SOURCE.figure}, supplied by ${REFERENCE_SOURCE.by} on ${REFERENCE_SOURCE.supplied} `
-      + `(record ${REFERENCE_SOURCE.record}): ${RESOLUTION_REFERENCES.map((e) => referenceEquation(e)).join(' and ')}, transcribed as the legend prints them.`);
+      + `(record ${REFERENCE_SOURCE.record}): ${RESOLUTION_REFERENCES.map((e) => referenceEquation(e)).join(' and ')}, transcribed as the legend prints them, ${REFERENCE_UNITS}.`);
     dis.push('Each is a documented point estimate with no interval reported and none derived: no band is drawn for it, and a ratio taken against it carries none of its uncertainty.');
     dis.push(`They are ${REFERENCE_SOURCE.scope}: a reference to compare with, never a statement about this detector.`);
     dis.push('The figure does not state the energy range either curve was fitted over; each is drawn over the whole axis, and no part of it can be marked as extrapolated.');

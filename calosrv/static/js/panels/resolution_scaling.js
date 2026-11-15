@@ -226,7 +226,7 @@ import { THEME, axisPadding, formatNumber, formatInt, typographic } from '../sca
 import { literatureColour } from '../palette.js';
 import { measureText } from '../textfit.js';
 import {
-  REFERENCE_KEYS, referenceOf, referenceValue, referenceEquation, referenceLabel,
+  REFERENCE_KEYS, referenceOf, referenceValue, referenceEquation, referenceLabel, REFERENCE_UNITS,
 } from '../catalog/resolution_refs.js';
 import { customWhiskers, customPolyline, customBand } from './marks.js';
 import { tooltipOption } from './tooltip.js';
@@ -1731,7 +1731,7 @@ const DEFAULT_QUANTILE = 1.96;
 const LITERATURE_ICON = 'path://M0,4h2.4v2.4h-2.4zM5,4h2.4v2.4h-2.4zM10,4h2.4v2.4h-2.4z';
 /** What the literature curves' tooltips and the drawer say of their provenance. */
 export const LITERATURE_PROVENANCE = 'as printed in the legend of the supplied figure (ECCE G4 simulation, dual-readout '
-  + 'inlay, 2.55 < η < 3.98); no interval reported; the figure does not state the energy range the curve was fitted over; '
+  + `inlay, 2.55 < η < 3.98), ${REFERENCE_UNITS}; no interval reported; the figure does not state the energy range the curve was fitted over; `
   + 'it is drawn over the whole axis; it describes that simulation\'s particles, not this detector';
 
 /* --------------------------------------------------------- evaluators -- */
