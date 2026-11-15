@@ -7340,6 +7340,8 @@ def test_fx_f5_a_fallback_above_the_whole_axis_has_one_caret_at_the_axis_end(fx)
         lines = [x for x in e["drawer"] if x.startswith(f"{e['label']}: its origin-pinned a₀/√E ")]
         assert lines == [f"{e['label']}: its origin-pinned a₀/√E lies above the top of the main panel ({top}) at every "
                          "energy from 4 GeV; it is clipped there with a caret."], where
+        # A curve the panel shows only as its caret is a clipped mark: the Details button says so (FX-jstests F-a).
+        assert "marks clipped at the axis" in e["hazards"], where
 
 
 def test_fx_f5_the_fallbacks_ratio_takes_the_entry_treatment(fx):

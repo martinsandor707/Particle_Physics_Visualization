@@ -1754,7 +1754,9 @@ export function modelsHazards(payload, card, opts = {}) {
     if (model.series.some((s) => s.points.some((p) => p.weak))) out.push('weak windows drawn');
     if (model.y.provisional) out.push('provisional range');
     if (model.ratio.provisional) out.push('provisional ratio range');
-    if (model.clipped.markers || model.clipped.whiskers || model.clipped.fits || model.clipped.literature || model.clipped.ratio) {
+    // A drawn curve above the top at every energy shows nothing but its caret: a clipped mark too (FX-jstests F-a).
+    if (model.clipped.markers || model.clipped.whiskers || model.clipped.fits || model.clipped.literature || model.clipped.ratio
+      || model.series.some((s) => s.drawn?.entry?.above)) {
       out.push('marks clipped at the axis');
     }
     const fitsOf = (s) => [s.mf?.affine, s.mf?.pinned, s.mf?.quadrature, s.mf?.noise].filter(Boolean);
