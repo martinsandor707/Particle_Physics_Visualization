@@ -751,8 +751,11 @@ def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
     assert not [x for x in v["windowTitles"][0] if "c/E" in x or "from 1 GeV" in x]
     assert "below 4 GeV as points only" not in all_e
     energy_title = v["viewTitles"][1]
-    assert "the a₀/√E fit from 4 GeV and the a/√E ⊕ b ⊕ c/E fit from 0 GeV, each solid over its windows and dashed beyond" in energy_title
-    assert "a/√E ⊕ b and" not in energy_title
+    # One fitted curve per series and no band (Martin's directive of 2026-11-15; review-ui F1, 19f6ab2), verbatim.
+    assert energy_title == ("The error scale against the energy in GeV: one fitted curve per series, its a/√E ⊕ b ⊕ c/E "
+                            "from 0 GeV (a₀/√E from 4 GeV where a series has none), solid over its windows and dashed "
+                            "beyond, with no band; and a ratio panel")
+    assert "a/√E ⊕ b and" not in energy_title and "the a₀/√E fit from 4 GeV and" not in energy_title
     assert v["sameRequest"] is True
     assert v["opts"]["view"] == "energy" and v["opts"]["literature"] == ["e"] and "reference" not in v["opts"]
     assert v["inState"] == [False, False], "the view and the toggles are never in a link"
@@ -819,6 +822,12 @@ def test_the_literature_curves_are_one_pair_of_toggles_both_on_by_default(reques
     for t in lit["titles"]:
         assert t.startswith("Draw or hide σ/E = ") and "no interval reported" in t
         assert "by the one the windows lie farther from when both are, and by each shower's deposit fit when neither is" in t
+    # The equation as the figure's legend prints it, no % sign by the values, with its units said in the title
+    # (Martin's request, 2026-11-15, c406217: REFERENCE_UNITS).
+    assert [t.split(";")[0] for t in lit["titles"]] == [
+        "Draw or hide σ/E = 27.2/√E ⊕ 1.0 (σ/E in percent, E in GeV)",
+        "Draw or hide σ/E = 14.0/√E ⊕ 0.4 (σ/E in percent, E in GeV)"]
+    assert not [t for t in lit["titles"] if "%" in t]
     assert lit["defaults"] == "pi,e" and lit["opts"]["literature"] == ["pi", "e"]
     assert lit["pressed"] == [[True, True], [False, True], [True, False], [False, False]]
     assert lit["shut"] is False

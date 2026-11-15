@@ -1452,8 +1452,15 @@ for (const name of %(corrs)s) {
     const built = rs.energyViewOption(p, eo, RE).option;
     const carets = walk(built).series.filter((x) => x.id === 'network:a|ratio|carets').flatMap((x) => x.items.map((i) => i.tip));
     const notes = packN(mn.resolutionScalingNotes({ payload: p, ...eo }));
+    // Since review-ui F5 (19f6ab2) the fallback's ratio takes the entry treatment: it may come into [1/k, k] from
+    // beyond it as E rises from 4 GeV, or stay beyond it over the whole axis (`whole`), a caret either way.
+    const ratioTips = walk(built).series.filter((x) => /^network:a\|ratio\|(pinned)\|(solid|dashed)\|/.test(x.id ?? ''))
+      .flatMap((x) => x.items.map((i) => i.tip)).filter(Boolean);
     return { k: mm.ratio.k, provisional: mm.ratio.provisional, cut: ff.ratio?.cut ?? null, fits: mm.ratio.clipped.fits,
-      carets: carets.filter((t) => t.includes('leaves the ratio axis')), notes };
+      entry: ff.ratio?.entry ?? null, firstRow: ff.ratio?.rows?.[0] ?? null, curveMin: mm.curveMinGev, xMax: mm.x.max,
+      ratioRuns: (ff.ratio?.solid?.length ?? 0) + (ff.ratio?.dashed?.length ?? 0), ratioTips,
+      carets: carets.filter((t) => t.includes('leaves the ratio axis')),
+      entryCarets: carets.filter((t) => t.includes('the ratio axis (') && !t.includes('leaves the ratio axis')), notes };
   };
   m.ratioK = { base: rs.energyModel(fb, eo).ratio.k, misfit: wild(true), unflagged: wild(false) };
   // A fit line or band above the top: a clone whose tops are the windows' alone (the server's rule since 2026-11-11),
@@ -3894,7 +3901,10 @@ def test_res_e_no_rendered_number_uses_an_ascii_hyphen(out):
 RES_NOTE_KEYS = [f"{w}:{r}:{s}" for w in ("anchors", "all") for r in RES_E_REFS for s in ("both", "a", "b")]
 MAE_SENTENCE = ("MAE/E is not σ/E: for unbiased Gaussian errors MAE/E = √(2/π)·σ/E ≈ 0.798·σ/E, and MAE also carries the bias "
                 "that σ(R)/μ(R) divides out; this card plots σ(R)/μ(R) and never converts one into the other.")
-LIT_EQUATIONS = {"pi": "σ/E = 27.2%/√E ⊕ 1.0%", "e": "σ/E = 14.0%/√E ⊕ 0.4%"}
+#: As the figure's legend prints them, with no % sign by the values (Martin's request, 2026-11-15, c406217); the
+#: units are said beside them wherever the equation is read away from the axes (`REFERENCE_UNITS`).
+LIT_EQUATIONS = {"pi": "σ/E = 27.2/√E ⊕ 1.0", "e": "σ/E = 14.0/√E ⊕ 0.4"}
+REFERENCE_UNITS = "σ/E in percent, E in GeV"
 LIT_BUTTONS = ('The π± and e± buttons draw either curve, both (the default) or neither. The ratio panel divides by the curve '
                "drawn; with both drawn, by the one the windows lie farther from; with neither, by each shower's deposit fit.")
 
@@ -4526,7 +4536,12 @@ def test_res_fix_p8_every_ratio_against_a_literature_curve_says_no_interval(out)
     # drawn beside it (single-curve round: the former "(its own band about 1 is drawn beside it …)" is gone).
     assert not [t for s in deposit["series"] for i in s["items"] if (t := i["tip"]) and LIT_NO_INTERVAL in t]
     dep = tips(deposit, r"\|ratio\|(noise|pinned)\|(solid|dashed)\|")
-    assert dep and all(held in _plain(t) and "band" not in _plain(t) for t in dep)
+    # review-ui F4 (19f6ab2): every ratio curve's tooltip says once that no band is drawn on this view; beyond that
+    # sentence it speaks of no band.
+    assert dep and all(held in _plain(t) for t in dep)
+    for t in fits + dep:
+        assert _plain(t).count(ENERGY_NO_BAND_TEXT) == 1, _plain(t)
+        assert "band" not in _plain(t).replace(ENERGY_NO_BAND_TEXT, ""), _plain(t)
     assert not tips(deposit, r"\|(band|edges|reference)\|")
 
 
@@ -4888,15 +4903,33 @@ def test_res_misfit_is_faded_in_the_e_view_on_both_panels_extrapolation_included
 def test_res_no_fit_sets_the_ratio_range(out):
     """The ratio panel's k follows the windows alone (Martin, 2026-11-11). A drawn pinned fit with a₀ × 4 (the network
     A's a₀/√E fallback since the single-curve round, the deposit A's being tabled beside its noise curve), a misfit or
-    not, leaves k the base's; its ratio leaves [1/k, k] and is clipped with a caret, its true values and a count."""
+    not, leaves k the base's; its ratio lies beyond [1/k, k] and is clipped with a caret, its true values and a count.
+    Since review-ui F5 (19f6ab2) the fallback's ratio takes the entry treatment, as the noise fit's does: starting
+    above the axis at 4 GeV, it comes into it as E rises (formerly a cut "leaving" at 4 GeV), one caret there."""
     k = out["resMisfit"]["ratioK"]
+    rule = ("the ratio range follows the windows of N ≥ 20 from 2 GeV alone; a fit summarises its windows, so no fit ratio "
+            "sets it.")
     for case in ("misfit", "unflagged"):
         got = k[case]
         assert got["k"] == k["base"] and got["provisional"] is False, case
-        assert got["cut"] and got["fits"] >= 1, case
-        assert len(got["carets"]) >= 1 and all("True values where it deviates most" in t for t in got["carets"]), case
-        assert all("the ratio range follows the windows of N ≥ 20 from 2 GeV alone; a fit summarises its windows, so no fit ratio "
-                   "sets it." in _plain(t) for t in got["carets"]), case
+        assert (got["cut"] or got["entry"]) and got["fits"] >= 1, case
+        # The a₀ × 4 ratio starts above k at 4 GeV and comes in as E rises: an entry, never a cut at its first row.
+        e, (e0, r0) = got["entry"], got["firstRow"]
+        assert e0 == got["curveMin"] == 4 and r0 > got["k"], case
+        assert e["dir"] == "up" and e["whole"] is False and e["peak"] == [e0, r0] and e0 < e["at"] < got["xMax"], case
+        assert got["cut"] is None and got["fits"] == 1 and not got["carets"], case
+        (tip,) = got["entryCarets"]
+        tip = _plain(tip)
+        assert (f"The ratio of the origin-pinned fit a₀/√E ⊕ 0 to shower A's deposit a/√E ⊕ b ⊕ c/E fit comes into the "
+                f"ratio axis (1/4 to 4) from above at E = ") in tip and "scanning up in E from 4 GeV, where it reads" in tip, case
+        assert "a/√E ⊕ b ⊕ c/E fit to" not in tip, "the entry names the fallback's own form"
+        assert rule in tip, case
+        # The curve's own ratio tooltip says where it comes in, from 4 GeV (not "from 0").
+        assert got["ratioRuns"] >= 1 and got["ratioTips"]
+        assert all("It comes into the ratio axis from beyond it as E rises from 4 GeV: the caret there says where." in _plain(t)
+                   for t in got["ratioTips"]), case
+        for t in got["carets"]:
+            assert "True values where it deviates most" in t and rule in _plain(t), case
         clipped = [x for x in _lines(got["notes"], out, "disclosures") if x.startswith("Clipped at the ratio axis")]
         assert len(clipped) == 1 and re.search(r"\b\d+ fitted curves?\b", clipped[0]), (case, clipped)
 
@@ -4926,52 +4959,66 @@ def test_res_the_drawer_names_each_misfit_with_s_and_chi2(out):
 
 def test_res_a_fit_above_the_windows_top_gets_its_caret_true_values_and_count(out):
     """Tops set by the windows alone (a clone of the two-shower payload): every fit line or band above is clipped. On
-    the E view (one curve per series since the single-curve round, its line alone) every noise curve comes down into
-    the plot and none leaves it again, so the curve that leaves is the deposit B's a₀/√E fallback on a copy without
-    its noise fit."""
+    the 1/√E view the lines that leave the top are cut with a caret, their true values and a count. On the E view (one
+    curve per series since the single-curve round, its line alone) every drawn curve falls with E, so none leaves the
+    top: a noise curve comes down into the plot from it, and so, since review-ui F5 (19f6ab2), does the deposit B's
+    a₀/√E fallback on a copy without its noise fit, at E = (a₀/y.hi)², with an entry caret and the drawer's line
+    (fa85fe8), where it was formerly cut at 4 GeV as a curve "leaving" the top."""
     lt = out["resMisfit"]["lowTop"]
     payload = {s["key"]: s for s in _load("res_scaling_two")["series"]}
-    for view, hi, floor in (("linear", lt["yhi"], ""), ("energy", lt["ehi"], " from 2 GeV")):
-        got = lt[view]
-        above = [f for f in got["fits"] if f["form"] != "noise" and f["peak"] > hi]
-        if view == "energy":
-            # The E view's rows are [E, y]: its peak is its line's (no band), and nothing carries a band entry.
-            assert all(f["rowWidth"] == [2] and f["peak"] == f["linePeak"] for f in got["fits"])
-            assert all(f["entry"] is None or f["entry"]["retired"] == [] for f in got["fits"])
-            p_of = lambda f: payload[f["key"]]["fits"]["all"]["noise"]["params"]  # noqa: E731
-            # a/√E ⊕ b ⊕ c/E rises without bound as E → 0 (Martin's decisions of 2026-11-13): it comes down into the
-            # plot rather than leaving it, each with its own caret, counted apart (clipped.entries). A flat curve
-            # (A = C = 0) does not come down, and with no band nothing of it enters either.
-            entering = [f for f in got["fits"] if f["form"] == "noise" and (p_of(f)["a2"] > 0 or p_of(f)["c2"] > 0)
-                        and p_of(f)["b2"] < hi * hi]
-            flat = [f for f in got["fits"] if f["form"] == "noise" and p_of(f)["a2"] == 0 and p_of(f)["c2"] == 0]
-            assert all(f["entry"] is None for f in flat)
-            assert not [t for t in got["tips"] if "band" in _plain(t)]
-            assert entering and got["clipped"]["entries"] == len(entering)
-            assert sum(_plain(t).startswith(tuple(f"{payload[f['key']]['label']} It comes down into the plot at E = " for f in entering))
-                       for t in got["tips"]) == len(entering)
-            assert not [f for f in got["fits"] if f["form"] == "noise" and f["cut"]], "nothing in this clone leaves after entering"
-            # On the recording itself no curve leaves the windows' top: one curve per series, and every one a noise curve.
-            rec = got["recording"]
-            assert not [f for f in rec["fits"] if f["cut"]] and rec["clipped"]["fits"] == 0
-            assert [f["key"] for f in above] == ["detector:b"] and above[0]["form"] == "pinned"
-        assert above and [f for f in above if not f["provisional"]], (view, "a robust fit leaves a top the windows set")
-        assert all(f["cut"] for f in above) and not [f for f in got["fits"] if f["cut"] and f["peak"] <= hi], view
-        assert got["clipped"]["fits"] == len(above)
-        tips = [_plain(t) for t in got["tips"] if "leaves the top of the" in t]
-        assert len(tips) == len(above) and all("True values" in t for t in tips)
-        if view == "linear":
-            rule = "Clipped, not rescaled: the range follows the windows of N ≥ 20 alone; a fit summarises its windows, so no line, curve or band sets it."
-        else:
-            rule = ("Clipped, not rescaled: the range follows the windows of N ≥ 20 from 2 GeV alone; a fit summarises its windows, "
-                    "so no fitted curve sets it.")
-        assert all(rule in t for t in tips), (view, tips)
-        assert not [t for t in tips if "fitted lines through them" in t or "fitted curves over their windows" in t]
+    # The 1/√E view: its lines and bands leave the top, each cut.
+    hi, got = lt["yhi"], lt["linear"]
+    above = [f for f in got["fits"] if f["form"] != "noise" and f["peak"] > hi]
+    assert above and [f for f in above if not f["provisional"]], "a robust fit leaves a top the windows set"
+    assert all(f["cut"] for f in above) and not [f for f in got["fits"] if f["cut"] and f["peak"] <= hi]
+    assert got["clipped"]["fits"] == len(above)
+    tips = [_plain(t) for t in got["tips"] if "leaves the top of the" in t]
+    assert len(tips) == len(above) and all("True values" in t for t in tips)
+    rule = "Clipped, not rescaled: the range follows the windows of N ≥ 20 alone; a fit summarises its windows, so no line, curve or band sets it."
+    assert all(rule in t for t in tips), tips
+    assert not [t for t in tips if "fitted lines through them" in t or "fitted curves over their windows" in t]
     (leave,) = [x for x in _lines(lt["notes"], out, "disclosures") if "the top of the" in x and "line or band, each clipped there" in x]
     assert leave.endswith("The range follows the windows alone, so no line or band sets it.")
-    (leave_e,) = [x for x in _lines(lt["notesE"], out, "disclosures") if "the top of the main panel, each clipped there" in x]
-    assert leave_e.startswith("1 fitted curve leaves the top of the main panel") and "line or band" not in leave_e
-    assert leave_e.endswith("The range follows the windows alone, so no curve or extrapolation sets it.")
+
+    # The E view.
+    hi, got = lt["ehi"], lt["energy"]
+    # Its rows are [E, y]: its peak is its line's (no band), and nothing carries a band entry.
+    assert all(f["rowWidth"] == [2] and f["peak"] == f["linePeak"] for f in got["fits"])
+    assert all(f["entry"] is None or f["entry"]["retired"] == [] for f in got["fits"])
+    p_of = lambda f: payload[f["key"]]["fits"]["all"]["noise"]["params"]  # noqa: E731
+    # a/√E ⊕ b ⊕ c/E rises without bound as E → 0 (Martin's decisions of 2026-11-13): it comes down into the plot
+    # rather than leaving it, each with its own caret, counted apart (clipped.entries). A flat curve (A = C = 0) does
+    # not come down, and with no band nothing of it enters either.
+    entering = [f for f in got["fits"] if f["form"] == "noise" and (p_of(f)["a2"] > 0 or p_of(f)["c2"] > 0)
+                and p_of(f)["b2"] < hi * hi]
+    flat = [f for f in got["fits"] if f["form"] == "noise" and p_of(f)["a2"] == 0 and p_of(f)["c2"] == 0]
+    assert all(f["entry"] is None for f in flat)
+    assert not [t for t in got["tips"] if "band" in _plain(t)]
+    assert entering and sum(_plain(t).startswith(tuple(f"{payload[f['key']]['label']} It comes down into the plot at E = " for f in entering))
+                            for t in got["tips"]) == len(entering)
+    # The fallback a₀/√E of the deposit B starts above the top at 4 GeV and comes down at E = (a₀/y.hi)².
+    (fb,) = [f for f in got["fits"] if f["form"] == "pinned"]
+    a0 = payload["detector:b"]["fits"]["all"]["pinned"]["params"]["a0"]
+    assert fb["key"] == "detector:b" and a0 / 2 > hi, "it starts above the top at 4 GeV"
+    assert fb["entry"]["above"] is False and fb["entry"]["lineAt"] == pytest.approx((a0 / hi) ** 2, rel=1e-12)
+    assert fb["cut"] is None and fb["linePeak"] == pytest.approx(hi, rel=1e-9), "drawn from where it meets the top"
+    assert got["clipped"]["entries"] == len(entering) + 1
+    fb_tips = [_plain(t) for t in got["tips"] if "The origin-pinned a₀/√E comes down into the plot at E = " in t]
+    assert fb_tips == [f"{payload['detector:b']['label']} The origin-pinned a₀/√E comes down into the plot at E = "
+                       f"{fb['entry']['lineAt']:.3g} GeV: it falls as 1/√E, so from 4 GeV up to that energy it lies above "
+                       f"the top of the axis (0 to {hi:g}%)."]
+    # Every drawn curve falls with E, so none leaves the top after entering, on the clone or on the recording.
+    assert not [f for f in got["fits"] if f["cut"]] and got["clipped"]["fits"] == 0
+    assert not [t for t in got["tips"] if "leaves the top of the" in t]
+    rec = got["recording"]
+    assert not [f for f in rec["fits"] if f["cut"]] and rec["clipped"]["fits"] == 0
+    assert not [f for f in rec["fits"] if f["form"] == "pinned"], "on the recording every series draws its noise curve"
+    # The drawer names the fallback's entry (fa85fe8) and says nothing leaves the top.
+    dis_e = _lines(lt["notesE"], out, "disclosures")
+    assert not [x for x in dis_e if "the top of the main panel, each clipped there" in x]
+    assert (f"{payload['detector:b']['label']}: its origin-pinned a₀/√E comes down into the main panel from its top ({hi:g}%) at "
+            f"E = {fb['entry']['lineAt']:.3g} GeV, with a caret there: it falls as 1/√E, so from 4 GeV up to that energy it "
+            "lies above the top.") in dis_e
 
 
 def test_res_the_drawers_say_the_windows_alone_set_the_range(out):
@@ -5622,7 +5669,10 @@ NOISE_HELD_CAVEAT = ("A term held at 0 means the windows need no separate term o
 #: brief-fix FX2, the drawer's weights sentence (verbatim), under median and robust only.
 #: The pooled-scale line's last sentence (SC-notes, 2026-11-15; one scale, Martin's directive of that day): the noise
 #: fit's windows of 1–4 GeV take the same c, without entering it. It replaced FX2's two-scale weights sentence.
-FX2_WEIGHTS = "The a/√E ⊕ b ⊕ c/E fit weights its windows of 1–4 GeV by the same c, se = c·ŷ/√N, which they do not enter."
+#: The pooled-scale line's last sentence (FX2's, under one scale since the single-curve round), with review-stats
+#: S2's clause (28d58e5): a 1–4 GeV window's residual counts in S and the misfit verdict at c·ŷ/√N.
+FX2_WEIGHTS = ("The a/√E ⊕ b ⊕ c/E fit weights its windows of 1–4 GeV by the same c, se = c·ŷ/√N, which they do not enter, "
+               "so their residuals count in S and the misfit verdict at c·ŷ/√N, not at their own bootstrap errors.")
 #: FX2's retired sentence: never printed again.
 FX2_WEIGHTS_RETIRED = "se = c_low·ŷ/√N"
 NOISE_TABLED_E = "a/√E ⊕ b is in the fit table, not drawn."
@@ -5980,7 +6030,7 @@ RES_DECOMPOSITION = (
     "tails, which the robust width does not (each window's tooltip gives its share of events beyond 3 robust σ). "
     "Methodology §2.4 measures the three factors on one window.")
 #: A literature curve's printed equation, the one σ/E a median text may carry as an equation.
-_LIT_EQUATION = re.compile(r"σ/E = \d+(?:\.\d+)?%/√E ⊕ \d+(?:\.\d+)?%")
+_LIT_EQUATION = re.compile(r"σ/E = \d+(?:\.\d+)?/√E ⊕ \d+(?:\.\d+)?")
 _MAE_SENTENCE = ("MAE/E is not σ/E either: for unbiased Gaussian errors MAE/E = √(2/π)·σ/E ≈ 0.798·σ/E, and MAE also "
                  "carries the bias that σ(R)/μ(R) divides out.")
 #: substitutionWhy: the clause a stand-in anchor's role line gives for its nominal anchor, by the substitution's cause.
@@ -6094,7 +6144,9 @@ def test_res_fix3_no_bare_sigma_e_names_the_median_value(est, name):
     block = _load(name)["estimator"]
     allowed = [block["literature"]["warning"], block["relation"], _MAE_SENTENCE,
                "This card plots the median relative error and never converts it into σ/E.",
-               "unlike σ/E the median relative error keeps", "Robust σ/E"]
+               "unlike σ/E the median relative error keeps", "Robust σ/E",
+               # A literature curve's units (c406217): σ/E there names the curve's own quantity, never the plotted one.
+               REFERENCE_UNITS]
     texts = list(_every_text(est["fixtures"][name]))
     assert any(t for t in texts)
     for text in texts:
@@ -6888,3 +6940,504 @@ def test_sc_the_leads_fixes_hold(sc):
                            f"a/√E ⊕ b ⊕ c/E curve is drawn, through its own windows from 1 GeV{among}."]
     assert len(d["linear"]) == 1 and "a/√E ⊕ b ⊕ c/E curve is drawn" not in d["linear"][0]
     assert d["linear"][0].startswith(f"{d['label']}: {d['declined']}, so no ")
+
+
+# ---- the single-curve round's fix round (review-ui, review-stats, review-docs; 2026-11-15) -----------------------------
+#
+# F1 (the E view toggle's title) is pinned in test_js_models_shell.py, the button titles' units there too. Here: F2/M3,
+# the true cause of a missing fit from 4 GeV in the Fit and Status cells (19f6ab2, fa85fe8); F3, the "fit not
+# converged" hazard reads the noise fit (28d58e5); F4, every ratio-panel curve tooltip carries the curve's terms, its
+# χ²/ν line and the no-band sentence (19f6ab2); F5, a fallback a₀/√E above the top comes down into the plot, with an
+# entry caret, never a cut, and its ratio takes the entry treatment (19f6ab2, fa85fe8); N1, the fallback's χ²/ν line
+# writes S; the legend change (c406217): "π± lit. — σ/E = 27.2/√E ⊕ 1.0", the units in the tooltip and the drawer.
+
+_FX_BODY = r"""
+const fx = { tables: {}, hazards: [], ratioTips: [], entries: [], fallbackTips: [], literature: [] };
+const RE = { width: 760, height: 600 };
+const LITS = [[], ['pi'], ['e'], ['pi', 'e']];
+const NO_REASON = 'No a/√E ⊕ b ⊕ c/E fit: fewer than three windows from 1 GeV hold N ≥ 20 with a fit weight.';
+const names = fs.readdirSync(fixtureDir).filter((f) => /^res_scaling_.*\.json$/.test(f)).map((f) => f.slice(0, -5)).sort();
+const notesLines = (n) => (n ? n.sections.flatMap((sec) => sec.lines) : []);
+const tipsOf = (w, re) => w.series.filter((x) => re.test(x.id ?? '')).flatMap((x) => x.items.map((i) => i.tip)).filter(Boolean);
+const esc = (key) => key.replace(/[|]/g, '\\|');
+const stripNoise = (payload, key) => {
+  const copy = clone(payload);
+  const sx = copy.series.find((x) => x.key === key);
+  for (const m of ['anchors', 'all']) { sx.fits[m].noise = null; sx.fits[m].noise_reason = NO_REASON; }
+  return copy;
+};
+
+// F2/M3: both views' fit tables, the E model's pinned reason and the E drawer, per doctored state.
+const tableCase = (payload, keys) => {
+  const out = {};
+  for (const windows of ['anchors', 'all']) {
+    const o = { windows, shower: 'both' };
+    const lin = rs.fitTableRows(payload, o);
+    const en = rs.fitTableRows(payload, { ...o, view: 'energy' });
+    const model = rs.energyModel(payload, { ...o, literature: [] });
+    const drawer = notesLines(mn.resolutionScalingNotes({ payload, view: 'energy', ...o, literature: [] }));
+    const rows = (t) => Object.fromEntries(t.rows.filter((r) => keys.includes(r.key)).map((r) => [r.key, Object.fromEntries(r.fits.map((f) => [f.form, f.cells]))]));
+    out[windows] = {
+      linear: rows(lin), energy: rows(en),
+      model: Object.fromEntries(model.series.filter((s) => keys.includes(s.key)).map((s) => [s.key, {
+        label: s.label, drawnForm: s.drawnForm, pinnedReason: s.fits.pinned.reason ?? null, pinnedDrawable: s.fits.pinned.drawable }])),
+      drawer,
+    };
+  }
+  return out;
+};
+{
+  // A robust series that declines: the recordings of one shower, and the lead's copy of the two-shower recording
+  // (every other fittable window from 4 GeV thinned to N = 10), which still draws its noise curve.
+  for (const name of ['res_scaling_robust_single_hits', 'res_scaling_robust_single_events']) {
+    fx.tables[name] = { payload: name, keys: ['detector:a'], ...tableCase(load(name), ['detector:a']) };
+  }
+  const rt = load('res_scaling_robust_two');
+  const s = rt.series.find((x) => x.fits?.all?.noise);
+  const keep = s.windows.filter((w) => w.p_lo >= 4 && w.eligible).sort((a, b) => b.n - a.n)[0];
+  for (const w of s.windows) if (w.p_lo >= 4 && w !== keep) { w.n = 10; w.eligible = false; }
+  s.fits.all.points = [];
+  for (const k of ['affine', 'pinned', 'quadrature']) s.fits.all[k] = null;
+  fx.tables.declineCopy = { payload: 'res_scaling_robust_two', keys: [s.key], declined: rs.declinedText(keep), ...tableCase(rt, [s.key]) };
+  // c null: the recordings (median two-shower deposits, robust XGBoost) and a copy whose network A has no pooled
+  // scale and no fit from 4 GeV, its noise fit kept (the reason holds whatever the noise fit does) or removed.
+  fx.tables.medianTwo = { payload: 'res_scaling_median_two', keys: ['detector:a', 'detector:b'], ...tableCase(load('res_scaling_median_two'), ['detector:a', 'detector:b']) };
+  fx.tables.robustXgb = { payload: 'res_scaling_robust_xgb', keys: ['xgb:a'], ...tableCase(load('res_scaling_robust_xgb'), ['xgb:a']) };
+  for (const keepNoise of [true, false]) {
+    const p = load('res_scaling_robust_two');
+    const sx = p.series.find((x) => x.key === 'network:a');
+    sx.weight_scale = { ...sx.weight_scale, c: null, n_windows: 0 };
+    for (const m of ['anchors', 'all']) {
+      for (const k of ['affine', 'pinned', 'quadrature']) sx.fits[m][k] = null;
+      if (!keepNoise) { sx.fits[m].noise = null; sx.fits[m].noise_reason = NO_REASON; }
+    }
+    fx.tables[keepNoise ? 'cNullNoise' : 'cNull'] = { payload: 'res_scaling_robust_two', keys: ['network:a'], ...tableCase(p, ['network:a']) };
+  }
+  // Too few windows: a sample series (no pooled scale to miss) with no fit from 4 GeV, its noise fit kept.
+  {
+    const p = load('res_scaling_two');
+    const sx = p.series.find((x) => x.key === 'network:a');
+    for (const m of ['anchors', 'all']) for (const k of ['affine', 'pinned', 'quadrature']) sx.fits[m][k] = null;
+    fx.tables.tooFew = { payload: 'res_scaling_two', keys: ['network:a'], ...tableCase(p, ['network:a']) };
+  }
+  // The fallback: the network A without its noise fit, its a₀/√E drawn.
+  fx.tables.fallback = { payload: 'res_scaling_two', keys: ['network:a'], ...tableCase(stripNoise(load('res_scaling_two'), 'network:a'), ['network:a']) };
+  // A recording with every fit in place: the cells as they were.
+  fx.tables.plain = { payload: 'res_scaling_robust_two', keys: ['network:a'], ...tableCase(load('res_scaling_robust_two'), ['network:a']) };
+}
+
+// F3: the hazard on a copy whose drawn noise fit alone has converged: false, both views, both modes.
+for (const name of names) {
+  const payload = load(name);
+  for (const s of payload.series) {
+    for (const windows of ['anchors', 'all']) {
+      if (!s.fits[windows].noise) continue;
+      const copy = clone(payload);
+      copy.series.find((x) => x.key === s.key).fits[windows].noise.converged = false;
+      const o = { windows, shower: 'both' };
+      const drawn = rs.energyModel(copy, { ...o, literature: [] }).series.find((x) => x.key === s.key).drawnForm;
+      fx.hazards.push({ name, key: s.key, windows, drawn,
+        base: { energy: mn.modelsHazards(payload, 'res-scaling', { ...o, view: 'energy', literature: [] }), linear: mn.modelsHazards(payload, 'res-scaling', o) },
+        doctored: { energy: mn.modelsHazards(copy, 'res-scaling', { ...o, view: 'energy', literature: [] }), linear: mn.modelsHazards(copy, 'res-scaling', o) } });
+    }
+  }
+}
+
+// F4: every drawn curve's ratio tooltip beside its main-panel tooltip, on the recordings and the fallback copies.
+const ratioCase = (payload, opts, tag, name) => {
+  const model = rs.energyModel(payload, opts);
+  const w = walk(rs.energyViewOption(payload, opts, RE).option);
+  for (const s of model.series) {
+    if (!s.drawn || !s.drawn.ratio) continue;
+    const form = s.drawnForm;
+    const fit = s.drawn.fit;
+    fx.ratioTips.push({ tag, name, windows: opts.windows, literature: opts.literature, key: s.key, label: s.label, form,
+      ndf: fit.ndf, p: fit.p_value, S: fit.scale_factor ?? null, chi2: fit.chi2,
+      reference: model.reference.key, refLabel: s.reference?.label ?? null,
+      ratio: tipsOf(w, new RegExp(`^${esc(s.key)}\\|ratio\\|${form}\\|(solid|dashed)\\|`)),
+      main: tipsOf(w, new RegExp(`^${esc(s.key)}\\|${form}\\|(solid|dashed)\\|`)) });
+  }
+};
+for (const name of names) {
+  const payload = load(name);
+  for (const windows of ['anchors', 'all']) {
+    for (const literature of LITS) ratioCase(payload, { windows, shower: 'both', literature }, 'recording', name);
+    for (const s of payload.series) {
+      if (!s.fits[windows].noise) continue;
+      for (const literature of [[], ['pi', 'e']]) ratioCase(stripNoise(payload, s.key), { windows, shower: 'both', literature }, 'fallback', name);
+    }
+  }
+}
+
+// F5 and N1: a fallback a₀/√E made to start above the top at 4 GeV (a₀ = 3·y.hi, entering at 9 GeV) or to lie above
+// the whole axis (a₀ = 1.2·y.hi·√x.max), and as served (N1), on every recording series with a noise fit.
+for (const name of names) {
+  const payload = load(name);
+  for (const s0 of payload.series) {
+    for (const windows of ['anchors', 'all']) {
+      if (!s0.fits[windows].noise || !s0.fits[windows].pinned) continue;
+      for (const variant of ['served', 'above9', 'aboveAll']) {
+        for (const literature of [[], ['pi', 'e']]) {
+          const copy = stripNoise(payload, s0.key);
+          const hi0 = copy.axis.energy.y.hi;
+          const xmax0 = copy.axis.energy.x?.max ?? 80;
+          const pin = copy.series.find((x) => x.key === s0.key).fits[windows].pinned;
+          if (variant === 'above9') pin.params.a0 = 3 * hi0;
+          if (variant === 'aboveAll') pin.params.a0 = 1.2 * hi0 * Math.sqrt(xmax0);
+          const opts = { windows, shower: 'both', literature };
+          const model = rs.energyModel(copy, opts);
+          const ms = model.series.find((x) => x.key === s0.key);
+          const f = ms.drawn;
+          const w = walk(rs.energyViewOption(copy, opts, RE).option);
+          const caretSeries = w.series.filter((x) => x.id === `${s0.key}|carets`);
+          const ratioCarets = w.series.filter((x) => x.id === `${s0.key}|ratio|carets`);
+          fx.entries.push({ name, key: s0.key, label: ms.label, windows, variant, literature,
+            hi: model.y.hi, xMax: model.x.max, curveMin: model.curveMinGev, a0: pin.params.a0, ndf: pin.ndf, p: pin.p_value,
+            drawnForm: ms.drawnForm, entry: f?.entry ?? null, cut: f?.cut ?? null, curve0: f?.curve?.[0] ?? null,
+            curveMaxY: f?.curve?.length ? Math.max(...f.curve.map((r) => r[1])) : null, nCurve: f?.curve?.length ?? 0,
+            full0: f?.full?.[0] ?? null, solid: f?.solid?.length ?? 0, dashed: f?.dashed?.length ?? 0,
+            clipped: model.clipped,
+            carets: caretSeries.flatMap((x) => x.items.map((i) => ({ at: i.value, tip: i.tip }))),
+            mainTips: tipsOf(w, new RegExp(`^${esc(s0.key)}\\|pinned\\|(solid|dashed)\\|`)),
+            ratio: f?.ratio ? { entry: f.ratio.entry, cut: f.ratio.cut, first: f.ratio.rows[0] ?? null, k: model.ratio.k,
+              runs: f.ratio.solid.length + f.ratio.dashed.length,
+              carets: ratioCarets.flatMap((x) => x.items.map((i) => ({ at: i.value, tip: i.tip }))),
+              tips: tipsOf(w, new RegExp(`^${esc(s0.key)}\\|ratio\\|pinned\\|(solid|dashed)\\|`)) } : null,
+            drawer: notesLines(mn.resolutionScalingNotes({ payload: copy, view: 'energy', ...opts })),
+            hazards: mn.modelsHazards(copy, 'res-scaling', { ...opts, view: 'energy' }) });
+        }
+      }
+    }
+  }
+}
+
+// The legend change: the literature legend, tooltips and drawer on every recording with both curves on.
+for (const name of names) {
+  const payload = load(name);
+  for (const windows of ['anchors', 'all']) {
+    for (const literature of LITS) {
+      const opts = { windows, shower: 'both', literature };
+      const w = walk(rs.energyViewOption(payload, opts, RE).option);
+      fx.literature.push({ name, windows, literature, legend: w.legend,
+        litTips: Object.fromEntries(['pi', 'e'].map((k) => [k, tipsOf(w, new RegExp(`^literature\\|${k}$`))])),
+        strings: w.strings,
+        drawer: notesLines(mn.resolutionScalingNotes({ payload, view: 'energy', ...opts })) });
+    }
+  }
+}
+fx.exports = { noBand: rs.ENERGY_NO_BAND_TEXT, provenance: rs.LITERATURE_PROVENANCE };
+console.log(JSON.stringify(fx));
+"""
+
+
+@pytest.fixture(scope="module")
+def fx() -> dict:
+    """The fix round's harness: the panel's helpers of `_SCRIPT` (`walk`, the identity api.coord), then `_FX_BODY`."""
+    prelude = _script()
+    prelude = prelude[:prelude.index("const out = { perf")]
+    args = json.dumps([JS.as_uri(), str(FIXTURES)])
+    done = subprocess.run([NODE, "--input-type=module", "-e", prelude + _FX_BODY, args],
+                          capture_output=True, text=True, timeout=600, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+#: fitMissingReason's three causes (19f6ab2), verbatim.
+FX_DECLINED = "Robust σ (IQR) fits no line through fewer than two fittable windows"
+FX_NO_SCALE = "no window from 4 GeV carries a fit weight, so this series has no pooled scale"
+FX_TOO_FEW = "too few windows"
+
+
+def _fx_cells(case: dict, windows: str, key: str, view: str) -> dict:
+    """{form: (Fit cell, Status cell)} of one series' rows in one view's fit table."""
+    return {form: (cells[0], cells[-1]) for form, cells in case[windows][view][key].items()}
+
+
+@pytest.mark.parametrize("case, reason, windows", [
+    ("res_scaling_robust_single_hits", FX_DECLINED, "anchors"), ("res_scaling_robust_single_hits", FX_DECLINED, "all"),
+    ("res_scaling_robust_single_events", FX_DECLINED, "anchors"), ("res_scaling_robust_single_events", FX_DECLINED, "all"),
+    ("declineCopy", FX_DECLINED, "all"),
+    ("medianTwo", FX_NO_SCALE, "anchors"), ("medianTwo", FX_NO_SCALE, "all"),
+    ("robustXgb", FX_NO_SCALE, "anchors"), ("robustXgb", FX_NO_SCALE, "all"),
+    ("cNullNoise", FX_NO_SCALE, "anchors"), ("cNullNoise", FX_NO_SCALE, "all"),
+    ("cNull", FX_NO_SCALE, "anchors"), ("cNull", FX_NO_SCALE, "all"),
+    ("tooFew", FX_TOO_FEW, "anchors"), ("tooFew", FX_TOO_FEW, "all"),
+])
+def test_fx_f2_a_missing_fit_from_4_gev_gives_its_true_cause_in_every_cell(fx, case, reason, windows):
+    """review-ui F2, review-docs M3 (19f6ab2, fa85fe8): a series with no fit from 4 GeV says why, from the payload, in
+    the E view's affine, pinned and quadrature Fit cells, in both views' Status cells and in the E model's pinned
+    reason: Robust σ (IQR) declines its one fittable window (the recordings of one shower and the lead's thinned copy
+    of the two-shower one), no pooled scale (c null: the median two-shower deposits, the robust XGBoost series, and a
+    copy of the robust network A with c null, its noise fit kept or removed), or else too few windows (a sample
+    series). "too few windows" is never given for the first two, and no cell calls a fit that was never made "table
+    only" or "drawn in the 1/√E view"."""
+    c = fx["tables"][case]
+    status = reason if reason == FX_TOO_FEW else f"no fit: {reason}"
+    for key in c["keys"]:
+        e = _fx_cells(c, windows, key, "energy")
+        lin = _fx_cells(c, windows, key, "linear")
+        assert e["affine"][0] == f"Affine a/√E + b — not fitted: {reason}", (case, key)
+        assert e["pinned"][0] == f"Origin-pinned a₀/√E ⊕ 0 — not drawn: {reason}", (case, key)
+        assert e["quadrature"][0] == f"Quadrature a/√E ⊕ b — not fitted: {reason}", (case, key)
+        for form in ("affine", "pinned", "quadrature"):
+            assert e[form][1] == lin[form][1] == status, (case, key, form)
+        # The 1/√E view's Fit cells keep their form names.
+        assert [lin[f][0] for f in ("affine", "pinned", "quadrature")] == [
+            "Affine a/√E + b", "Origin-pinned a₀/√E", "Quadrature √(a²/E + b²), tabled only"]
+        m = c[windows]["model"][key]
+        assert m["pinnedReason"] == reason and m["pinnedDrawable"] is False, (case, key)
+        cells = " ".join(x for pair in e.values() for x in pair) + " ".join(x for pair in lin.values() for x in pair)
+        if reason != FX_TOO_FEW:
+            assert FX_TOO_FEW not in cells, (case, key)
+        assert "drawn in the 1/√E view" not in e["affine"][0] and "table only" not in e["pinned"][0]
+        # The drawer: a series with no curve at all names the same cause for its a₀/√E.
+        if m["drawnForm"] is None:
+            (line,) = [x for x in c[windows]["drawer"] if x.startswith(f"{m['label']}: no fitted curve is drawn. ")]
+            assert line.endswith(f"Its origin-pinned a₀/√E ⊕ 0 has no curve either: {reason}."), line
+        else:
+            assert m["drawnForm"] == "noise" and e["noise"][0] == "a/√E ⊕ b ⊕ c/E — drawn"
+
+
+def test_fx_f2_the_fallback_and_a_complete_series_keep_their_cells(fx):
+    """The cells the fix leaves alone: a drawn a₀/√E fallback says why it is drawn, a₀/√E beside a drawn noise curve is
+    table only, the affine fit is drawn in the 1/√E view, and every Status reads as the fit's own."""
+    for case, pinned in (("fallback", "Origin-pinned a₀/√E ⊕ 0 — drawn: no a/√E ⊕ b ⊕ c/E fit"),
+                         ("plain", "Origin-pinned a₀/√E ⊕ 0 — table only on this view")):
+        c = fx["tables"][case]
+        for windows in ("anchors", "all"):
+            e = _fx_cells(c, windows, "network:a", "energy")
+            assert e["pinned"][0] == pinned and e["affine"][0] == "Affine a/√E + b — drawn in the 1/√E view"
+            assert e["quadrature"][0].startswith("Quadrature a/√E ⊕ b — table only")
+            assert not [f for f in ("affine", "pinned", "quadrature") if e[f][1].startswith("no fit") or e[f][1] == FX_TOO_FEW]
+    assert fx["tables"]["fallback"]["all"]["model"]["network:a"]["drawnForm"] == "pinned"
+    assert fx["tables"]["plain"]["all"]["model"]["network:a"]["pinnedReason"] == (
+        "table only on this view: the a/√E ⊕ b ⊕ c/E curve is drawn")
+
+
+def test_fx_f3_a_drawn_noise_fit_that_did_not_converge_raises_the_hazard(fx):
+    """review-ui F3 (28d58e5): "fit not converged" reads the noise fit too, in both views, on a copy of every recording
+    series whose noise fit alone is marked converged: false, and on none of the recordings themselves."""
+    assert len(fx["hazards"]) >= 30 and any(h["drawn"] == "noise" for h in fx["hazards"])
+    for h in fx["hazards"]:
+        assert "fit not converged" not in h["base"]["energy"] and "fit not converged" not in h["base"]["linear"], h["name"]
+        assert h["doctored"]["energy"].count("fit not converged") == 1, (h["name"], h["key"], h["windows"])
+        assert h["doctored"]["linear"].count("fit not converged") == 1, (h["name"], h["key"], h["windows"])
+        # Nothing else moves.
+        assert [x for x in h["doctored"]["energy"] if x != "fit not converged"] == h["base"]["energy"]
+        assert [x for x in h["doctored"]["linear"] if x != "fit not converged"] == h["base"]["linear"]
+
+
+_FX_CHI2 = re.compile(r"^χ²/ν = \S+/\d+, p = \S+; S = \S+$")
+_FX_EXACT = re.compile(r"^χ²/ν = .*: the curve passes through its \d+ points? exactly$")
+
+
+def test_fx_f4_every_ratio_curve_tooltip_carries_its_terms_chi2_and_no_band(fx):
+    """review-ui F4 (19f6ab2): every drawn curve's tooltip on the ratio panel gives, below its title, the fit ÷ the
+    reference, its terms with their SEs (the same line its main-panel tooltip gives), its χ²/ν line ("; S = …" where
+    ν ≥ 1, else the exact pass; the main tooltip's own), and ENERGY_NO_BAND_TEXT once. On the twelve recordings, both
+    modes, every literature state, and on a fallback copy of every series with a noise fit."""
+    tags = {(r["tag"], r["form"]) for r in fx["ratioTips"]}
+    assert tags == {("recording", "noise"), ("fallback", "noise"), ("fallback", "pinned")}
+    n = 0
+    for r in fx["ratioTips"]:
+        # A ratio that stays beyond the axis everywhere draws no run, so it has no run tooltip (its caret speaks).
+        assert r["main"], (r["name"], r["key"], r["windows"], r["literature"])
+        main_lines = {_plain(x) for t in r["main"] for x in t.split("<br/>")}
+        for tip in r["ratio"]:
+            lines = [_plain(x) for x in tip.split("<br/>")]
+            head = "a/√E ⊕ b ⊕ c/E fit" if r["form"] == "noise" else "Origin-pinned fit a₀/√E ⊕ 0"
+            assert lines[0] == r["label"] and lines[1] == f"{head} ÷ {r['refLabel']}", lines[:2]
+            terms, chi2 = lines[2], lines[3]
+            assert terms in main_lines and chi2 in main_lines, (terms, chi2)
+            assert "±" in terms or "held there" in terms, terms
+            if r["form"] == "pinned":
+                assert terms.startswith("Origin-pinned fit ") and "%/√E ⊕ 0 (b ≡ 0, through the origin)" in terms
+            if r["ndf"] >= 1 and r["p"] is not None:
+                assert _FX_CHI2.match(chi2), chi2
+            else:
+                assert _FX_EXACT.match(chi2), chi2
+            assert lines[4] == "The fitted curve divided by the reference at each E, the reference held exact."
+            assert lines.count(ENERGY_NO_BAND_TEXT) == 1 and lines[5] == ENERGY_NO_BAND_TEXT
+            n += 1
+    assert n > 500
+
+
+def _fx_entries(fx: dict, variant: str) -> list[dict]:
+    return [e for e in fx["entries"] if e["variant"] == variant]
+
+
+def _fx_served(fx: dict, e: dict) -> dict:
+    (s,) = [x for x in _fx_entries(fx, "served") if (x["name"], x["key"], x["windows"], x["literature"])
+            == (e["name"], e["key"], e["windows"], e["literature"])]
+    return s
+
+
+def _fx_pct(tip: str) -> str:
+    """The axis top as a tooltip prints it, "(0 to 90%)"."""
+    m = re.search(r"\(0 to ([^)]+%)\)", tip)
+    assert m, tip
+    return m.group(1)
+
+
+def test_fx_f5_a_fallback_above_the_top_at_4_gev_comes_down_at_a0_over_the_top_squared(fx):
+    """review-ui F5 (19f6ab2, fa85fe8): a₀/√E falls with E, so a fallback that starts above the top at 4 GeV (a₀ =
+    3·y.hi, on a copy of every recording series with a noise fit, both modes, literature off and on) comes down into
+    the plot at E = (a₀/y.hi)² = 9 GeV: an entry there, the curve drawn from the top on, no cut, one caret with its
+    sentence, counted with the entries, never the leaving fits, and the drawer's line."""
+    cases = _fx_entries(fx, "above9")
+    assert len(cases) >= 60
+    for e in cases:
+        where = (e["name"], e["key"], e["windows"], e["literature"])
+        hi, a0 = e["hi"], e["a0"]
+        assert e["drawnForm"] == "pinned" and e["curveMin"] == 4 and a0 / 2 > hi
+        at = (a0 / hi) ** 2
+        assert at == pytest.approx(9)
+        assert e["entry"] == {"at": pytest.approx(at), "lineAt": pytest.approx(at), "above": False, "term": "a", "atAxis": False}, where
+        assert e["cut"] is None, where
+        assert e["curve0"] == [pytest.approx(at), pytest.approx(hi)] and e["curveMaxY"] == pytest.approx(hi), where
+        assert e["full0"] == [4, pytest.approx(a0 / 2)], "the ratio's source still starts at 4 GeV"
+        served = _fx_served(fx, e)
+        assert e["clipped"]["entries"] == served["clipped"]["entries"] + (0 if served["entry"] else 1), where
+        assert e["clipped"]["fits"] == served["clipped"]["fits"], where
+        tips = [c for c in e["carets"] if "origin-pinned a₀/√E" in c["tip"]]
+        assert len(tips) == 1 and tips[0]["at"][:2] == [pytest.approx(at), pytest.approx(hi)], where
+        tip = _plain(tips[0]["tip"])
+        top = _fx_pct(tip)
+        assert tip == (f"{e['label']} The origin-pinned a₀/√E comes down into the plot at E = 9 GeV: it falls as 1/√E, so "
+                       f"from 4 GeV up to that energy it lies above the top of the axis (0 to {top}).")
+        assert not [c for c in e["carets"] if "leaves the top" in c["tip"] and c["tip"].startswith(f"<b>{e['label']}")]
+        assert e["mainTips"] and all("It comes down into the plot from the top: the caret there says where." in _plain(t)
+                                     for t in e["mainTips"]), where
+        assert not [t for t in e["mainTips"] if "It leaves the top of the plot" in t]
+        lines = [x for x in e["drawer"] if x.startswith(f"{e['label']}: its origin-pinned a₀/√E ")]
+        assert lines == [f"{e['label']}: its origin-pinned a₀/√E comes down into the main panel from its top ({top}) at "
+                         "E = 9 GeV, with a caret there: it falls as 1/√E, so from 4 GeV up to that energy it lies above the top."], where
+
+
+def test_fx_f5_a_fallback_above_the_whole_axis_has_one_caret_at_the_axis_end(fx):
+    """A fallback above the top at every energy (a₀ = 1.2·y.hi·√x.max): no curve is drawn, one entry caret at x.max with
+    its own sentence and its value there, counted with the entries, no cut, and the drawer's line."""
+    cases = _fx_entries(fx, "aboveAll")
+    assert len(cases) >= 60
+    for e in cases:
+        where = (e["name"], e["key"], e["windows"], e["literature"])
+        hi, a0, xmax = e["hi"], e["a0"], e["xMax"]
+        assert (a0 / hi) ** 2 > xmax
+        assert e["entry"] == {"at": xmax, "lineAt": None, "above": True, "term": "a", "atAxis": False}, where
+        assert e["cut"] is None and e["nCurve"] == 0 and e["solid"] == e["dashed"] == 0, where
+        assert not e["mainTips"]
+        served = _fx_served(fx, e)
+        assert e["clipped"]["entries"] == served["clipped"]["entries"] + (0 if served["entry"] else 1), where
+        assert e["clipped"]["fits"] == served["clipped"]["fits"]
+        tips = [c for c in e["carets"] if "origin-pinned a₀/√E" in c["tip"]]
+        assert len(tips) == 1 and tips[0]["at"][:2] == [xmax, pytest.approx(hi)], where
+        tip = _plain(tips[0]["tip"])
+        top = _fx_pct(tip)
+        m = re.fullmatch(rf"{re.escape(e['label'])} The origin-pinned a₀/√E lies above the top of the axis \(0 to "
+                         rf"{re.escape(top)}\) at every energy from 4 GeV: at 80 GeV it reads ([\d.,]+)%\.", tip)
+        assert m, tip
+        assert float(m.group(1).replace(",", "")) == pytest.approx(a0 / math.sqrt(xmax), rel=5e-3)
+        lines = [x for x in e["drawer"] if x.startswith(f"{e['label']}: its origin-pinned a₀/√E ")]
+        assert lines == [f"{e['label']}: its origin-pinned a₀/√E lies above the top of the main panel ({top}) at every "
+                         "energy from 4 GeV; it is clipped there with a caret."], where
+
+
+def test_fx_f5_the_fallbacks_ratio_takes_the_entry_treatment(fx):
+    """A fallback's ratio, defined from 4 GeV, that starts beyond [1/k, k] comes into it as E rises, or stays beyond it
+    over the whole axis (`whole`): an entry with one caret naming the origin-pinned fit, never a cut at its first row;
+    one that starts inside has no entry. On the doctored and the served fallbacks wherever the series is not the
+    reference itself."""
+    seen = {"inside": 0, "enters": 0, "whole": 0}
+    for e in fx["entries"]:
+        r = e["ratio"]
+        if r is None:
+            continue
+        where = (e["variant"], e["name"], e["key"], e["windows"], e["literature"])
+        k, (e0, r0) = r["k"], r["first"]
+        assert e0 == pytest.approx(4), where
+        outside = abs(math.log(r0)) > math.log(k) * (1 + 1e-9)
+        carets = [_plain(c["tip"]) for c in r["carets"] if "The ratio of the origin-pinned fit a₀/√E ⊕ 0 to " in _plain(c["tip"])
+                  and "leaves the ratio axis" not in c["tip"]]
+        if not outside:
+            assert r["entry"] is None and not carets, where
+            seen["inside"] += 1
+            continue
+        ent = r["entry"]
+        assert ent and ent["peak"] == [e0, r0] and ent["dir"] == ("up" if r0 > 1 else "down"), where
+        assert len(carets) == 1, where
+        side = "above" if r0 > 1 else "below"
+        if ent["whole"]:
+            assert r["runs"] == 0 and r["cut"] is None and not r["tips"], where
+            assert f"stays {side} the ratio axis (" in carets[0] and ") over the whole axis, scanning up in E from 4 GeV" in carets[0]
+            seen["whole"] += 1
+        else:
+            assert 4 < ent["at"] <= e["xMax"] and r["runs"] >= 1, where
+            assert f"comes into the ratio axis (" in carets[0] and f") from {side} at E = " in carets[0]
+            assert all("It comes into the ratio axis from beyond it as E rises from 4 GeV: the caret there says where." in _plain(t)
+                       for t in r["tips"]), where
+            seen["enters"] += 1
+        assert "a/√E ⊕ b ⊕ c/E fit to" not in carets[0].split(" to ")[0]
+    assert all(seen.values()), seen
+
+
+def test_fx_n1_the_fallbacks_chi2_line_writes_s(fx):
+    """review-ui N1 (19f6ab2): the fallback's main tooltip writes "χ²/ν = …, p = …; S = …" where ν ≥ 1, as the noise
+    curve's does, and the exact-pass sentence otherwise."""
+    n = 0
+    for e in _fx_entries(fx, "served") + _fx_entries(fx, "above9"):
+        for t in e["mainTips"]:
+            (chi2,) = [_plain(x) for x in t.split("<br/>") if _plain(x).startswith("χ²/ν = ")]
+            if e["ndf"] >= 1 and e["p"] is not None:
+                assert _FX_CHI2.match(chi2), chi2
+            else:
+                assert _FX_EXACT.match(chi2) and "; S = " not in chi2, chi2
+            n += 1
+    assert n > 100
+
+
+def test_fx_s2_the_pooled_scale_line_ends_with_the_residual_clause(fx, est):
+    """review-stats S2 (28d58e5): under median and robust every drawer's pooled-scale line ends with the clause that a
+    1–4 GeV window's residual counts in S and the misfit verdict at c·ŷ/√N, verbatim; under sample nothing says it."""
+    clause = ("which they do not enter, so their residuals count in S and the misfit verdict at c·ŷ/√N, not at their own "
+              "bootstrap errors.")
+    assert FX2_WEIGHTS.endswith(clause)
+    n = 0
+    for name, estimator in RES_EST.items():
+        for view, key, notes in _fix3_drawers(est["fixtures"][name]):
+            hits = [x for x in _fix3_lines(notes) if x.endswith(clause)]
+            assert len(hits) == (0 if estimator == "sample" else 1), (name, view, key)
+            n += len(hits)
+    assert n >= 64
+
+
+_FX_LIT_PCT = re.compile(r"(?:27\.2|14\.0)\s*%\s*/√E|⊕\s*(?:1\.0|0\.4)\s*%")
+
+
+def test_fx_the_literature_equations_carry_no_percent_sign_and_say_their_units(fx):
+    """Martin's request (2026-11-15, c406217): the literature legend entries read "π± lit. — σ/E = 27.2/√E ⊕ 1.0" and
+    "e± lit. — σ/E = 14.0/√E ⊕ 0.4", as the figure's legend prints them, and no literature equation anywhere on the
+    card (canvas, axes, legend, every tooltip, the drawer) carries a % sign; REFERENCE_UNITS is said in each curve's
+    tooltip and in the drawer's transcription line."""
+    assert REFERENCE_UNITS in fx["exports"]["provenance"]
+    legends = {"pi": "π± lit. — σ/E = 27.2/√E ⊕ 1.0", "e": "e± lit. — σ/E = 14.0/√E ⊕ 0.4"}
+    drawn = 0
+    for c in fx["literature"]:
+        where = (c["name"], c["windows"], c["literature"])
+        if c["legend"]:  # the empty state (robust, one shower, 3 anchors) draws no legend
+            assert [x for x in c["legend"] if " lit. — " in x] == [legends[k] for k in c["literature"]], where
+        for text in c["strings"] + c["drawer"]:
+            assert not _FX_LIT_PCT.search(_plain(text)), (where, _plain(text)[:200])
+        for k in ("pi", "e"):
+            tips = c["litTips"][k]
+            assert bool(tips) == (k in c["literature"] and bool(c["legend"])), where
+            for t in tips:
+                lines = [_plain(x) for x in t.split("<br/>")]
+                assert lines[1] == LIT_EQUATIONS[k] and f"inlay, 2.55 < η < 3.98), {REFERENCE_UNITS}; no interval reported" in lines[2]
+        units = [x for x in c["drawer"] if x.startswith("The literature curves are the two legend curves of one figure")]
+        drawn += bool(c["legend"] and c["literature"])
+        if c["literature"] and c["legend"]:
+            assert units == [x for x in units if x.endswith(
+                f"{LIT_EQUATIONS['pi']} and {LIT_EQUATIONS['e']}, transcribed as the legend prints them, {REFERENCE_UNITS}.")] and len(units) == 1
+        elif not c["literature"]:
+            assert not units
+    assert drawn >= 60

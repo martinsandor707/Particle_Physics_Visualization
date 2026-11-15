@@ -198,6 +198,28 @@ commit, 711fcf3, whose run reproduces the golden exactly):
     the held lines without a band sentence), and the 16 1/√E drawers of the eight median and robust recordings, by
     the weight label, the one-scale pooled line and the tabled noise fit's S.
 
+The single-curve round's fix round and the legend change (2026-11-15: Martin's request c406217, the literature
+legend without a % sign by its values and REFERENCE_UNITS beside the equation; the review's fixes 09a3be4, 19f6ab2,
+28d58e5 and fa85fe8) re-recorded 284 of the 2,869 cases, in the same two families and nothing else; the case-id set
+and the theme map did not move (measured against a dump of the code and recordings of 29c3ae8, whose run reproduces
+the golden exactly; every moved leaf was classified, none outside the changes named here):
+  - 172 `models/resolution/*` cases. On the E view 82 options on screen and 74 in print: every literature state's
+    legend, curve tooltips and 1.0 rule ("σ/E = 27.2/√E ⊕ 1.0", the units in the provenance), and every ratio-panel
+    curve tooltip (its terms with their SEs, its χ²/ν line and the no-band sentence, review-ui F4); the 60 that did
+    not move draw no literature curve and no ratio curve (the deposit reference of the one-shower recordings, of the
+    median two-shower deposits and of the robust XGBoost series, which serve no fit; their `/narrow` and `/showerA`;
+    the empty state of the two robust one-shower recordings' 3 anchors). 8 E fit tables and 8 1/√E fit tables (both
+    modes of `median_two`, `robust_single_hits`, `robust_single_events` and `robust_xgb`), by the true cause of a
+    missing fit from 4 GeV alone: the Status cells' "no fit: …", the E view's pinned "not drawn: …" and its affine
+    and quadrature "not fitted: …" (review-ui F2, review-docs M3). No 1/√E chart case moved: not `<name>/anchors` or
+    `/all`, `/showerA`, `/narrow`, nor their `@print` twins, on any recording.
+  - 112 `notes/models_resolution/*` drawers: the 96 E-view drawers (the transcription line's units, the ink end
+    labels of review-docs M4, the no-curve line's true cause, the pooled-scale line's review-stats S2 clause) and the
+    16 1/√E drawers of the eight median and robust recordings, by the weight label without "as its rule says"
+    (review-ui N3) and the pooled-scale line's S2 clause. The fallback's entry from the top (review-ui F5) and the
+    noise fit's "fit not converged" hazard (review-ui F3) move no case: no recording draws a fallback or carries an
+    unconverged fit; `test_js_models_panels.py` pins both on doctored copies.
+
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
 behaviour, never code, so a refactor that reorders an object literal or
