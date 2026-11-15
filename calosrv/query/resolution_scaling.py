@@ -199,15 +199,19 @@ pooled scale** (Martin's directive, 2026-11-15, retiring the second scale c_low
 of the fix brief's FX2, 2026-11-13): under median and robust every window takes
 ``c/√N`` (:func:`fit_kappa`), those of 1–4 GeV included, with the series'
 pooled scale c, which only windows from 4 GeV enter. One c cancels in the
-fitted parameters, so the curve depends on each window's N and fitted value
-alone. Under sample the delta method. The cost, measured by the review on
-2026-11-13 (``pion_hits_with_model_outputs``, Robust σ (IQR), network A,
-c = 1.39): √N·κ is 5.16 at 1–2 GeV and 3.94 at 2–3 GeV (3.7 and 2.8 times c),
-so the 1–2 GeV window carries about 14 times the weight its own bootstrap error
-supports, and as the 3-anchor mode's low anchor it sets the curve at 88.9% at
-1 GeV (108.6% under c_low), with S = 4.24 (3.04). Over the 120 noise fits of
-the eight stored experiments (Absolute frame, both modes, three estimators),
-17 are misfits with one scale and 18 were under c_low (the lead, 2026-11-15).
+fitted parameters, so each window's weight depends on its N and the fitted
+value alone, never on its own bootstrap error. Under sample the delta method.
+The cost, on ``pion_hits_with_model_outputs``, Robust σ (IQR), network A,
+c = 1.39: √N·κ is 5.16 at 1–2 GeV and 3.94 at 2–3 GeV, 3.7 and 2.8 times c
+(the review, 2026-11-13), so the 1–2 GeV window carries about 14 times the
+weight its own bootstrap error supports. The three-anchor curve reads 88.9% at
+1 GeV, against 108.6% under c_low (the lead, 2026-11-13), with S = 4.24,
+against 3.04 under c_low (the lead, 2026-11-15). A 1–4 GeV window's residual
+counts in S and the misfit verdict at c·ŷ/√N, not at its own bootstrap error:
+on that series the three-anchor S is 4.24 at c and 3.23 at the windows' own
+errors (the review, 2026-11-15). Over the 120 noise fits of the eight stored
+experiments (Absolute frame, both modes, three estimators), 17 are misfits
+with one scale and 18 were under c_low (the lead, 2026-11-15).
 Its block is compact (no ``_stat`` fields, no curve, no note, no band): the
 panel draws it from its parameters, from 0 GeV, solid over its own
 ``span_gev``.
@@ -1439,12 +1443,15 @@ INTERVAL_LABELS: dict[str, str] = {
              "neglected, the delta-method se includes it."),
 }
 WEIGHT_LABELS: dict[str, str] = {
-    # Verbatim: the lead's wording of 2026-11-15 for Martin's one-scale decision (F1 of the fix
-    # brief, 2026-11-12, with the noise fit's 1–4 GeV windows weighted by the same c).
+    # Verbatim: the res-robust label (F1 of the fix brief, 2026-11-12) plus the fallback
+    # parenthetical "(where a series has none, over the windows its provisional fits draw on)"
+    # (SC-backend-check F1). The clause on the noise fit's 1–4 GeV windows, weighted by the
+    # same c, is not here: it lives in weight_scale.rule and in the drawer's pooled-scale line
+    # (models_notes.js pooledScaleLine), so the drawer states it once (the brief's §5, D3).
     "kappa": ("Fit weights 1/se², se = c·ŷ/√N recomputed at the fitted value ŷ and iterated, with "
               "c the series' pooled scale: the median of √N·κ over its windows of N ≥ 20 from "
-              "4 GeV (where a series has none, over the windows its provisional fits draw on, as "
-              "its rule says), κ = SE/value each window's bootstrap relative SE. One c per series "
+              "4 GeV (where a series has none, over the windows its provisional fits draw on), "
+              "κ = SE/value each window's bootstrap relative SE. One c per series "
               "cancels in the fitted parameters and sets only χ², S and the errors; a per-window "
               "κ would put each window's own value back into its weight."),
     "delta": ("Fit weights 1/se², se = |r|·√(1/(2(N − 1)) + r²/N), the delta-method standard "
@@ -1518,7 +1525,8 @@ _POOLED_WORDS = (
     "1/se², se = c·ŷ/√N taken at the fitted value ŷ and iterated (half steps once the refits "
     "oscillate; the first fit takes c·value/√N), with c the series' pooled scale "
     "(weight_scale): the median of √N·κ over its windows of N ≥ 20 from 4 GeV with a fit "
-    "weight, κ = SE/value each window's bootstrap relative SE. One c per series cancels in the "
+    "weight (where a series has none, over the windows its provisional fits draw on), "
+    "κ = SE/value each window's bootstrap relative SE. One c per series cancels in the "
     "fitted parameters and sets only χ², S and the errors; a window's own κ would put its "
     "measured value back into its weight, and bias the fits upward.")
 

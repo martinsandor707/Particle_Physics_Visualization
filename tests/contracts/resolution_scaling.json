@@ -1182,7 +1182,7 @@
        "type": "null"
       }
      ],
-     "description": "[smallest p_lo, largest p_hi] in GeV of the windows in points: the E view draws the mode's fits solid over it and dashed beyond; null without points."
+     "description": "[smallest p_lo, largest p_hi] in GeV of the windows in points, the windows the mode's affine, pinned and quadrature fits ran through: the 1/√E view judges its band outlines over it, and the E view draws a series' a₀/√E fallback solid over it and dashed beyond. The noise curve has its own span_gev (noise.span_gev). Null without points."
     },
     "noise": {
      "anyOf": [
@@ -1355,7 +1355,7 @@
           "null"
          ],
          "minimum": 0,
-         "description": "The series' one pooled scale: the median of √N·κ over its n_windows fittable windows from 4 GeV. Every fit weights window k by se = c·ŷ/√N, and the noise fit a/√E ⊕ b ⊕ c/E takes the same c for its windows of 1–4 GeV, which do not enter it. Null when no window carries a fit weight."
+         "description": "The series' one pooled scale: the median of √N·κ over its n_windows fittable windows from 4 GeV. Every fit weights window k by se = c·ŷ/√N, and the noise fit a/√E ⊕ b ⊕ c/E takes the same c for its windows of 1–4 GeV, which do not enter it. Null when no window from 4 GeV carries a fit weight."
         },
         "n_windows": {
          "type": "integer",
@@ -1372,7 +1372,7 @@
        "type": "null"
       }
      ],
-     "description": "Median and robust: the series' one pooled scale c (Martin's directive, 2026-11-15), the median of √N·κ over its n_windows fittable windows (N ≥ 20 from 4 GeV with κ ≥ KAPPA_FLOOR; with none, those of N ≥ the whisker gate), and the rule as a sentence. Every fit weights window k by se = c·ŷ/√N, the noise fit a/√E ⊕ b ⊕ c/E its windows of 1–4 GeV included, which take the same c without entering it; c cancels in the parameters and sets only χ², S and the errors. c is null when no window carries a fit weight. null under sample (delta-method weights)."
+     "description": "Median and robust: the series' one pooled scale c (Martin's directive, 2026-11-15), the median of √N·κ over its n_windows fittable windows (N ≥ 20 from 4 GeV with κ ≥ KAPPA_FLOOR; with none, those of N ≥ the whisker gate), and the rule as a sentence. Every fit weights window k by se = c·ŷ/√N, the noise fit a/√E ⊕ b ⊕ c/E its windows of 1–4 GeV included, which take the same c without entering it; c cancels in the parameters and sets only χ², S and the errors. c is null when no window from 4 GeV carries a fit weight. null under sample (delta-method weights)."
     }
    },
    "additionalProperties": false
