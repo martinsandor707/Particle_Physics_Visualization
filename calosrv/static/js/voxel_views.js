@@ -15,8 +15,8 @@
  * ## What each pair asks for
  *
  * The event pair draws the event the link names (`voxel_event`) or, with
- * none, the densest event of the selection (`/api/event/pick?rule=densest`,
- * never written to the link): the Event Inspector's rasters
+ * none, the densest candidate event (`/api/event/pick?rule=densest`, under
+ * the particle filter too; never written to the link): the Event Inspector's rasters
  * (`/api/event`, three panels of the drawn frame) and its cubes
  * (`/api/event?format=voxels`). The raster holds one shower in the Absolute,
  * per-shower translated and Local frames; the cubes are therefore asked for
@@ -93,11 +93,42 @@
  * K = 1; Reset view keeps the slice. The two paired depth projections mark the
  * slice's depth with a bracket (`depthSlab`, projection.js), carried by every
  * later render. At K = 1 nothing of this reaches either chart.
+ *
+ * ## The event pickers and the particle filter (brief particle-filter, section 8)
+ *
+ * The One event scope draws one event of the candidates: the selection
+ * (E₁, E₂, D) narrowed by the sidebar's particle filter (p and θ of either
+ * shower; event_picker.js says what the pool is). Its pickers all draw from
+ * that pool: "Pick for me" a uniform draw (a seeded shuffle, `FIRST_SEED`,
+ * each click the next draw), "Most tilted" the notebook's rule (each click the
+ * next seed), "Densest" (no `voxel_event`: always re-picked by its request
+ * key) and ‹ › (the server's previous / next walk the pool). The event pair's
+ * request key and both its requests carry `state.particleParams()`; the
+ * Selection scope and the cloud never do, and while a bound is set they say
+ * in their captions that they draw the whole selection (`ensembleLine`).
+ *
+ * Each pinned event's origin is remembered in memory (link, typed, pick,
+ * tilted, step, replace, densest). After a filter or particle commit the
+ * pinned event's fresh response decides (`followDecision`): kept while it is
+ * a candidate, replaced by the next uniform draw when the page chose it
+ * itself, else drawn as asked and flagged. A picker asks for a matching
+ * shower (`focusShower`, "Both" kept in the Absolute frame); with "Both" and
+ * one shower matching, the projections draw the matching one and say so.
+ *
+ * With no candidate (N = 0) and no pinned event the pair shows the empty
+ * line in place of its plots and asks for nothing; a 404 from the pick is that
+ * state, never an error. Every picker is then shut with the empty line as its
+ * title. The "2-D ↗" link opens the drawn event in the Physics page's Event
+ * Inspector, with the hash of the moment it is followed.
  */
 
 import { getJson, abortRequest, isAbort } from './api.js';
 import { LazyCards, requestKey, isRefusal } from './lazy_cards.js';
-import { describeError, writeSparseNote, webglAvailable } from './page_common.js';
+import { describeError, writeSparseNote, webglAvailable, wireLiveLinks } from './page_common.js';
+import {
+  FIRST_SEED, pickParams, followDecision, focusShower, placeLine, matchLine, replacedLine, ensembleLine, emptyLine,
+  pickerTitle, eventIn2dHref, OPEN_2D_TITLE, PICK_TITLE, TILTED_TITLE,
+} from './event_picker.js';
 import { apiFrame } from './state.js';
 import { viewFrame } from './capabilities.js';
 import { CHOICE_LABELS, frameLabel, isLegacyFrame, MODELS_LABELS } from './labels.js';
@@ -159,11 +190,32 @@ function choiceLabels(choices) {
 export const EVENT_CHANNEL_LABELS = choiceLabels(MODELS_LABELS.voxel_channel);
 export const ENSEMBLE_CHANNEL_LABELS = choiceLabels(MODELS_LABELS.ens_channel);
 
-/** The notebook's seed for the first "Pick" (the tilted rule); later picks take the next. */
-const FIRST_SEED = 42;
-
 /** How many responses the section keeps for views it may return to. */
 const CACHE_SIZE = 16;
+
+/** How many events' matched showers the section remembers (picks, neighbours, responses). */
+const MATCHED_MEMO_SIZE = 256;
+
+/** The event pickers' labels and the titles event_picker.js does not write (Densest, ‹ ›). */
+export const PICKER_LABELS = Object.freeze({ uniform: 'Pick for me', tilted: 'Most tilted', densest: 'Densest' });
+export const DENSEST_TITLE = 'The candidate event with the most detector cells (the High_energy notebook\'s idxmax, '
+  + 'under the filters and the particle filter; not written to the link)';
+export const STEP_TITLES = Object.freeze({
+  prev: 'The previous candidate event, in event-number order',
+  next: 'The next candidate event, in event-number order',
+});
+/** The 2-D link's text: the Physics page's Event Inspector on the drawn event. */
+export const OPEN_2D_LABEL = '2-D ↗';
+
+/** A 404 from GET /api/event/pick: the pool is empty (N = 0), never an error. */
+function emptyPick(error) {
+  return Number(error?.status) === 404;
+}
+
+/** An event number as an identifier: never digit-grouped. */
+function eventId(n) {
+  return String(Math.trunc(Number(n)));
+}
 
 export const GL_UNAVAILABLE = 'WebGL is not available in this browser (or the 3-D renderer did not load), '
   + 'so the 3-D view is not drawn. The three 2-D projections beside it carry the same cells quantitatively.';
@@ -189,6 +241,15 @@ export const BOTH_SHOWERS_SHUT = 'Both showers are drawn together in the Absolut
 /** What the projections say when the 3-D view draws both showers. */
 export const PROJECTIONS_ONE_SHOWER = 'These projections show shower A: the Event Inspector\'s rasters hold '
   + 'one shower each, while the 3-D view beside them draws both.';
+
+/**
+ * What the projections say when the 3-D view draws both showers and exactly
+ * one matches the particle filter: they draw that one.
+ */
+export function projectionsMatchingNote(key) {
+  return `These projections show shower ${String(key ?? 'a').toUpperCase()}, the one that matches the particle `
+    + 'filter: the Event Inspector\'s rasters hold one shower each, while the 3-D view beside them draws both.';
+}
 
 /* ## The selection scope (Martin's directives of 2026-10-31 and 2026-11-06)
  *
@@ -316,9 +377,12 @@ function channelNote(asked, drawn, labels, reason) {
  * `{frame, channel, shower, rasterShower, notes, projectionNote,
  * bothDrawable}`. `frame` is null when the experiment offers the view in no
  * frame; `bothDrawable` says whether "Both" can be drawn: two showers, in the
- * Absolute frame. Pure.
+ * Absolute frame. `matched` (given only while the particle filter is active)
+ * names the event's matching showers: with "Both" drawn and exactly one of
+ * them matching, the projections (`rasterShower`) draw that one and say so.
+ * Pure.
  */
-export function resolveEventView({ frame, channel, shower, scope = 'event' } = {}, offer) {
+export function resolveEventView({ frame, channel, shower, scope = 'event', matched = null } = {}, offer) {
   const notes = [];
   const n = offer.nShowers ?? 2;
   const allowed = offer.event.frames.filter((f) => PAIRED_EVENT_FRAMES.includes(f));
@@ -355,13 +419,18 @@ export function resolveEventView({ frame, channel, shower, scope = 'event' } = {
     three = 'a';
     notes.push(BOTH_SHOWERS_NOTE);
   }
+  // "Both" with one shower matching the particle filter: the projections draw the match.
+  const match = three === 'both' && !selection && Array.isArray(matched) && matched.length === 1
+    && ['a', 'b'].includes(matched[0]) ? matched[0] : null;
+  let projectionNote = null;
+  if (three === 'both' && !selection) projectionNote = match ? projectionsMatchingNote(match) : PROJECTIONS_ONE_SHOWER;
   return {
     frame: drawn,
     channel: ch,
     shower: three,
-    rasterShower: three === 'both' ? 'a' : three,
+    rasterShower: three === 'both' ? (match ?? 'a') : three,
     notes,
-    projectionNote: three === 'both' && !selection ? PROJECTIONS_ONE_SHOWER : null,
+    projectionNote,
     bothDrawable,
     scope: selection ? 'selection' : 'event',
     selectionOffered,
@@ -524,9 +593,15 @@ export function framePairsNote({ frame, offer, drawable = {}, scope = null } = {
 
 /* ------------------------------------------------------------ requests -- */
 
-/** The densest event of the selection (the High_energy notebook's idxmax), never written to the link. */
-export function pickRequest(filters) {
-  return { route: '/api/event/pick', abortKey: VOXEL_ABORT_KEYS.pick, params: { ...filters, rule: 'densest' } };
+/**
+ * The densest candidate event (the High_energy notebook's idxmax on the pool),
+ * never written to the link. With no particle bound set (`particle` = {}, as
+ * `state.particleParams()` returns) the request is exactly the selection's
+ * densest; a set bound narrows the pool. Pure.
+ */
+export function pickRequest(filters, particle = {}) {
+  return { route: '/api/event/pick', abortKey: VOXEL_ABORT_KEYS.pick,
+    params: pickParams({ filters, particle, rule: 'densest' }) };
 }
 
 /** The event pair's window rule: one half-width per axis, for the raster and the cubes alike. */
@@ -536,19 +611,22 @@ export const EVENT_WINDOW = 'per_axis';
  * The event pair's two requests: the raster (one shower; all three paired
  * frames come in one response) and the cubes (null without WebGL), both on
  * the per-axis window (`EVENT_WINDOW`). The network is named only where a
- * CAM channel reads it. Pure.
+ * CAM channel reads it. The particle filter's set bounds (`particle`, from
+ * `state.particleParams()`) go with both, so the server places the event
+ * among the candidates (`event.candidates`); none set, none sent. Pure.
  */
-export function eventRequests({ filters, eventNumber, view, model = 'segmentation', gl = true }) {
+export function eventRequests({ filters, particle = {}, eventNumber, view, model = 'segmentation', gl = true }) {
   const raster = {
     route: '/api/event',
     abortKey: VOXEL_ABORT_KEYS.event2d,
-    params: { ...filters, event_number: eventNumber, shower: view.rasterShower, window: EVENT_WINDOW },
+    params: { ...filters, ...particle, event_number: eventNumber, shower: view.rasterShower, window: EVENT_WINDOW },
   };
   const voxels = gl && view.frame && view.channel ? {
     route: '/api/event',
     abortKey: VOXEL_ABORT_KEYS.event3d,
     params: {
       ...filters,
+      ...particle,
       event_number: eventNumber,
       format: 'voxels',
       frame: view.frame,
@@ -763,8 +841,24 @@ export class VoxelSection {
     this.cache = new Map();
     this.inflight = new Map();
     this.generation = 0;
+    // The event pickers (see "The event pickers and the particle filter"):
+    // Most tilted's seed counts on from FIRST_SEED; Pick for me's draw counter
+    // restarts at 0 whenever the pool can change.
     this.seed = FIRST_SEED;
-    this.pickRule = null;
+    this.draw = 0;
+    // Where the pinned event came from, in memory only: a link at load, else
+    // the densest (no event pinned) until a control pins one.
+    this.origin = Number.isInteger(state?.get?.('voxel_event')) ? 'link' : 'densest';
+    // The pick that pinned the event ({event, ruleId, rule}), a replacement
+    // ({old, new}), and whether a filter or particle commit awaits the pinned
+    // event's fresh response (`followDecision`).
+    this.picked = null;
+    this.replaced = null;
+    this.followPending = false;
+    // The candidates payload of the filters in hand ({key, payload}), and the
+    // matched showers of events seen (picks, neighbours, responses).
+    this.pool = null;
+    this.matchedMemo = new Map();
     this.lazy = lazy && typeof lazy.watch === 'function'
       ? lazy
       : new LazyCards({
@@ -828,7 +922,7 @@ export class VoxelSection {
       spec, element: card, title, tag, details, controls: {}, exporter: null,
       caption: null, plot: null, message: null, legend: null, sparse: null,
       panel: null, chart: null, watched: null, lost: false, disabled: null, error: null,
-      slices: null, slab: null,
+      slices: null, slab: null, empty: null,
     };
     if (spec.gl) this.buildGlControls(record, actions);
     else {
@@ -896,20 +990,21 @@ export class VoxelSection {
       number.addEventListener('change', () => {
         const raw = number.value.trim();
         const n = Number(raw);
-        if (raw === '') this.setEvent(null);
-        else if (Number.isInteger(n) && n >= 0) this.setEvent(n);
+        if (raw === '') this.setEvent(null, { origin: 'densest' });
+        else if (Number.isInteger(n) && n >= 0) this.setEvent(n, { origin: 'typed' });
         else this.syncControls();
       });
-      const prev = miniButton('‹', 'The previous event of the selection', { voxelStep: 'prev' });
-      const next = miniButton('›', 'The next event of the selection', { voxelStep: 'next' });
+      const prev = miniButton('‹', STEP_TITLES.prev, { voxelStep: 'prev' });
+      const next = miniButton('›', STEP_TITLES.next, { voxelStep: 'next' });
       prev.addEventListener('click', () => this.step('prev'));
       next.addEventListener('click', () => this.step('next'));
-      const densest = miniButton('Densest', 'The event with the most detector cells in the selection (the '
-        + 'High_energy notebook\'s idxmax; not written to the link)', { voxelDensest: '' });
-      densest.addEventListener('click', () => this.setEvent(null));
-      const pick = miniButton('Pick', 'A seeded draw from the most tilted of the dense events (the local-coords '
-        + 'notebook\'s rule); each click takes the next seed', { voxelPick: '' });
+      const densest = miniButton(PICKER_LABELS.densest, DENSEST_TITLE, { voxelDensest: '' });
+      densest.addEventListener('click', () => this.setEvent(null, { origin: 'densest' }));
+      // Pick for me: a uniform draw from the candidates; Most tilted: the notebook's rule on them.
+      const pick = miniButton(PICKER_LABELS.uniform, PICK_TITLE, { voxelPick: '' });
       pick.addEventListener('click', () => this.pick());
+      const tilted = miniButton(PICKER_LABELS.tilted, TILTED_TITLE, { voxelTilted: '' });
+      tilted.addEventListener('click', () => this.pickTilted());
       const showers = make('span', 'seg');
       showers.setAttribute('role', 'group');
       showers.setAttribute('aria-label', 'Showers');
@@ -923,8 +1018,16 @@ export class VoxelSection {
       }
       const channel = this.channelSelect('voxelChannel', 'Colour the cubes by', EVENT_CHANNEL_LABELS,
         (value) => this.setValue({ voxel_channel: value }));
-      Object.assign(c, { number, prev, next, densest, pick, showers, showerButtons, channel });
-      actions.append(scope, number, prev, next, densest, pick, showers, channel);
+      // The drawn event in the Physics page's Event Inspector: a live link, its
+      // href recomputed from the hash of the moment it is followed or copied.
+      const open2d = make('a', 'mini', OPEN_2D_LABEL);
+      open2d.dataset.voxelOpen2d = '';
+      open2d.title = OPEN_2D_TITLE;
+      open2d.href = '/';
+      open2d.hidden = true;
+      wireLiveLinks([open2d], () => this.open2dHref());
+      Object.assign(c, { number, prev, next, densest, pick, tilted, showers, showerButtons, channel, open2d });
+      actions.append(scope, number, prev, next, densest, pick, tilted, showers, channel, open2d);
     } else {
       c.channel = this.channelSelect('ensChannel', 'Colour the voxels by', ENSEMBLE_CHANNEL_LABELS,
         (value) => this.setValue({ ens_channel: value }));
@@ -1008,10 +1111,32 @@ export class VoxelSection {
     this.refreshVisible();
   }
 
+  /**
+   * Pin one event (null: the densest), leaving the selection scope, and
+   * remember where it came from (`origin`: typed, pick, tilted, step, replace,
+   * densest), the pick that chose it and the replacement it is. `shower`, when
+   * given, is the shower a picker asks for (`focusShower`). Writes the State
+   * only: the caller loads.
+   */
+  pin(eventNumber, { origin = 'typed', shower = null, picked = null, replaced = null } = {}) {
+    this.origin = Number.isInteger(eventNumber) ? origin : 'densest';
+    this.picked = picked;
+    this.replaced = replaced;
+    // The reader (or a picker) chose: no earlier commit decides about this event.
+    this.followPending = false;
+    const patch = { voxel_event: eventNumber, voxel_scope: 'event' };
+    if (shower && shower !== this.value('voxel_shower')) patch.voxel_shower = shower;
+    this.state?.set?.(patch);
+  }
+
   /** Draw one event (null: the densest); choosing one leaves the selection scope. */
-  setEvent(eventNumber) {
-    this.pickRule = null;
-    this.setValue({ voxel_event: eventNumber, voxel_scope: 'event' });
+  setEvent(eventNumber, options = {}) {
+    this.pin(eventNumber, options);
+    this.syncControls();
+    // A picker that lands on the event in hand changes no request: its caption says how it was chosen now.
+    const pair = this.pairs.event;
+    if (pair?.model && pair.view?.scope === 'event') this.renderSparse(pair);
+    this.refreshVisible();
   }
 
   /**
@@ -1021,7 +1146,11 @@ export class VoxelSection {
    * card now shown, as the slice row keeps its place (syncSlices).
    */
   setScope(scope) {
-    this.pickRule = null;
+    if (scope === 'selection') {
+      this.origin = 'densest';
+      this.picked = null;
+      this.replaced = null;
+    }
     const focused = globalThis.document?.activeElement ?? null;
     const pressed = Object.values(this.pairs).some((p) => [...(p.gl?.controls.scopeButtons?.values() ?? [])]
       .includes(focused));
@@ -1038,24 +1167,212 @@ export class VoxelSection {
     return this.value('voxel_scope') === 'event' ? 'event' : 'selection';
   }
 
-  /** The neighbouring event within the selection, as the last response named it. */
+  /**
+   * The neighbouring candidate (the server's previous / next walk the pool),
+   * as the last response named it, asking for a matching shower: the
+   * neighbour's own `prev_matched` / `next_matched`, so the first request is
+   * the right one.
+   */
   step(direction) {
-    const event = this.pairs.event?.payloads.voxels?.event ?? this.pairs.event?.payloads.raster?.event;
+    const event = this.shownEvent();
     const n = event?.[direction];
-    if (Number.isInteger(n)) this.setEvent(n);
+    if (!Number.isInteger(n)) return;
+    const matched = event?.candidates?.[`${direction}_matched`] ?? null;
+    this.rememberMatched(n, matched);
+    this.setEvent(n, { origin: 'step', shower: this.focusOn(this.eventView(), matched) });
   }
 
-  /** The tilted rule's seeded draw on the current filters; each click takes the next seed. */
+  /** Pick for me: the next uniform draw from the candidates (a seeded shuffle; each click the next draw). */
   async pick() {
+    const payload = await this.requestPick('uniform');
+    if (!payload) return;
+    this.draw += 1;
+    this.pinPicked(payload, 'pick');
+  }
+
+  /** Most tilted: the notebook's rule on the candidates; each click takes the next seed. */
+  async pickTilted() {
+    const payload = await this.requestPick('tilted');
+    if (!payload) return;
+    this.seed += 1;
+    this.pinPicked(payload, 'tilted');
+  }
+
+  /**
+   * GET /api/event/pick for a button's rule under the filters and the particle
+   * filter. Null when superseded, or when the pool is empty (a 404: N = 0, the
+   * pickers shut with the empty line, never an error banner).
+   */
+  async requestPick(rule) {
+    const params = pickParams({
+      filters: this.state.filterParams(), particle: this.particleParams(), rule,
+      seed: rule === 'uniform' ? FIRST_SEED : this.seed, draw: this.draw,
+    });
     try {
-      const payload = await getJson('/api/event/pick', { ...this.state.filterParams(), seed: this.seed },
-        VOXEL_ABORT_KEYS.pick);
-      this.seed += 1;
-      this.setEvent(payload.event_number);
-      this.pickRule = payload.rule ?? null;
+      return await getJson('/api/event/pick', params, VOXEL_ABORT_KEYS.pick);
     } catch (error) {
-      if (!isAbort(error)) this.onError(error, 'pick an event');
+      if (isAbort(error)) return null;
+      if (emptyPick(error)) {
+        this.markEmpty();
+        this.syncControls();
+        return null;
+      }
+      this.onError(error, 'pick an event');
+      return null;
     }
+  }
+
+  /** Pin a picked event with a matching shower, and load it. */
+  pinPicked(payload, origin) {
+    const n = payload.event_number;
+    this.rememberMatched(n, payload.matched);
+    this.setEvent(n, {
+      origin,
+      shower: this.focusOn(this.eventView(), payload.matched),
+      picked: this.pickedOf(payload, origin),
+    });
+  }
+
+  /** What the caption says of a pick: its rule's id and the server's sentence. */
+  pickedOf(payload, origin) {
+    return {
+      event: payload.event_number,
+      ruleId: payload.rule_id ?? (origin === 'tilted' ? 'tilted' : 'uniform'),
+      rule: payload.rule ?? null,
+    };
+  }
+
+  /**
+   * The shower a picker asks for: the current one when it matches, else the
+   * first match; "Both" kept where it is drawn (the Absolute frame).
+   */
+  focusOn(view, matched) {
+    return focusShower({ current: view.shower, matched, allowBoth: Boolean(view.bothDrawable) });
+  }
+
+  /* ----------------------------------------------- the particle filter */
+
+  /** The particle filter's set bounds (`{}` when none is set). */
+  particleParams() {
+    return this.state?.particleParams?.() ?? {};
+  }
+
+  /** Whether any particle bound is set. */
+  particleActive() {
+    return Object.keys(this.particleParams()).length > 0;
+  }
+
+  /** The pool's identity: the filters and the particle filter in hand. */
+  poolKey() {
+    return requestKey('pool', { ...(this.state?.filterParams?.() ?? {}), ...this.particleParams() });
+  }
+
+  /**
+   * A candidates payload (GET /api/event/candidates, from the sidebar block)
+   * of the filters in hand: the pickers are shut, with the empty line, while
+   * it counts none. No request.
+   */
+  setCandidates(payload) {
+    this.pool = payload ? { key: this.poolKey(), payload } : null;
+    this.syncControls();
+  }
+
+  /** The candidates payload of the filters in hand, or null. */
+  poolPayload() {
+    return this.pool && this.pool.key === this.poolKey() ? this.pool.payload : null;
+  }
+
+  /** Whether the pool of the filters in hand is known to be empty. */
+  poolEmpty() {
+    const payload = this.poolPayload();
+    const c = payload?.candidates ?? payload;
+    return Boolean(c) && Number(c.n_events) === 0;
+  }
+
+  /** The pool is empty (a pick's 404): known for the filters in hand until a candidates payload says more. */
+  markEmpty() {
+    this.pool = { key: this.poolKey(), payload: { candidates: { n_events: 0, particle: this.particleParams() } } };
+  }
+
+  /** The empty line of the filters in hand (event_picker.js `emptyLine`). */
+  emptyText() {
+    const payload = this.poolPayload() ?? { candidates: { n_events: 0, particle: this.particleParams() } };
+    return emptyLine(payload, { nShowers: this.offer.nShowers ?? 2 });
+  }
+
+  /** Remember an event's matching showers under the filters in hand. */
+  rememberMatched(eventNumber, matched) {
+    if (!Number.isInteger(eventNumber) || !Array.isArray(matched)) return;
+    const key = `${this.poolKey()}|${eventNumber}`;
+    this.matchedMemo.delete(key);
+    this.matchedMemo.set(key, [...matched]);
+    while (this.matchedMemo.size > MATCHED_MEMO_SIZE) this.matchedMemo.delete(this.matchedMemo.keys().next().value);
+  }
+
+  /** An event's matching showers under the filters in hand, or null when not known. */
+  matchedOf(eventNumber) {
+    return this.matchedMemo.get(`${this.poolKey()}|${eventNumber}`) ?? null;
+  }
+
+  /**
+   * A filter (E₁, E₂, D) commit: the pool can change, so the uniform draw
+   * counter restarts and the pinned event's fresh response decides whether it
+   * stays (`followDecision`). The event pair reloads by its own key.
+   */
+  filtersCommitted() {
+    this.draw = 0;
+    this.followPending = true;
+    this.replaced = null;
+  }
+
+  /**
+   * A particle commit: as a filter commit for the event pair, whose key holds
+   * the particle filter. The selection and the cloud never read it and send
+   * nothing; their captions and drawers say so (`ensembleLine`), rebuilt here
+   * from the payloads in hand.
+   */
+  particleCommitted() {
+    this.filtersCommitted();
+    for (const pair of Object.values(this.pairs)) {
+      const selection = pair.name === 'ensemble' || pair.view?.scope === 'selection';
+      if (!selection || !pair.view) continue;
+      if (pair.model) this.renderSparse(pair);
+      this.onRendered(pair.gl.spec.id, pair.payloads.voxels ?? null);
+      for (const record of pair.cells) this.onRendered(record.spec.id, pair.payloads.projections ?? null);
+    }
+  }
+
+  /** The event block of the One event response in hand, or null. */
+  shownEvent() {
+    const pair = this.pairs.event;
+    return pair?.payloads.voxels?.event ?? pair?.payloads.raster?.event ?? null;
+  }
+
+  /** The event the One event pair draws: the pinned one, or the densest pick in hand. */
+  currentEvent() {
+    const n = this.value('voxel_event');
+    if (Number.isInteger(n)) return n;
+    const picked = this.pairs.event?.pick?.event_number;
+    return Number.isInteger(picked) ? picked : null;
+  }
+
+  /** The drawn event of the One event scope, or null (the selection, an empty pool, nothing yet). */
+  drawnEvent() {
+    const pair = this.pairs.event;
+    if (!pair || pair.view?.scope !== 'event') return null;
+    const event = this.shownEvent();
+    return Number.isInteger(event?.event_number) ? event : null;
+  }
+
+  /** "2-D ↗": the drawn event and shower in the Physics page's Event Inspector, with the hash of now. */
+  open2dHref() {
+    const event = this.drawnEvent();
+    const hash = globalThis.location?.hash ?? '';
+    if (!event) return '/';
+    return eventIn2dHref({
+      hash, event: event.event_number, shower: this.pairs.event.view?.shower ?? 'a',
+      matched: event.candidates?.matched ?? this.matchedOf(event.event_number) ?? [],
+    });
   }
 
   /** The frame the page draws in: the page's own answer where it gave one, else the link's. */
@@ -1063,10 +1380,16 @@ export class VoxelSection {
     return this.frameOf?.() ?? this.value('frame');
   }
 
-  eventView() {
+  /**
+   * The event pair's view. While the particle filter is active, the event's
+   * matching showers (remembered from its pick, its neighbour or its response)
+   * let "Both" draw the matching shower's projections.
+   */
+  eventView({ eventNumber = this.currentEvent() } = {}) {
+    const matched = this.particleActive() && Number.isInteger(eventNumber) ? this.matchedOf(eventNumber) : null;
     return resolveEventView({
       frame: this.selectedFrame(), channel: this.value('voxel_channel'), shower: this.value('voxel_shower'),
-      scope: this.eventScope(),
+      scope: this.eventScope(), matched,
     }, this.offer);
   }
 
@@ -1215,10 +1538,12 @@ export class VoxelSection {
           ...filters, channel: view.channel, model: EVENT_CAM.has(view.channel) ? this.value('model') : undefined, gl,
         });
       }
+      // One event: the particle filter narrows the pool it is picked from and placed in.
       const event = this.value('voxel_event');
       return requestKey('vox-event', {
-        ...filters, event: Number.isInteger(event) ? event : 'densest', frame: view.frame, channel: view.channel,
-        shower: view.shower, model: EVENT_CAM.has(view.channel) ? this.value('model') : undefined, gl,
+        ...filters, ...this.particleParams(), event: Number.isInteger(event) ? event : 'densest', frame: view.frame,
+        channel: view.channel, shower: view.shower, model: EVENT_CAM.has(view.channel) ? this.value('model') : undefined,
+        gl,
       });
     }
     const view = this.ensembleView();
@@ -1306,6 +1631,13 @@ export class VoxelSection {
     if (rejected.length) throw rejected[0];
   }
 
+  /**
+   * One event: the densest candidate when the link pins none (N = 0: the empty
+   * line, and no request), then its raster and cubes under the filters and the
+   * particle filter. After a filter or particle commit the fresh response
+   * decides whether a pinned event stays (`followDecision`); a replacement is
+   * the next uniform draw, loaded in this load's place.
+   */
   async loadEvent(key) {
     const pair = this.pairs.event;
     const loading = {};
@@ -1314,17 +1646,45 @@ export class VoxelSection {
     let stage = 'pick';
     try {
       const filters = this.state.filterParams();
-      const view = this.eventView();
+      const particle = this.particleParams();
+      let view = this.eventView();
       let eventNumber = this.value('voxel_event');
       let pick = null;
       if (!Number.isInteger(eventNumber)) {
-        pick = await this.fetchShared(pickRequest(filters));
+        // N = 0: no candidate to pick, so neither the pick nor the event is asked for.
+        if (this.poolEmpty()) {
+          this.showEmpty(pair, view);
+          return;
+        }
+        try {
+          pick = await this.fetchShared(pickRequest(filters, particle));
+        } catch (error) {
+          // A 404 from the pick is the empty pool, never an error.
+          if (!emptyPick(error)) throw error;
+          if (this.keyOf('event') === key) {
+            this.markEmpty();
+            this.showEmpty(pair, view);
+          }
+          return;
+        }
         eventNumber = pick.event_number;
+        this.rememberMatched(eventNumber, pick.matched);
+        if (this.keyOf('event') !== key) return;
+        // The densest's shower: a matching one, asked for in its first request.
+        const shower = this.focusOn(view, pick.matched);
+        if (shower !== view.shower) {
+          this.state.set({ voxel_shower: shower });
+          this.syncControls();
+          await this.follow('event');
+          return;
+        }
       }
       if (this.keyOf('event') !== key) return;
       stage = 'draw';
+      view = this.eventView({ eventNumber });
       const gl = this.glAvailable();
-      const requests = eventRequests({ filters, eventNumber, view, model: this.value('model'), gl });
+      const model = this.value('model');
+      const requests = eventRequests({ filters, particle, eventNumber, view, model, gl });
       const results = await Promise.allSettled([
         this.fetchShared(requests.raster),
         requests.voxels ? this.fetchShared(requests.voxels) : Promise.resolve(null),
@@ -1333,6 +1693,29 @@ export class VoxelSection {
         VoxelSection.settle(results);
         return;
       }
+      const block = results.map((r) => (r?.status === 'fulfilled' ? r.value?.event : null)).find(Boolean) ?? null;
+      if (block?.candidates) this.rememberMatched(eventNumber, block.candidates.matched);
+      // A pinned event's response that counts no candidate: the pickers are shut before the block's count lands.
+      if (block?.candidates && Number(block.candidates.n_events) === 0 && !this.poolPayload()) this.markEmpty();
+      // A filter or particle commit: the pinned event's fresh response decides.
+      if (this.followPending && Number.isInteger(this.value('voxel_event'))) {
+        this.followPending = false;
+        const c = block?.candidates;
+        const decision = c ? followDecision({ origin: this.origin, inPool: c.in_pool, nEvents: c.n_events }) : 'keep';
+        if (decision === 'replace' && await this.replaceEvent(eventNumber, view)) return;
+      }
+      // "Both" with one shower matching, first known from this response: the projections draw the match.
+      const matching = this.eventView({ eventNumber });
+      if (matching.rasterShower !== view.rasterShower) {
+        view = matching;
+        const raster = eventRequests({ filters, particle, eventNumber, view, model, gl: false }).raster;
+        [results[0]] = await Promise.allSettled([this.fetchShared(raster)]);
+        if (this.keyOf('event') !== key || (results[0].status === 'rejected' && isAbort(results[0].reason))) {
+          VoxelSection.settle(results);
+          return;
+        }
+      }
+      this.clearEmpty(pair);
       pair.view = view;
       pair.pick = pick;
       pair.payloads.projections = null;
@@ -1348,6 +1731,84 @@ export class VoxelSection {
         pair.loading = null;
         this.setPairBusy(pair, false);
       }
+    }
+  }
+
+  /**
+   * A pinned event that left the candidates and that the page chose itself:
+   * the next uniform draw takes its place, with a matching shower, and is
+   * loaded in this load's place. False when nothing replaced it (the pool
+   * turned out empty, or the draw failed, which is reported): it is then
+   * drawn as asked, flagged.
+   */
+  async replaceEvent(old, view) {
+    let payload;
+    try {
+      payload = await getJson('/api/event/pick', pickParams({
+        filters: this.state.filterParams(), particle: this.particleParams(), rule: 'uniform', seed: FIRST_SEED,
+        draw: this.draw,
+      }), VOXEL_ABORT_KEYS.pick);
+    } catch (error) {
+      if (isAbort(error)) throw error;
+      if (emptyPick(error)) this.markEmpty();
+      else this.onError(error, 'replace the event');
+      return false;
+    }
+    this.draw += 1;
+    const n = payload.event_number;
+    this.rememberMatched(n, payload.matched);
+    this.pin(n, {
+      origin: 'replace', shower: this.focusOn(view, payload.matched), picked: this.pickedOf(payload, 'replace'),
+      replaced: { old, new: n },
+    });
+    this.syncControls();
+    await this.follow('event');
+    return true;
+  }
+
+  /**
+   * Load a pair again whose request its own load just changed (a replacement,
+   * a matching shower), and settle with that load.
+   */
+  async follow(name) {
+    const entry = this.pairs[name]?.entry;
+    const promise = entry ? this.lazy.check(entry) : null;
+    if (promise) await promise;
+  }
+
+  /**
+   * The empty pool (N = 0) with no pinned event: the empty line in place of
+   * the pair's plots, as a notice (not an error); nothing drawn, nothing asked.
+   */
+  showEmpty(pair, view) {
+    const line = this.emptyText();
+    pair.view = view;
+    pair.pick = null;
+    pair.payloads = {};
+    pair.model = null;
+    pair.built = null;
+    pair.depthBlock = null;
+    pair.layerSourceAll = null;
+    this.emitDepthContext();
+    this.planSlices(pair);
+    for (const record of [pair.gl, ...pair.cells]) {
+      this.blank(record);
+      record.error = null;
+      record.empty = line;
+      this.setTag(record, null);
+      this.setCaption(record, []);
+      this.showMessage(record, line, { kind: 'empty' });
+      this.onRendered(record.spec.id, null);
+    }
+    this.syncControls();
+  }
+
+  /** The pair draws again: no empty line stands in its cards' place. */
+  clearEmpty(pair) {
+    for (const record of [pair.gl, ...pair.cells]) {
+      if (!record.empty) continue;
+      record.empty = null;
+      if (record.message.dataset.kind === 'empty') this.hideMessage(record);
     }
   }
 
@@ -1369,6 +1830,7 @@ export class VoxelSection {
         VoxelSection.settle(results);
         return;
       }
+      this.clearEmpty(pair);
       pair.view = view;
       pair.pick = null;
       pair.payloads.raster = null;
@@ -1786,11 +2248,15 @@ export class VoxelSection {
   renderSparse(pair) {
     const payload = pair.payloads.voxels;
     const lines = [];
+    const nShowers = this.offer.nShowers ?? 2;
+    // The selection and the cloud never read the particle filter: while a bound is set they say so.
+    const ensemble = ensembleLine(this.particleParams(), { nShowers });
     if (payload && pair.name === 'event' && payload.selection) {
       // The selection's cells (GET /api/selection-cells): its counts, no event to name.
       const cap = payload.voxels?.cap ?? {};
       lines.push(`The selection, ${formatInt(payload.selection.n_events)} events: ${formatInt(cap.n_drawn)} of `
         + `${formatInt(cap.n_total)} cells drawn, each the mean per selected event.`);
+      if (ensemble) lines.push(ensemble);
       if ((cap.n_beyond ?? 0) > 0) {
         lines.push(`Cap ${formatInt(cap.limit)}: the ${formatInt(cap.n_beyond)} weakest cells beyond it hold `
           + `${formatPercent(cap.fraction_beyond, 3)} of the energy, counted and not drawn.`);
@@ -1803,14 +2269,27 @@ export class VoxelSection {
       const event = payload.event ?? {};
       const cap = payload.voxels?.cap ?? {};
       // A single-shower experiment's one shower needs no name.
-      const showers = (this.offer.nShowers ?? 2) === 2 ? (event.showers ?? []).map((s) => s.label).join(' and ') : '';
+      const showers = nShowers === 2 ? (event.showers ?? []).map((s) => s.label).join(' and ') : '';
       const what = payload.voxels?.regime === 'cells' ? 'cells' : 'voxels';
-      let lead = `Event ${formatInt(event.event_number)}${showers ? `, shower${(event.showers ?? []).length > 1 ? 's' : ''} ${showers}` : ''}: `
+      let lead = `Event ${eventId(event.event_number)}${showers ? `, shower${(event.showers ?? []).length > 1 ? 's' : ''} ${showers}` : ''}: `
         + `${formatInt(cap.n_drawn)} of ${formatInt(cap.n_total)} ${what} drawn`;
-      if (pair.pick && !Number.isInteger(this.value('voxel_event'))) lead += ' · the densest event of the selection';
-      else if (this.pickRule) lead += ' · picked by the tilted rule';
+      const picked = this.picked && this.picked.event === event.event_number ? this.picked : null;
+      if (pair.pick && !Number.isInteger(this.value('voxel_event'))) {
+        lead += this.particleActive() ? ' · the densest candidate event' : ' · the densest event of the selection';
+      } else if (picked) {
+        lead += picked.ruleId === 'tilted' ? ' · picked by the tilted rule' : ' · drawn uniformly at random';
+      }
       if (event.in_selection === false) lead += ' · outside the current selection';
       lines.push(`${lead}.`);
+      // Where the event stands among the candidates, how its shower meets the
+      // particle filter, the pick's rule, and a replacement (event_picker.js).
+      if (event.candidates) lines.push(placeLine(event, { nShowers }));
+      lines.push(matchLine({ candidates: event.candidates, drawn: pair.view?.shower ?? 'a', showers: event.showers ?? [],
+        nShowers }));
+      if (picked?.rule) lines.push(picked.rule);
+      if (this.replaced && this.replaced.new === event.event_number) {
+        lines.push(replacedLine(this.replaced.old, this.replaced.new));
+      }
       if ((cap.n_beyond ?? 0) > 0) {
         lines.push(`Cap ${formatInt(cap.limit)}: the ${formatInt(cap.n_beyond)} weakest ${what} beyond it hold `
           + `${formatPercent(cap.fraction_beyond, 3)} of the energy, counted and not drawn.`);
@@ -1824,6 +2303,7 @@ export class VoxelSection {
       const frame = payload.frame ?? {};
       const budget = payload.budget ?? {};
       if (frame.provisional || payload.rho?.provisional) lines.push(frame.n_label ?? 'Provisional range: weak evidence.');
+      if (ensemble) lines.push(ensemble);
       // The server's count of the voxels shipped, less those outside the paired projections' window.
       const cropped = pair.model?.crop?.nOutside ?? 0;
       const drawn = Number.isFinite(budget.n_drawn) ? budget.n_drawn - cropped : budget.n_drawn;
@@ -1886,6 +2366,7 @@ export class VoxelSection {
   /** A card that failed: no stale picture, and the reason in its place. */
   failCard(record, error) {
     record.error = describeError(error);
+    record.empty = null;
     this.blank(record);
     this.showMessage(record, record.error, { kind: 'error', retry: !isRefusal(error) });
     this.onRendered(record.spec.id, null);
@@ -1948,13 +2429,42 @@ export class VoxelSection {
       const n = this.value('voxel_event');
       if (c.number) c.number.value = Number.isInteger(n) ? String(n) : '';
       const shown = event.payloads.voxels?.event ?? event.payloads.raster?.event ?? null;
-      if (c.prev) c.prev.disabled = !Number.isInteger(shown?.prev);
-      if (c.next) c.next.disabled = !Number.isInteger(shown?.next);
-      if (c.densest) c.densest.classList.toggle('is-active', !Number.isInteger(n));
+      // N = 0: every picker is shut, the empty line its title (event_picker.js pickerTitle).
+      const pool = this.poolPayload();
+      const empty = this.poolEmpty();
+      const nShowers = this.offer.nShowers ?? 2;
+      const emptyTitle = empty ? this.emptyText() : null;
+      if (c.prev) {
+        c.prev.disabled = empty || !Number.isInteger(shown?.prev);
+        c.prev.title = emptyTitle ?? STEP_TITLES.prev;
+      }
+      if (c.next) {
+        c.next.disabled = empty || !Number.isInteger(shown?.next);
+        c.next.title = emptyTitle ?? STEP_TITLES.next;
+      }
+      if (c.densest) {
+        c.densest.classList.toggle('is-active', !Number.isInteger(n));
+        c.densest.disabled = empty;
+        c.densest.title = pickerTitle('densest', pool, { nShowers }) ?? DENSEST_TITLE;
+      }
+      if (c.pick) {
+        c.pick.disabled = empty;
+        c.pick.title = pickerTitle('uniform', pool, { nShowers }) ?? PICK_TITLE;
+      }
+      if (c.tilted) {
+        c.tilted.disabled = empty;
+        c.tilted.title = pickerTitle('tilted', pool, { nShowers }) ?? TILTED_TITLE;
+      }
       const view = this.eventView();
       const selection = view.scope === 'selection';
       // The event picker belongs to one event; the selection has none to step through.
-      for (const control of [c.number, c.prev, c.next, c.densest, c.pick]) if (control) control.hidden = selection;
+      for (const control of [c.number, c.prev, c.next, c.densest, c.pick, c.tilted]) if (control) control.hidden = selection;
+      // "2-D ↗": on the One event scope, while an event is drawn.
+      if (c.open2d) {
+        const drawn = selection ? null : this.drawnEvent();
+        c.open2d.hidden = !drawn;
+        c.open2d.href = drawn ? this.open2dHref() : '/';
+      }
       if (c.showers) {
         c.showers.hidden = (this.offer.nShowers ?? 2) !== 2;
         for (const [value, button] of c.showerButtons) {
@@ -2281,8 +2791,14 @@ export class VoxelSection {
     this.generation += 1;
     this.cache.clear();
     this.inflight.clear();
+    // A new experiment: a new pool, so the pickers start again (the pinned event and its origin stay).
     this.seed = FIRST_SEED;
-    this.pickRule = null;
+    this.draw = 0;
+    this.picked = null;
+    this.replaced = null;
+    this.followPending = false;
+    this.pool = null;
+    this.matchedMemo.clear();
     for (const pair of Object.values(this.pairs)) {
       pair.view = null;
       pair.payloads = {};
@@ -2300,6 +2816,7 @@ export class VoxelSection {
       for (const record of [pair.gl, ...pair.cells]) {
         this.blank(record);
         record.error = null;
+        record.empty = null;
         record.slab = null;
         record.layerSource = null;
         this.setCaption(record, []);
@@ -2347,6 +2864,8 @@ export class VoxelSection {
     const title = record.title.textContent;
     const shut = (text) => ({ title, hazards: [], sections: [{ heading: SECTION.disclosures, lines: [text] }] });
     if (record.disabled) return shut(record.disabled);
+    // N = 0: the empty line stands in the card's place, and in its drawer.
+    if (record.empty) return shut(record.empty);
     if (record.spec.gl) {
       if (!this.glAvailable()) return shut(GL_UNAVAILABLE);
       const payload = pair.payloads.voxels;

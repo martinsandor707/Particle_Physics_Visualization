@@ -488,6 +488,11 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
     get(k) { return this.values[k]; },
     set(patch) { Object.assign(this.values, patch); return true; },
     filterParams() { return { table_name: this.values.table_name }; },
+    // state.js: only the particle bounds that are set ({} here: no run sets one).
+    particleParams() {
+      return Object.fromEntries(['particle_p_min', 'particle_p_max', 'particle_theta_min', 'particle_theta_max']
+        .filter((k) => this.values[k] !== null && this.values[k] !== undefined).map((k) => [k, this.values[k]]));
+    },
     isTouched: () => false,
   };
   const host = new El('section');
@@ -533,7 +538,8 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
       scopeButtons: rec.controls.scopeButtons ? [...rec.controls.scopeButtons].map(([value, b]) => ({
         value, disabled: Boolean(b.disabled), title: b.title, active: b.classList.contains('is-active'),
         pressed: b.getAttribute('aria-pressed') })) : null,
-      pickerHidden: rec.controls.number ? ['number', 'prev', 'next', 'densest', 'pick'].map((k) => Boolean(rec.controls[k].hidden)) : null,
+      pickerHidden: rec.controls.number ? ['number', 'prev', 'next', 'densest', 'pick', 'tilted'].map((k) => Boolean(rec.controls[k].hidden)) : null,
+      open2dHidden: rec.controls.open2d ? Boolean(rec.controls.open2d.hidden) : null,
       slices: rec.slices ? { hidden: rec.slices.element.hidden, readout: rec.slices.readout.textContent } : null,
       showerButtons: rec.controls.showerButtons ? [...rec.controls.showerButtons].map(([value, b]) => ({
         value, disabled: Boolean(b.disabled), title: b.title, active: b.classList.contains('is-active') })) : null,
@@ -1987,7 +1993,8 @@ def test_the_cold_boot_draws_the_selection_with_no_pick_and_no_event(out):
     assert card["title"] == "The Selection in 3-D — Detector Cells"
     assert [(b["value"], b["active"], b["pressed"], b["disabled"]) for b in card["scopeButtons"]] == [
         ("selection", True, "true", False), ("event", False, "false", False)]
-    assert card["pickerHidden"] == [True] * 5
+    assert card["pickerHidden"] == [True] * 6
+    assert card["open2dHidden"] is True, "the selection draws no one event to open in 2-D"
     assert all(b["disabled"] and "both showers summed" in b["title"] for b in card["showerButtons"])
     assert card["notes"]["title"] == "The Selection in 3-D — Detector Cells"
     assert not card["slices"]["hidden"] and "of the selection's energy" in card["slices"]["readout"]
@@ -2024,7 +2031,8 @@ def test_an_older_link_naming_an_event_opens_it(out):
     card = run["cards"]["vox-event"]
     assert card["title"] == "One Event in 3-D — Detector Cells"
     assert [(b["value"], b["active"]) for b in card["scopeButtons"]] == [("selection", False), ("event", True)]
-    assert card["pickerHidden"] == [False] * 5
+    assert card["pickerHidden"] == [False] * 6
+    assert card["open2dHidden"] is False, "one event drawn: its 2-D link is offered"
 
 
 def test_the_scope_buttons_say_what_each_frame_draws(out):
@@ -2868,3 +2876,696 @@ def test_the_section_hides_the_other_pair_and_asks_nothing_for_it(out):
     assert canonical["frameNotice"]["ensemble"] is None
     for run in (base, canonical, trans, cloud, event):
         _no_hyphen_numbers([run["frameNote"] or ""])
+
+
+# ------------------------------------------------- the particle filter and the event pickers --
+#
+# Brief particle-filter, sections 8.1-8.5 (Page 2): the event pair's request key and requests carry the particle
+# filter (the Selection scope and the cloud never do); the densest, "Pick for me" (uniform, FIRST_SEED and a
+# draw counter), "Most tilted" (the seed counter) and the steps draw from the pool; the shower focus; the follow
+# policy after a commit; N = 0 with no request; the captions; the live "2-D ↗" link. Every sentence expected
+# here is computed by the function that writes it (event_picker.js, voxel_views.js), never typed out.
+
+#: The voxel harness up to its first import: the fake DOM and the file helpers.
+_VOXEL_HEAD = _SCRIPT.split("const v = await imp('voxels.js');")[0] % {"events": "[]", "ensembles": "[]"}
+
+_PICKER_SCRIPT = _VOXEL_HEAD + r"""
+const vv = await imp('voxel_views.js');
+const ep = await imp('event_picker.js');
+const caps = await imp('capabilities.js');
+const experiments = load('experiments').experiments;
+const base = experiments.find((e) => e.table_name === 'experiment_baseline');
+const P = ep.PARTICLE_KEYS;
+const HASH = '#table_name=experiment_baseline&particle_p_min=2&voxel_event=3';
+globalThis.location = { hash: HASH, origin: 'http://test.invalid' };
+
+/* ---- a fake server: ten events; under an active particle filter each matches the showers `matched` names --- */
+function makeServer({ matched = {}, events = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] } = {}) {
+  const active = (q) => P.some((k) => k in q);
+  const matchedOf = (n, q) => (active(q) ? [...(matched[n] ?? [])] : ['a', 'b']);
+  const pool = (q) => events.filter((n) => matchedOf(n, q).length > 0);
+  const num = (q, k) => (k in q ? Number(q[k]) : null);
+  const echo = (q) => ({ active: active(q), p_gev: [num(q, P[0]), num(q, P[1])], theta_deg: [num(q, P[2]), num(q, P[3])],
+    theta_rad: [null, null] });
+  const place = (n, q) => {
+    const p = pool(q);
+    const i = p.indexOf(n);
+    const prev = p.filter((e) => e < n).at(-1) ?? null;
+    const next = p.find((e) => e > n) ?? null;
+    return { prev, next, candidates: { particle: echo(q), in_pool: i >= 0, index: i >= 0 ? i : null, n_events: p.length,
+      matched: matchedOf(n, q), prev_matched: prev === null ? null : matchedOf(prev, q),
+      next_matched: next === null ? null : matchedOf(next, q) } };
+  };
+  const json = (body, status = 200) => ({ ok: status < 400, status, statusText: '', json: async () => body });
+  const answer = (path, q) => {
+    if (path === '/api/event/pick') {
+      const p = pool(q);
+      if (!p.length) return json({ title: 'Not Found', detail: 'The selection holds no candidate event.' }, 404);
+      const rule = q.rule ?? 'tilted';
+      // uniform: draw k takes the pool's k-th from the end (any fixed shuffle will do for the page).
+      const n = rule === 'uniform' ? p.at(-1 - (Number(q.draw) % p.length))
+        : rule === 'tilted' ? p.at(-1 - ((Number(q.seed) - 42) % p.length)) : p[0];
+      return json({ event_number: n, n_events: p.length, rule: `The ${rule} rule's sentence for event ${n}.`, rule_id: rule,
+        matched: matchedOf(n, q), particle: echo(q) });
+    }
+    if (path === '/api/event') {
+      const n = Number(q.event_number);
+      const body = clone(load(q.format === 'voxels' ? 'event_voxels_base_lab' : 'event_raster_base'));
+      Object.assign(body.event, { event_number: n, in_selection: true }, place(n, q));
+      if (q.format !== 'voxels') body.event.shower = { ...body.event.shower, key: q.shower, label: q.shower.toUpperCase() };
+      return json(body);
+    }
+    if (path === '/api/selection-cells') return json(load('selection_cells_base'));
+    if (path === '/api/projections') return json(load(q.frame === 'lab' ? 'projections_base_lab' : 'projections_base_trans'));
+    if (path === '/api/voxels') return json(load('voxels_base_local'));
+    return json({ detail: 'no such route' }, 404);
+  };
+  return { answer };
+}
+
+class FakeProjection {
+  constructor(id, opts) { this.id = id; this.isometric = opts.isometric; this.element = { clientWidth: 600, clientHeight: 400 }; }
+  render(payload, opts) { this.payload = payload; this.opts = opts; }
+  setOverlay() {} setLayerGroups() {} setReserveTop() {} clear() {} relayout() {} setBusy() {} currentView() { return null; }
+}
+const lib = { init: (el) => {
+  const control = { size: null, getOrthographicSize() { return this.size; }, setOrthographicSize(v) { this.size = v; }, update() {} };
+  return { el, setOption(option) { const s = option?.grid3D?.viewControl?.orthographicSize; if (Number.isFinite(s)) control.size = s; },
+    getModel: () => ({ getComponent: () => ({}) }), getViewOfComponentModel: () => ({ _control: control }),
+    getWidth: () => 600, getHeight: () => 400, getDom: () => el, clear() {}, resize() {}, dispose() {}, dispatchAction() {} };
+} };
+
+/* The view state as state.js keeps it: `particleParams()` holds only the bounds that are set. */
+function makeState(values) {
+  return {
+    values: { table_name: 'experiment_baseline', voxel_scope: 'event', voxel_event: null, voxel_shower: 'a',
+      voxel_channel: 'energy', ens_channel: 'density', frame: 'lab', model: 'segmentation', palette: 'viridis',
+      anchor: 'backprojected', particle_p_min: null, particle_p_max: null, particle_theta_min: null, particle_theta_max: null,
+      ...values },
+    get(k) { return this.values[k]; },
+    set(patch) {
+      let changed = false;
+      for (const [k, v] of Object.entries(patch)) if (this.values[k] !== v) { this.values[k] = v; changed = true; }
+      return changed;
+    },
+    filterParams() { return { table_name: this.values.table_name }; },
+    particleParams() {
+      return Object.fromEntries(P.filter((k) => this.values[k] !== null && this.values[k] !== undefined).map((k) => [k, this.values[k]]));
+    },
+    isTouched: () => false,
+  };
+}
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
+/* Every load settled: nothing in flight for a few ticks running. */
+async function idle(section) {
+  let quiet = 0;
+  for (let i = 0; i < 400 && quiet < 5; i += 1) {
+    await tick();
+    quiet = Object.values(section.pairs).some((p) => p.loading) ? 0 : quiet + 1;
+  }
+}
+
+async function make({ values = {}, server = {}, experiment = base } = {}) {
+  const srv = makeServer(server);
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    const u = new URL(String(url));
+    const q = Object.fromEntries(u.searchParams.entries());
+    requests.push([u.pathname, q]);
+    return srv.answer(u.pathname, q);
+  };
+  const state = makeState(values);
+  const errors = [];
+  const rendered = [];
+  const section = new vv.VoxelSection(new El('section'), {
+    state, getExperiment: () => experiment, webgl: true, echarts: lib, ProjectionClass: FakeProjection,
+    onRendered: (id) => rendered.push(id), onError: (e, c) => errors.push(`${c}: ${e.message}`),
+  });
+  section.applyPlan(caps.page2Plan(experiment).voxels);
+  return { section, state, requests, errors, rendered, since: (n) => requests.slice(n) };
+}
+
+/* What a run shows: the requests, the state, the cards' messages and captions, the pickers and the 2-D link. */
+function snap(ctx, from = 0) {
+  const { section, state } = ctx;
+  const c = section.pairs.event.gl.controls;
+  const card = (id) => {
+    const r = section.cards.get(id);
+    return { message: r.message.hidden ? null : r.message.textContent, kind: r.message.dataset.kind ?? null,
+      caption: r.caption.hidden ? null : r.caption.textContent,
+      sparse: r.sparse ? (r.sparse.hidden ? null : r.sparse.children.map((p) => p.textContent)) : undefined,
+      notes: section.notes(id) };
+  };
+  const button = (b) => ({ disabled: Boolean(b.disabled), title: b.title, hidden: Boolean(b.hidden), text: b.textContent,
+    data: { ...b.dataset } });
+  const event = section.pairs.event.payloads.voxels?.event ?? null;
+  return {
+    requests: ctx.requests.slice(from), errors: [...ctx.errors],
+    state: Object.fromEntries(['voxel_event', 'voxel_shower', 'voxel_scope'].map((k) => [k, state.values[k]])),
+    origin: section.origin, draw: section.draw, seed: section.seed,
+    cards: Object.fromEntries(['vox-event', 'vproj-xy', 'vproj-xz', 'vproj-yz', 'vox-ensemble'].map((id) => [id, card(id)])),
+    pickers: { pick: button(c.pick), tilted: button(c.tilted), densest: button(c.densest), prev: button(c.prev),
+      next: button(c.next) },
+    open2d: { hidden: Boolean(c.open2d.hidden), href: c.open2d.href, title: c.open2d.title, text: c.open2d.textContent,
+      tag: c.open2d.tagName, data: { ...c.open2d.dataset }, className: c.open2d.className },
+    drawn: event ? { event_number: event.event_number, candidates: event.candidates, showers: event.showers } : null,
+    view: section.pairs.event.view ? { shower: section.pairs.event.view.shower, rasterShower: section.pairs.event.view.rasterShower,
+      projectionNote: section.pairs.event.view.projectionNote } : null,
+  };
+}
+
+/* What event_picker.js writes for the drawn event, as the caption should carry it. */
+function expectedLines(s, { drawn } = {}) {
+  if (!s.drawn) return null;
+  const event = { ...s.drawn, in_selection: true };
+  return { place: ep.placeLine(event, { nShowers: 2 }),
+    match: ep.matchLine({ candidates: s.drawn.candidates, drawn: drawn ?? s.view.shower, showers: s.drawn.showers, nShowers: 2 }) };
+}
+
+const out = {};
+const BOUND = { particle_p_min: 2, particle_p_max: 3 };
+
+/* 1. The keys: the particle filter is in the One event key only. */
+{
+  const ctx = await make();
+  const { section, state } = ctx;
+  const keys = (label) => {
+    section.syncPairs();
+    return [label, section.keyOf('event'), section.keyOf('ensemble')];
+  };
+  const k = [keys('event off')];
+  Object.assign(state.values, BOUND);
+  k.push(keys('event on'));
+  state.values.voxel_scope = 'selection';
+  k.push(keys('selection on'));
+  Object.assign(state.values, { particle_p_min: null, particle_p_max: null });
+  k.push(keys('selection off'));
+  Object.assign(state.values, { frame: 'local' });
+  k.push(keys('cloud off'));
+  Object.assign(state.values, BOUND);
+  k.push(keys('cloud on'));
+  out.keys = k;
+}
+
+/* 2. The pure requests: the densest pick and the event's two requests, with and without a bound. */
+{
+  const offer = vv.normaliseOffer(caps.page2Plan(base).voxels);
+  const view = vv.resolveEventView({ frame: 'lab', channel: 'energy', shower: 'a' }, offer);
+  const filters = { table_name: 't', e1_min: 1 };
+  out.pure = {
+    pickOff: vv.pickRequest(filters), pickEmpty: vv.pickRequest(filters, {}), pickOn: vv.pickRequest(filters, BOUND),
+    eventOff: vv.eventRequests({ filters, eventNumber: 5, view }),
+    eventOn: vv.eventRequests({ filters, particle: BOUND, eventNumber: 5, view }),
+    selection: vv.selectionRequests({ filters, view: vv.resolveEventView({ frame: 'lab', channel: 'energy', shower: 'a', scope: 'selection' }, offer) }),
+    ensemble: vv.ensembleRequests({ filters, view: vv.resolveEnsembleView({ frame: 'local', channel: 'density' }, offer) }),
+    both: vv.resolveEventView({ frame: 'lab', channel: 'energy', shower: 'both', matched: ['b'] }, offer),
+    bothTwo: vv.resolveEventView({ frame: 'lab', channel: 'energy', shower: 'both', matched: ['a', 'b'] }, offer),
+    bothNone: vv.resolveEventView({ frame: 'lab', channel: 'energy', shower: 'both' }, offer),
+    localMatched: vv.resolveEventView({ frame: 'local', channel: 'energy', shower: 'both', matched: ['b'] }, offer),
+    noteB: vv.projectionsMatchingNote('b'), oneShower: vv.PROJECTIONS_ONE_SHOWER,
+  };
+}
+
+/* 3. The densest, with no bound and with one: the pool's densest, a matching shower asked for first. */
+{
+  const off = await make({ server: { matched: {} } });
+  await off.section.refresh(); await idle(off.section);
+  out.densestOff = snap(off);
+  const on = await make({ values: BOUND, server: { matched: { 1: ['b'], 2: ['a', 'b'], 4: ['a'] } } });
+  await on.section.refresh(); await idle(on.section);
+  out.densestOn = snap(on);
+  out.densestOn.expected = expectedLines(out.densestOn);
+}
+
+/* 4. Pick for me: uniform, FIRST_SEED, the draw counter; a commit restarts it. Most tilted: the seed counter. */
+{
+  const ctx = await make({ values: BOUND, server: { matched: { 1: ['b'], 2: ['a', 'b'], 4: ['a'] } } });
+  const { section } = ctx;
+  await section.refresh(); await idle(section);
+  const c = section.pairs.event.gl.controls;
+  const n0 = ctx.requests.length;
+  c.pick.fire('click'); await idle(section);
+  const first = snap(ctx, n0);
+  first.expected = expectedLines(first);
+  const n1 = ctx.requests.length;
+  c.pick.fire('click'); await idle(section);
+  const second = snap(ctx, n1);
+  section.particleCommitted();
+  const afterCommit = { draw: section.draw, followPending: section.followPending };
+  await section.refresh(); await idle(section);
+  const n2 = ctx.requests.length;
+  c.pick.fire('click'); await idle(section);
+  const third = snap(ctx, n2);
+  section.filtersCommitted();
+  const afterFilters = { draw: section.draw };
+  const n3 = ctx.requests.length;
+  c.tilted.fire('click'); await idle(section);
+  const tilted1 = snap(ctx, n3);
+  const n4 = ctx.requests.length;
+  c.tilted.fire('click'); await idle(section);
+  const tilted2 = snap(ctx, n4);
+  const n5 = ctx.requests.length;
+  c.densest.fire('click'); await idle(section);
+  const densest = snap(ctx, n5);
+  out.pickers = { first, second, afterCommit, third, afterFilters, tilted1, tilted2, densest };
+}
+
+/* 5. The steps walk the pool, asking for the neighbour's matching shower in the first request. */
+{
+  const ctx = await make({ values: { ...BOUND, voxel_event: 2, voxel_shower: 'b', frame: 'local' },
+    server: { matched: { 1: ['b'], 2: ['a', 'b'], 4: ['a'] } } });
+  const { section } = ctx;
+  await section.refresh(); await idle(section);
+  const loaded = snap(ctx);
+  const c = section.pairs.event.gl.controls;
+  const n0 = ctx.requests.length;
+  c.next.fire('click'); await idle(section);
+  const next = snap(ctx, n0);
+  const n1 = ctx.requests.length;
+  c.prev.fire('click'); await idle(section);
+  c.prev.fire('click'); await idle(section);
+  const prev = snap(ctx, n1);
+  out.steps = { loaded, next, prev };
+}
+
+/* 6. "Both" in the Absolute frame with one shower matching: the projections draw it and say so. */
+{
+  const densest = await make({ values: { ...BOUND, voxel_shower: 'both' }, server: { matched: { 1: ['b'], 2: ['a', 'b'] } } });
+  await densest.section.refresh(); await idle(densest.section);
+  out.bothDensest = snap(densest);
+  out.bothDensest.expected = expectedLines(out.bothDensest);
+  // A typed event: the match is first known from its response, so its raster is asked for again.
+  const typed = await make({ values: { ...BOUND, voxel_shower: 'both', voxel_event: 1 }, server: { matched: { 1: ['b'] } } });
+  await typed.section.refresh(); await idle(typed.section);
+  out.bothTyped = snap(typed);
+  // The live 2-D link: the hash of the moment it is followed.
+  const link = typed.section.pairs.event.gl.controls.open2d;
+  globalThis.location.hash = '#table_name=experiment_baseline&particle_p_min=2.5&voxel_event=1&voxel_shower=both';
+  link.fire('click');
+  out.bothTyped.liveHref = link.href;
+  out.bothTyped.liveExpected = ep.eventIn2dHref({ hash: globalThis.location.hash, event: 1, shower: 'both', matched: ['b'] });
+  out.bothTyped.firstExpected = ep.eventIn2dHref({ hash: HASH, event: 1, shower: 'both', matched: ['b'] });
+  globalThis.location.hash = HASH;
+}
+
+/* 7. The follow policy after a commit: replace a picked event that left the pool, flag a typed one, keep one inside. */
+{
+  // Picked with no bound (event 0), then a bound event 0 does not meet: the next uniform draw replaces it.
+  const ctx = await make({ server: { matched: { 3: ['a'], 5: ['b'] } } });
+  const { section, state } = ctx;
+  await section.refresh(); await idle(section);
+  section.pairs.event.gl.controls.pick.fire('click'); await idle(section);
+  const picked = snap(ctx);
+  Object.assign(state.values, BOUND);
+  section.particleCommitted();
+  const n0 = ctx.requests.length;
+  await section.refresh(); await idle(section);
+  const replaced = snap(ctx, n0);
+  replaced.expected = expectedLines(replaced);
+  replaced.replacedLine = ep.replacedLine(picked.state.voxel_event, replaced.state.voxel_event);
+  // A further commit that keeps it: no pick.
+  section.particleCommitted();
+  Object.assign(state.values, { particle_p_max: 3.5 });
+  const n1 = ctx.requests.length;
+  await section.refresh(); await idle(section);
+  const kept = snap(ctx, n1);
+  out.follow = { picked, replaced, kept };
+  // A linked event that leaves the pool is the reader's own: drawn as asked, flagged, never replaced.
+  const linked = await make({ values: { voxel_event: 0 }, server: { matched: { 3: ['a'] } } });
+  await linked.section.refresh(); await idle(linked.section);
+  const origin = linked.section.origin;
+  Object.assign(linked.state.values, BOUND);
+  linked.section.particleCommitted();
+  const m0 = linked.requests.length;
+  await linked.section.refresh(); await idle(linked.section);
+  out.follow.linked = { origin, ...snap(linked, m0) };
+  out.follow.linked.expected = expectedLines(out.follow.linked);
+  // A typed event, the same.
+  const typed = await make({ server: { matched: { 3: ['a'] } } });
+  await typed.section.refresh(); await idle(typed.section);
+  typed.section.setEvent(0, { origin: 'typed' }); await idle(typed.section);
+  Object.assign(typed.state.values, BOUND);
+  typed.section.filtersCommitted();
+  const t0 = typed.requests.length;
+  await typed.section.refresh(); await idle(typed.section);
+  out.follow.typed = snap(typed, t0);
+}
+
+/* 8. N = 0: the empty line in place of the plots, no request; a 404 from the pick is that state. */
+{
+  const empty = load('candidates_base_empty');
+  const ctx = await make({ values: { particle_p_min: 5, particle_p_max: 6 }, server: { matched: {} } });
+  ctx.section.setCandidates(empty);
+  await ctx.section.refresh(); await idle(ctx.section);
+  out.empty = snap(ctx);
+  out.empty.expected = ep.emptyLine(empty, { nShowers: 2 });
+  out.empty.refreshError = null;
+  // The same pool with no candidates payload yet: the pick's 404 is the empty state, never an error.
+  const fresh = await make({ values: { particle_p_min: 5, particle_p_max: 6 }, server: { matched: {} } });
+  try { await fresh.section.refresh(); } catch (e) { out.emptyRefreshError = e.message; }
+  await idle(fresh.section);
+  out.empty404 = snap(fresh);
+  out.empty404.expected = ep.emptyLine({ candidates: { n_events: 0, particle: fresh.state.particleParams() } }, { nShowers: 2 });
+  // A button's 404 is the same: no error, the pickers shut.
+  const pinned = await make({ values: { particle_p_min: 5, particle_p_max: 6, voxel_event: 0 }, server: { matched: {} } });
+  await pinned.section.refresh(); await idle(pinned.section);
+  const pinnedLoaded = snap(pinned);
+  const p0 = pinned.requests.length;
+  pinned.section.pairs.event.gl.controls.pick.fire('click'); await idle(pinned.section);
+  out.emptyPinned = { loaded: pinnedLoaded, clicked: snap(pinned, p0) };
+  // Candidates that count some again: the pickers reopen, with their own titles.
+  pinned.section.setCandidates(load('candidates_base_particle'));
+  pinned.state.values.particle_p_min = 2; pinned.state.values.particle_p_max = 3;
+  pinned.section.setCandidates(load('candidates_base_particle'));
+  out.emptyPinned.reopened = snap(pinned);
+  out.titles = { pick: ep.PICK_TITLE, tilted: ep.TILTED_TITLE, open2d: ep.OPEN_2D_TITLE, densest: vv.DENSEST_TITLE,
+    steps: vv.STEP_TITLES, labels: vv.PICKER_LABELS, open2dLabel: vv.OPEN_2D_LABEL };
+}
+
+/* 9. The Selection scope and the cloud: never the particle keys; their captions say what the filter narrows. */
+{
+  const ctx = await make({ values: { ...BOUND, voxel_scope: 'selection' } });
+  const { section, state } = ctx;
+  await section.refresh(); await idle(section);
+  const selection = snap(ctx);
+  const rendered0 = ctx.rendered.length;
+  const n0 = ctx.requests.length;
+  section.particleCommitted();
+  await section.refresh(); await idle(section);
+  const committed = { requests: ctx.requests.slice(n0), rendered: ctx.rendered.slice(rendered0) };
+  Object.assign(state.values, { particle_p_min: null, particle_p_max: null });
+  section.particleCommitted();
+  const cleared = snap(ctx);
+  state.values.frame = 'local';
+  Object.assign(state.values, BOUND);
+  await section.refresh(); await idle(section);
+  const cloud = snap(ctx);
+  out.ensemble = { selection, committed, cleared, cloud, line: ep.ensembleLine(BOUND, { nShowers: 2 }) };
+}
+
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def pickers() -> dict:
+    args = json.dumps([JS.as_uri(), str(FIXTURES)])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _PICKER_SCRIPT, args],
+                          capture_output=True, text=True, timeout=180, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+_PARTICLE = ("particle_p_min", "particle_p_max", "particle_theta_min", "particle_theta_max")
+
+
+def _particle_keys(query: dict) -> dict:
+    return {k: v for k, v in query.items() if k in _PARTICLE}
+
+
+def _strings(run: dict) -> list[str]:
+    """Every sentence a reader sees on a run's cards, pickers and link."""
+    found = []
+    for card in run["cards"].values():
+        found += [card["message"] or "", card["caption"] or "", *(card.get("sparse") or [])]
+    found += [b["title"] for b in run["pickers"].values()] + [run["open2d"]["title"]]
+    return found
+
+
+def test_the_particle_filter_is_in_the_one_event_key_only(pickers):
+    keys = {label: (event, ensemble) for label, event, ensemble in pickers["keys"]}
+    off, on = keys["event off"][0], keys["event on"][0]
+    assert off != on and "particle_p_min" in on and "particle_p_min" not in off
+    # The Selection scope and the cloud never see the particle keys: a bound changes neither key.
+    assert keys["selection on"][0] == keys["selection off"][0] and "particle" not in keys["selection on"][0]
+    assert keys["cloud on"][1] == keys["cloud off"][1] and "particle" not in keys["cloud on"][1]
+
+
+def test_the_pure_requests_keep_their_output_without_a_bound_and_gain_the_keys_with_one(pickers):
+    pure = pickers["pure"]
+    # pickRequest(filters): exactly today's request (the existing pin), whether or not `{}` is passed.
+    today = {"route": "/api/event/pick", "abortKey": "vox-pick", "params": {"table_name": "t", "e1_min": 1, "rule": "densest"}}
+    assert pure["pickOff"] == today and pure["pickEmpty"] == today
+    assert pure["pickOn"]["params"] == {"table_name": "t", "e1_min": 1, "particle_p_min": 2, "particle_p_max": 3,
+                                        "rule": "densest"}
+    for half in ("raster", "voxels"):
+        assert not _particle_keys(pure["eventOff"][half]["params"])
+        assert _particle_keys(pure["eventOn"][half]["params"]) == {"particle_p_min": 2, "particle_p_max": 3}
+        assert pure["eventOn"][half]["params"]["event_number"] == 5
+    for name in ("selection", "ensemble"):
+        for request in pure[name].values():
+            assert request is None or not _particle_keys(request["params"]), (name, request)
+
+
+def test_both_draws_the_matching_showers_projections_and_says_so(pickers):
+    pure = pickers["pure"]
+    assert pure["both"]["shower"] == "both" and pure["both"]["rasterShower"] == "b"
+    assert pure["both"]["projectionNote"] == pure["noteB"] and "shower B" in pure["noteB"]
+    # Two showers matching, or the filter off (no `matched`): shower A, as before.
+    for name in ("bothTwo", "bothNone"):
+        assert pure[name]["rasterShower"] == "a" and pure[name]["projectionNote"] == pure["oneShower"], name
+    # A per-shower frame holds one shower: "Both" is drawn as A there whatever matches.
+    assert pure["localMatched"]["shower"] == "a" and pure["localMatched"]["rasterShower"] == "a"
+
+
+def test_the_densest_is_the_pools_and_asks_for_a_matching_shower_first(pickers):
+    off = pickers["densestOff"]
+    assert off["requests"][0] == ["/api/event/pick", {"table_name": "experiment_baseline", "rule": "densest"}]
+    assert all(not _particle_keys(q) for _, q in off["requests"])
+    assert off["origin"] == "densest" and off["errors"] == []
+    on = pickers["densestOn"]
+    picks = [q for path, q in on["requests"] if path == "/api/event/pick"]
+    assert picks == [{"table_name": "experiment_baseline", "particle_p_min": "2", "particle_p_max": "3", "rule": "densest"}]
+    events = [q for path, q in on["requests"] if path == "/api/event"]
+    # The pool's densest is event 1, whose only match is shower B: B is asked for in the event's first requests.
+    assert {q["event_number"] for q in events} == {"1"} and {q["shower"] for q in events} == {"b"}
+    assert all(_particle_keys(q) == {"particle_p_min": "2", "particle_p_max": "3"} for q in events)
+    assert on["state"]["voxel_shower"] == "b" and on["state"]["voxel_event"] is None
+    sparse = on["cards"]["vox-event"]["sparse"]
+    assert "the densest candidate event" in sparse[0]
+    assert on["expected"]["place"] in sparse and on["expected"]["match"] in sparse
+    assert on["expected"]["match"].startswith("Shower B matches the particle filter")
+    assert on["errors"] == []
+
+
+def test_pick_for_me_is_uniform_with_the_first_seed_and_a_draw_counter_that_restarts(pickers):
+    p = pickers["pickers"]
+    first = [q for path, q in p["first"]["requests"] if path == "/api/event/pick"]
+    assert first == [{"table_name": "experiment_baseline", "particle_p_min": "2", "particle_p_max": "3",
+                      "rule": "uniform", "seed": "42", "draw": "0"}]
+    assert p["first"]["origin"] == "pick" and p["first"]["state"]["voxel_event"] == 4
+    # The densest (event 1) left shower B asked for; event 4 matches with A only, so the pick asks for A
+    # in the event's first requests (the Absolute frame keeps "Both" only when it is asked for).
+    assert p["first"]["state"]["voxel_shower"] == "a"
+    assert [(q["event_number"], q["shower"]) for path, q in p["first"]["requests"] if path == "/api/event"] == [
+        ("4", "a"), ("4", "a")]
+    sparse = p["first"]["cards"]["vox-event"]["sparse"]
+    assert "drawn uniformly at random" in sparse[0]
+    assert "The uniform rule's sentence for event 4." in sparse, "the pick's rule is on the card"
+    assert p["first"]["expected"]["place"] in sparse and p["first"]["expected"]["match"] in sparse
+    second = [q for path, q in p["second"]["requests"] if path == "/api/event/pick"]
+    assert [(q["rule"], q["seed"], q["draw"]) for q in second] == [("uniform", "42", "1")]
+    # A commit restarts the counter; the next click takes draw 0 again.
+    assert p["afterCommit"] == {"draw": 0, "followPending": True}
+    third = [q for path, q in p["third"]["requests"] if path == "/api/event/pick"]
+    assert [(q["rule"], q["seed"], q["draw"]) for q in third] == [("uniform", "42", "0")]
+    assert p["afterFilters"] == {"draw": 0}
+
+
+def test_most_tilted_takes_the_next_seed_and_densest_stays(pickers):
+    p = pickers["pickers"]
+    one = [q for path, q in p["tilted1"]["requests"] if path == "/api/event/pick"]
+    two = [q for path, q in p["tilted2"]["requests"] if path == "/api/event/pick"]
+    assert [(q["rule"], q["seed"], "draw" in q, q["particle_p_min"]) for q in one + two] == [
+        ("tilted", "42", False, "2"), ("tilted", "43", False, "2")]
+    # Seed 42 lands on the event in hand (4): no request, and the caption says how it was chosen now.
+    assert p["tilted1"]["state"]["voxel_event"] == 4 and not [x for x, _ in p["tilted1"]["requests"] if x == "/api/event"]
+    assert p["tilted1"]["origin"] == "tilted" and "picked by the tilted rule" in p["tilted1"]["cards"]["vox-event"]["sparse"][0]
+    assert "The tilted rule's sentence for event 4." in p["tilted1"]["cards"]["vox-event"]["sparse"]
+    assert p["tilted2"]["state"]["voxel_event"] == 2 and "picked by the tilted rule" in p["tilted2"]["cards"]["vox-event"]["sparse"][0]
+    assert p["tilted2"]["seed"] == 44
+    dense = p["densest"]
+    assert dense["state"]["voxel_event"] is None and dense["origin"] == "densest"
+    # The pool's densest again (its pick kept from the first load): event 1.
+    assert all(q["rule"] == "densest" for path, q in dense["requests"] if path == "/api/event/pick")
+    assert dense["drawn"]["event_number"] == 1 and "the densest candidate event" in dense["cards"]["vox-event"]["sparse"][0]
+    for name in ("first", "tilted1", "densest"):
+        pk = p[name]["pickers"]
+        assert pk["pick"]["text"] == "Pick for me" and pk["pick"]["data"] == {"voxelPick": ""}
+        assert pk["tilted"]["text"] == "Most tilted" and pk["tilted"]["data"] == {"voxelTilted": ""}
+        assert pk["densest"]["text"] == "Densest" and pk["densest"]["data"] == {"voxelDensest": ""}
+        assert pk["pick"]["title"] == pickers["titles"]["pick"] and pk["tilted"]["title"] == pickers["titles"]["tilted"]
+        assert pk["densest"]["title"] == pickers["titles"]["densest"]
+        assert not any(b["disabled"] for k, b in pk.items() if k in ("pick", "tilted", "densest"))
+
+
+def test_the_steps_walk_the_pool_with_the_neighbours_matching_shower_first(pickers):
+    s = pickers["steps"]
+    assert s["loaded"]["pickers"]["prev"]["disabled"] is False and s["loaded"]["pickers"]["next"]["disabled"] is False
+    assert s["loaded"]["pickers"]["next"]["title"] == pickers["titles"]["steps"]["next"]
+    events = [(q["event_number"], q["shower"]) for path, q in s["next"]["requests"] if path == "/api/event"]
+    # The pool is 1, 2, 4: next from 2 is 4, whose only match is A - asked for first, never B.
+    assert events and all(e == ("4", "a") for e in events), events
+    assert s["next"]["origin"] == "step" and s["next"]["state"] == {"voxel_event": 4, "voxel_shower": "a", "voxel_scope": "event"}
+    assert s["next"]["pickers"]["next"]["disabled"] is True, "4 is the pool's last"
+    # Back twice: 2 (A matches, kept), then 1, whose only match is B.
+    assert s["prev"]["state"]["voxel_event"] == 1 and s["prev"]["state"]["voxel_shower"] == "b"
+    last = [(q["event_number"], q["shower"]) for path, q in s["prev"]["requests"] if path == "/api/event"][-1]
+    assert last == ("1", "b")
+
+
+def test_both_in_the_absolute_frame_draws_the_match_in_its_projections(pickers):
+    d = pickers["bothDensest"]
+    assert d["state"]["voxel_shower"] == "both", "the Absolute frame keeps Both"
+    rasters = [q["shower"] for path, q in d["requests"] if path == "/api/event" and "format" not in q]
+    voxels = [q["shower"] for path, q in d["requests"] if path == "/api/event" and q.get("format") == "voxels"]
+    assert rasters == ["b"] and voxels == ["both"], "known from the pick: the right shower in the first request"
+    assert d["view"] == {"shower": "both", "rasterShower": "b", "projectionNote": d["view"]["projectionNote"]}
+    for col in ("xy", "xz", "yz"):
+        assert d["view"]["projectionNote"] in (d["cards"][f"vproj-{col}"]["caption"] or ""), col
+    assert "shower B" in d["view"]["projectionNote"]
+    assert d["expected"]["match"] in d["cards"]["vox-event"]["sparse"]
+    typed = pickers["bothTyped"]
+    rasters = [q["shower"] for path, q in typed["requests"] if path == "/api/event" and "format" not in q]
+    # A typed event's match is first known from its response: its raster is asked for again, for B.
+    assert rasters == ["a", "b"] and typed["view"]["rasterShower"] == "b"
+    assert typed["errors"] == []
+
+
+def test_the_2d_link_is_live_and_opens_the_drawn_event_and_its_match(pickers):
+    typed = pickers["bothTyped"]
+    link = typed["open2d"]
+    assert link["tag"] == "A" and link["data"] == {"voxelOpen2d": ""} and "mini" in link["className"].split()
+    assert link["text"] == pickers["titles"]["open2dLabel"] and link["title"] == pickers["titles"]["open2d"]
+    assert link["hidden"] is False and link["href"] == typed["firstExpected"]
+    assert "event=1" in link["href"] and "shower=b" in link["href"] and link["href"].startswith("/#")
+    # Followed later, with another hash: the href is the moment's.
+    assert typed["liveHref"] == typed["liveExpected"] and "particle_p_min=2.5" in typed["liveHref"]
+    # The selection draws no one event: no link.
+    assert pickers["ensemble"]["selection"]["open2d"]["hidden"] is True
+
+
+def test_a_picked_event_that_leaves_the_pool_is_replaced_by_the_next_uniform_draw(pickers):
+    f = pickers["follow"]
+    assert f["picked"]["origin"] == "pick" and f["picked"]["state"]["voxel_event"] == 9
+    r = f["replaced"]
+    paths = [(path, q.get("format"), q.get("event_number"), q.get("rule"), q.get("draw")) for path, q in r["requests"]]
+    # The fresh response of event 9 (outside the pool), then one uniform draw (draw 0), then the replacement's pair.
+    assert paths[0][:3] in (("/api/event", None, "9"), ("/api/event", "voxels", "9"))
+    picks = [p for p in paths if p[0] == "/api/event/pick"]
+    assert picks == [("/api/event/pick", None, None, "uniform", "0")]
+    assert {p[2] for p in paths if p[0] == "/api/event"} == {"9", "5"}
+    assert r["state"]["voxel_event"] == 5 and r["origin"] == "replace" and r["draw"] == 1
+    assert r["state"]["voxel_shower"] == "b", "event 5 matches with B"
+    sparse = r["cards"]["vox-event"]["sparse"]
+    assert r["replacedLine"] in sparse and r["replacedLine"].startswith("Event 9 left the candidates")
+    assert r["expected"]["place"] in sparse and r["expected"]["match"] in sparse
+    assert r["errors"] == []
+    # A further commit the event survives: kept, no pick.
+    kept = f["kept"]
+    assert not [p for p, _ in kept["requests"] if p == "/api/event/pick"] and kept["state"]["voxel_event"] == 5
+
+
+def test_a_linked_or_typed_event_outside_the_pool_is_drawn_as_asked_and_flagged(pickers):
+    f = pickers["follow"]
+    linked = f["linked"]
+    assert linked["origin"] == "link"
+    assert not [p for p, _ in linked["requests"] if p == "/api/event/pick"], "never replaced"
+    assert linked["state"]["voxel_event"] == 0 and linked["drawn"]["candidates"]["in_pool"] is False
+    assert linked["expected"]["place"] in linked["cards"]["vox-event"]["sparse"]
+    assert linked["expected"]["place"].startswith("Not a candidate: no shower matches the particle filter")
+    typed = f["typed"]
+    assert typed["origin"] == "typed" and typed["state"]["voxel_event"] == 0
+    assert not [p for p, _ in typed["requests"] if p == "/api/event/pick"]
+
+
+def test_n_zero_shows_the_empty_line_in_place_of_the_plots_and_asks_nothing(pickers):
+    empty = pickers["empty"]
+    assert not [p for p, _ in empty["requests"] if p in ("/api/event/pick", "/api/event")], empty["requests"]
+    line = empty["expected"]
+    assert line.startswith("N = 0: no selected event holds a shower with p in 5.00–6.00 GeV")
+    for card in ("vox-event", "vproj-xy", "vproj-xz", "vproj-yz"):
+        got = empty["cards"][card]
+        assert got["message"] == line and got["kind"] == "empty", card
+        assert got["notes"]["hazards"] == [] and got["notes"]["sections"][0]["lines"] == [line], card
+    for name in ("pick", "tilted", "densest", "prev", "next"):
+        button = empty["pickers"][name]
+        assert button["disabled"] is True and button["title"] == line, name
+    assert empty["open2d"]["hidden"] is True and empty["errors"] == []
+    _no_hyphen_numbers(_strings(empty))
+
+
+def test_a_404_from_the_pick_is_the_empty_state_never_an_error(pickers):
+    run = pickers["empty404"]
+    assert "emptyRefreshError" not in pickers
+    paths = [p for p, _ in run["requests"]]
+    assert paths == ["/api/event/pick"], "the 404 pick, and nothing after it"
+    for card in ("vox-event", "vproj-xz"):
+        assert run["cards"][card]["message"] == run["expected"] and run["cards"][card]["kind"] == "empty"
+    assert run["pickers"]["pick"]["disabled"] and run["pickers"]["pick"]["title"] == run["expected"]
+    assert run["errors"] == []
+    pinned = pickers["emptyPinned"]
+    # A pinned event stays, drawn as asked; its response counts no candidate, so the pickers are shut.
+    assert pinned["loaded"]["state"]["voxel_event"] == 0 and pinned["loaded"]["drawn"]["event_number"] == 0
+    assert pinned["loaded"]["pickers"]["tilted"]["disabled"] is True
+    # A click on a picker the pool cannot serve: its 404 is no error and pins nothing.
+    assert pinned["clicked"]["errors"] == [] and pinned["clicked"]["state"]["voxel_event"] == 0
+    reopened = pinned["reopened"]["pickers"]
+    assert not reopened["pick"]["disabled"] and reopened["pick"]["title"] == pickers["titles"]["pick"]
+    assert reopened["densest"]["title"] == pickers["titles"]["densest"]
+
+
+def test_the_selection_and_the_cloud_say_what_the_particle_filter_narrows_and_ask_nothing(pickers):
+    e = pickers["ensemble"]
+    line = e["line"]
+    assert line.startswith("The particle filter (p in 2.00–3.00 GeV) narrows the event pickers only")
+    assert line in e["selection"]["cards"]["vox-event"]["sparse"]
+    assert all(not _particle_keys(q) for _, q in e["selection"]["requests"])
+    assert "/api/event/pick" not in [p for p, _ in e["selection"]["requests"]]
+    # A particle commit sends nothing for the selection; its drawers are rebuilt.
+    assert e["committed"]["requests"] == [] and "vox-event" in e["committed"]["rendered"]
+    assert not any(line == s for s in (e["cleared"]["cards"]["vox-event"]["sparse"] or [])), "no bound: no line"
+    cloud = e["cloud"]["cards"]["vox-ensemble"]
+    assert line in cloud["sparse"]
+    assert all(not _particle_keys(q) for p, q in e["cloud"]["requests"] if p in ("/api/voxels", "/api/projections"))
+
+
+def test_no_rendered_picker_sentence_signs_a_number_with_a_hyphen(pickers):
+    runs = [pickers["densestOn"], pickers["bothDensest"], pickers["follow"]["replaced"], pickers["empty"],
+            pickers["ensemble"]["selection"], *pickers["pickers"].values()]
+    for run in runs:
+        if isinstance(run, dict) and "cards" in run:
+            _no_hyphen_numbers(_strings(run))
+
+
+def test_the_models_page_mounts_the_particle_filter_and_wires_its_commits():
+    """models_main.js (brief 8.1, 8.3, 8.4a): one block; a particle commit refreshes the 3-D views alone; an E1/E2/D
+    commit resets the counter and refreshes the block; the experiment switch aborts its request."""
+    from test_layout_assets import _strip_comments
+
+    src = _strip_comments((JS / "models_main.js").read_text(encoding="utf-8"))
+    assert len(re.findall(r"mountParticleFilter\(", src)) == 1
+    assert "import { mountParticleFilter } from './controls/particle_filter.js';" in src
+    mount = re.search(r"mountParticleFilter\(\{(.*?)\}\);", src, re.S).group(1)
+    assert "onCommit: () => onParticleCommit()" in mount and "voxels?.setCandidates?.(payload)" in mount
+    commit = re.search(r"function onParticleCommit\(\) \{(.*?)\n\}", src, re.S).group(1)
+    assert "voxels.particleCommitted" in commit and "voxels.refresh()" in commit
+    for forbidden in ("refreshAll", "models.refresh", "particle.refresh"):
+        assert forbidden not in commit, forbidden
+    filters = re.search(r"new FilterBlock\(\{(.*?)\n\}\);", src, re.S).group(1)
+    assert "voxels?.filtersCommitted?.()" in filters and "refreshParticle()" in filters and "refreshAll()" in filters
+    offer = re.search(r"function particleOffer\(\) \{(.*?)\n\}", src, re.S).group(1)
+    assert "plan.voxels?.event" in offer and "event?.enabled" in offer
+    activate = re.search(r"function activate\(experiment\) \{(.*?)\n\}", src, re.S).group(1)
+    assert activate.index("filters.adopt(") < activate.index("particle.adopt(") < activate.index("refreshAll.flush()")
+    clear = re.search(r"function clearExperimentViews\(\) \{(.*?)\n\}", src, re.S).group(1)
+    assert "abortRequest(particle.abortKey)" in clear
+    required = re.search(r"const MODELS_REQUIRED_IDS = \[(.*?)\];", src, re.S).group(1)
+    html = (JS.parent / "models.html").read_text(encoding="utf-8")
+    for element_id in ("group-particle", "particle-count", "particle-scope", "particle-clear", "pp-lo", "pp-hi",
+                       "pt-lo", "pt-hi", "pp-num-lo", "pt-num-hi", "particle-theta-hint"):
+        assert f"'{element_id}'" in required and f'id="{element_id}"' in html, element_id
+    # No other card reads the particle filter, so a particle commit can ask nothing of them.
+    cards = _strip_comments((JS / "models_cards.js").read_text(encoding="utf-8"))
+    assert "particleParams" not in cards and "particle_" not in cards
