@@ -61,14 +61,15 @@ BRIEF_ESTIMATORS = [
 ]
 
 #: res-robust brief-fix.md, "The weight label", `WEIGHT_LABELS` for median and robust, verbatim, in the lead's
-#: wording of 2026-11-15 for Martin's one-scale decision: one c per series cancels in every fit, and the
-#: a/√E ⊕ b ⊕ c/E fit weights its windows of 1–4 GeV by the same c, which they do not enter.
+#: wording of 2026-11-15 for Martin's one-scale decision: one c per series cancels in every fit, the noise fit
+#: included, so the label is the res-robust one again; it names the provisional fallback of c (SC-backend-check
+#: F1), and the drawer's pooled-scale line says the a/√E ⊕ b ⊕ c/E fit weights its 1–4 GeV windows by that c.
 BRIEF_FIX_WEIGHT = (
     "Fit weights 1/se², se = c·ŷ/√N recomputed at the fitted value ŷ and iterated, with c the series' pooled scale: "
-    "the median of √N·κ over its windows of N ≥ 20 from 4 GeV, κ = SE/value each window's bootstrap relative SE. One c "
-    "per series cancels in the fitted parameters and sets only χ², S and the errors; the a/√E ⊕ b ⊕ c/E fit weights "
-    "its windows of 1–4 GeV by the same c, which they do not enter. A per-window κ would put each window's own value "
-    "back into its weight.")
+    "the median of √N·κ over its windows of N ≥ 20 from 4 GeV (where a series has none, over the windows its "
+    "provisional fits draw on, as its rule says), κ = SE/value each window's bootstrap relative SE. One c per series "
+    "cancels in the fitted parameters and sets only χ², S and the errors; a per-window κ would put each window's own "
+    "value back into its weight.")
 
 #: brief section 4, the card titles per estimator: (1/√E view, E view).
 BRIEF_TITLES = {

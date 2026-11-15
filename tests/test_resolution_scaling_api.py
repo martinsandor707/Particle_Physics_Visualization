@@ -1177,10 +1177,14 @@ def test_c_is_the_median_over_the_fittable_windows_from_4_gev_alone(synthetic_cl
     scaled = moved = 0
     for s in result.series:
         scale = rs.pooled_scale(s.windows)
-        pool = [w for w in s.windows if w.fittable(gates["fit_n"])]
+        # The pool as pooled_scale takes it: the fit gate's windows, else (median) the whisker gate's.
+        pool, basis = [w for w in s.windows if w.fittable(gates["fit_n"])], "fit"
+        if not pool and gates["whisker_n"] < gates["fit_n"]:
+            pool, basis = [w for w in s.windows if w.fittable(gates["whisker_n"])], "fallback"
         if not pool:
             assert scale.c is None and served[s.key]["rule"] == NO_SCALE_RULE
             continue
+        assert scale.basis == basis
         assert all(w.p_lo >= rs.E_MIN_GEV for w in pool)
         values = [np.sqrt(w.n) * w.kappa for w in pool]
         assert scale.c == float(np.median(values)) and scale.n_windows == len(pool)

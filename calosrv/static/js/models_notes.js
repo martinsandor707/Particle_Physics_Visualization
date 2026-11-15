@@ -753,6 +753,13 @@ function declinedLines(w, model) {
   return model.series.map((s) => {
     const one = declinedWindow({ name: w.name }, s.raw, s.mf, model.mode, model.gates);
     if (!one) return '';
+    // On the E view a series that declines the fits from 4 GeV may still draw its a/√E ⊕ b ⊕ c/E curve, which runs
+    // through its own windows from 1 GeV (SC-backend-check's observation): "no fit is drawn" would then be false.
+    if (model.view === 'energy' && s.drawnForm === 'noise') {
+      const among = (s.drawn?.points ?? []).includes(one.bin) ? `, ${one.label ?? `bin ${one.bin}`} among them` : '';
+      return `${s.label}: ${declinedText(one)}, so a₀/√E and the affine and quadrature fits are not fitted; its ${NOISE_FORM} curve is drawn, `
+        + `through its own windows from ${formatNumber(noiseMinGev(model.payload))} GeV${among}.`;
+    }
     return `${s.label}: ${declinedText(one)}, so no fit is drawn${model.mode === 'anchors' ? '; the window is drawn in the all-windows mode' : '; the window is drawn unfitted'}.`;
   }).filter(Boolean);
 }
@@ -1318,7 +1325,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       const top = Math.max(...rhos.map(Math.abs));
       const how = top >= STRONG_RHO ? 'strongly correlated (each curve\'s tooltip gives ρ)' : `correlated (here |ρ| ≤ ${sig(top)}; each curve's tooltip gives ρ)`;
       dis.push(`Over the fitted windows 1/√E, 1 and 1/E change together, so the fitted squares are ${how}: the curve is better determined than its split into a, b and c, `
-        + 'and each free term\'s standard error already carries that correlation, with only the held terms fixed at 0.');
+        + 'and each free term\'s standard error already carries that correlation, conditional only on the held terms.');
     }
     // The held-term caveat stands whenever a drawn fit holds a term, with or without a correlation to give (review m3).
     if (noiseDrawn.some(({ fit }) => heldTerms(fit).length)) {
@@ -1383,7 +1390,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     dis.push(`Clipped at the ratio axis (${kText}) ${inForce(model, shower)}, each with a caret and its true value in its tooltip: ${ratioParts.join(', ')}.`);
   }
   if (points.some((p) => p.ratio.drawn && Number.isFinite(p.ratio.lo))) {
-    dis.push(`A ratio whisker is the window's 95% ${w.sample ? 'χ² interval' : 'interval'} divided by ${lit ? 'the literature curve' : 'the reference fit'} at its E: it holds the reference, ${ref.label}, fixed `
+    dis.push(`A ratio whisker is the window's 95% ${w.sample ? 'χ² interval' : 'interval'} divided by ${lit ? 'the literature curve' : 'the reference fit'} at its E: it is conditional on the reference, ${ref.label}, `
       + `and does not include the reference's own uncertainty.${lit ? ' The literature curve has no interval reported, so none is carried.' : ''}`);
   }
   // The drawn windows below the floor of their shower's deposit reference: 1 GeV under the deposit's three-term
@@ -1415,12 +1422,12 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   if (!lit) {
     for (const r of depositRefs.filter((x) => !x.reason)) {
       const owner = model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}'s` : 'The deposit';
-      if (r.provisional) dis.push(`${owner} reference fit is provisional: its ratio marks rest on a fit through windows of N < ${formatInt(gates.fit_n)}, so none of them sets the ratio range.`);
+      if (r.provisional) dis.push(`${owner} reference fit is provisional: its ratio marks are conditional on a fit through windows of N < ${formatInt(gates.fit_n)}, so none of them sets the ratio range.`);
       if (r.misfit) {
         const which = `${model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}'s reference, its deposit's` : 'The reference, the deposit\'s'} `
           + `${r.form === 'noise' ? NOISE_FORM : 'a₀/√E'} fit,`;
         dis.push(`${which} does not describe its windows (S = ${sig(r.fit.scale_factor)} > ${formatNumber(gates.misfit_scale)}, χ²/ν = ${sig(r.fit.chi2 / r.fit.ndf)}): `
-          + 'its ratio marks rest on a form its own windows reject, so none of them sets the ratio range.');
+          + 'its ratio marks are conditional on a form its own windows reject, so none of them sets the ratio range.');
       }
     }
   }

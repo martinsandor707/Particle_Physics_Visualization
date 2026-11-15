@@ -130,8 +130,8 @@ def get_resolution_scaling(
     # (2026-11-13, at 7d41c68 + the fix round; the trim of d50d7f6 had already taken 65,683,
     # 79,382 and 72,890). The single-curve round took the all-free face, the noise block's
     # band_quantile and the second scale's c_low and n_low back off the wire and shortened the
-    # weight label, the scale rules and the E view's two notes: 61,884 under median, 72,601 under
-    # robust and 66,918 under sample, each noise block 415–460 bytes (2026-11-15, at 711fcf3 +
-    # SC-backend; 63,044, 74,982 and 68,268 at 711fcf3).
+    # weight label, the scale rules and the E view's two notes: 61,873 under median, 72,590 under
+    # robust and 66,918 under sample, each noise block 415–460 bytes (2026-11-15, at 1a9e2b7 + the
+    # lead's label fix; 63,044, 74,982 and 68,268 at 711fcf3).
     return budget.serve_measured(build, steps[0], shrink, _describe,
                                  remedy="a narrower momentum selection brings it under")

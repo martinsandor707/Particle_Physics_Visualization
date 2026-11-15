@@ -183,7 +183,7 @@ here; the card's toggle only repaints.
 **The noise fit** (``fits[mode].noise``; Martin's decisions, 2026-11-13).
 σ/E = a/√E ⊕ b ⊕ c/E, fitted as (σ/E)² = A/E + B + C/E² with A, B, C ≥ 0
 (``stats/resolution_fit.fit_noise``: a term the constraint holds at 0 is named).
-It is drawn with no band on either view (Martin's directive, 2026-11-15), so
+It is drawn on the E view only, with no band, and tabled on both views (Martin's directive, 2026-11-15), so
 the envelope band of the fix brief's FX1 and its all-free face are retired,
 and ``params.free`` left the wire. Its windows start at :data:`NOISE_MIN_GEV`,
 not 4 GeV: a noise-eligible window is what ``Window.fittable`` accepts with that
@@ -1443,10 +1443,10 @@ WEIGHT_LABELS: dict[str, str] = {
     # brief, 2026-11-12, with the noise fit's 1–4 GeV windows weighted by the same c).
     "kappa": ("Fit weights 1/se², se = c·ŷ/√N recomputed at the fitted value ŷ and iterated, with "
               "c the series' pooled scale: the median of √N·κ over its windows of N ≥ 20 from "
-              "4 GeV, κ = SE/value each window's bootstrap relative SE. One c per series cancels "
-              "in the fitted parameters and sets only χ², S and the errors; the a/√E ⊕ b ⊕ c/E "
-              "fit weights its windows of 1–4 GeV by the same c, which they do not enter. A "
-              "per-window κ would put each window's own value back into its weight."),
+              "4 GeV (where a series has none, over the windows its provisional fits draw on, as "
+              "its rule says), κ = SE/value each window's bootstrap relative SE. One c per series "
+              "cancels in the fitted parameters and sets only χ², S and the errors; a per-window "
+              "κ would put each window's own value back into its weight."),
     "delta": ("Fit weights 1/se², se = |r|·√(1/(2(N − 1)) + r²/N), the delta-method standard "
               "error of σ/μ, recomputed at the fitted value and iterated."),
 }

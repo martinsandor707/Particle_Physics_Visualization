@@ -1438,7 +1438,7 @@ export function noiseHeldPhrase(held) {
  * (Martin's directive of 2026-11-15): no band is drawn there, and where the
  * fit's uncertainty is instead.
  */
-export const ENERGY_NO_BAND_TEXT = 'No band is drawn on this view: the standard errors, χ²/ν and S above, and the fit table, carry the fit\'s uncertainty.';
+export const ENERGY_NO_BAND_TEXT = 'No band is drawn on this view: the standard errors above and the fit table carry the fit\'s uncertainty.';
 
 /**
  * The share of the x axis from E = 0 below which an entry reads as the axis
