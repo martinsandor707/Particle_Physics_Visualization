@@ -853,6 +853,8 @@ export class VoxelSection {
     // The candidates payload of the filters in hand ({key, payload}), and the
     // matched showers of events seen (picks, neighbours, responses).
     this.pool = null;
+    // The count the page asked for and has not received yet ({key, promise}; setPoolPending).
+    this.pendingPool = null;
     this.matchedMemo = new Map();
     this.lazy = lazy && typeof lazy.watch === 'function'
       ? lazy
@@ -1016,7 +1018,8 @@ export class VoxelSection {
       // The drawn event in the Physics page's Event Inspector: a live link, its
       // href recomputed from the hash of the moment it is followed or copied.
       const open2d = make('a', 'mini', OPEN_2D_LABEL);
-      open2d.dataset.voxelOpen2d = '';
+      // Set by name: dataset.voxelOpen2d would render data-voxel-open2d (no dash before a digit).
+      open2d.setAttribute('data-voxel-open-2d', '');
       open2d.title = OPEN_2D_TITLE;
       open2d.href = '/';
       open2d.hidden = true;
@@ -1270,6 +1273,16 @@ export class VoxelSection {
   setCandidates(payload) {
     this.pool = payload ? { key: this.poolKey(), payload } : null;
     this.syncControls();
+  }
+
+  /**
+   * The count the page has asked for and not yet received (an experiment
+   * adopted, an E₁/E₂/D commit), under the filters it was asked for. A densest
+   * pick waits for it while a particle bound is set, so an empty pool sends no
+   * request (brief section 8.3). Null forgets it.
+   */
+  setPoolPending(promise) {
+    this.pendingPool = promise ? { key: this.poolKey(), promise } : null;
   }
 
   /** The candidates payload of the filters in hand, or null. */
@@ -1646,6 +1659,13 @@ export class VoxelSection {
       let eventNumber = this.value('voxel_event');
       let pick = null;
       if (!Number.isInteger(eventNumber)) {
+        // The count is on its way under these filters: with a particle bound set, wait for it, so an
+        // empty pool asks for nothing. With no bound nothing waits, as before the filter existed.
+        const pending = this.pendingPool?.key === this.poolKey() ? this.pendingPool.promise : null;
+        if (pending && !this.poolPayload() && Object.keys(particle).length) {
+          await pending;
+          if (this.keyOf('event') !== key) return;
+        }
         // N = 0: no candidate to pick, so neither the pick nor the event is asked for.
         if (this.poolEmpty()) {
           this.showEmpty(pair, view);
@@ -2793,6 +2813,7 @@ export class VoxelSection {
     this.replaced = null;
     this.followPending = false;
     this.pool = null;
+    this.pendingPool = null;
     this.matchedMemo.clear();
     for (const pair of Object.values(this.pairs)) {
       pair.view = null;

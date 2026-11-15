@@ -331,9 +331,15 @@ function particleOffer() {
   };
 }
 
-/** The block's count again, for an E₁/E₂/D commit (its own commits refresh it). */
+/**
+ * The block's count again, for an E₁/E₂/D commit (its own commits refresh it).
+ * The 3-D views hold the pending count, so a densest pick waits for it while a
+ * particle bound is set and an empty pool sends no request (brief section 8.3).
+ */
 function refreshParticle() {
-  particle.refresh().catch((error) => reportError(error, 'particle filter'));
+  const ready = particle.refresh().catch((error) => reportError(error, 'particle filter'));
+  voxels?.setPoolPending?.(ready);
+  return ready;
 }
 
 /**
@@ -750,7 +756,8 @@ function activate(experiment) {
   // The Particle Filter on the experiment's own p and θ: its count asked for
   // under the filters just adopted; a bound the new domain cannot hold is
   // dropped (onCommit then refreshes the 3-D views).
-  particle.adopt(experiment, particleOffer())?.catch?.((error) => reportError(error, 'particle filter'));
+  const pool = particle.adopt(experiment, particleOffer())?.catch?.((error) => reportError(error, 'particle filter'));
+  voxels?.setPoolPending?.(pool ?? null);
   refreshAll.flush();
 }
 

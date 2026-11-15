@@ -3028,7 +3028,8 @@ function snap(ctx, from = 0) {
     pickers: { pick: button(c.pick), tilted: button(c.tilted), densest: button(c.densest), prev: button(c.prev),
       next: button(c.next) },
     open2d: { hidden: Boolean(c.open2d.hidden), href: c.open2d.href, title: c.open2d.title, text: c.open2d.textContent,
-      tag: c.open2d.tagName, data: { ...c.open2d.dataset }, className: c.open2d.className },
+      tag: c.open2d.tagName, data: { ...c.open2d.dataset }, attr: c.open2d.getAttribute('data-voxel-open-2d'),
+      className: c.open2d.className },
     drawn: event ? { event_number: event.event_number, candidates: event.candidates, showers: event.showers } : null,
     view: section.pairs.event.view ? { shower: section.pairs.event.view.shower, rasterShower: section.pairs.event.view.rasterShower,
       projectionNote: section.pairs.event.view.projectionNote } : null,
@@ -3436,7 +3437,9 @@ def test_both_in_the_absolute_frame_draws_the_match_in_its_projections(pickers):
 def test_the_2d_link_is_live_and_opens_the_drawn_event_and_its_match(pickers):
     typed = pickers["bothTyped"]
     link = typed["open2d"]
-    assert link["tag"] == "A" and link["data"] == {"voxelOpen2d": ""} and "mini" in link["className"].split()
+    # The attribute the brief and the browser test select by, a[data-voxel-open-2d]: set by name, since
+    # dataset.voxelOpen2d would render data-voxel-open2d.
+    assert link["tag"] == "A" and link["attr"] == "" and "mini" in link["className"].split()
     assert link["text"] == pickers["titles"]["open2dLabel"] and link["title"] == pickers["titles"]["open2d"]
     assert link["hidden"] is False and link["href"] == typed["firstExpected"]
     assert "event=1" in link["href"] and "shower=b" in link["href"] and link["href"].startswith("/#")
