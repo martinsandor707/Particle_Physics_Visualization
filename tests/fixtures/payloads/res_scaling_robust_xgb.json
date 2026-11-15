@@ -23,7 +23,7 @@
   },
   "weight": {
    "method": "kappa",
-   "label": "Fit weights 1/se², se = c·ŷ/√N recomputed at the fitted value ŷ and iterated, with c the series' pooled scale: the median of √N·κ over its windows of N ≥ 20 from 4 GeV, κ = SE/value each window's bootstrap relative SE. One c per series cancels in the fitted parameters of the forms fitted from 4 GeV and sets only χ², S and the errors; the a/√E ⊕ b ⊕ c/E fit weights its windows below 4 GeV by a second scale, c_low, so there the ratio c_low/c weighs them against the rest. A per-window κ would put each window's own value back into its weight."
+   "label": "Fit weights 1/se², se = c·ŷ/√N recomputed at the fitted value ŷ and iterated, with c the series' pooled scale: the median of √N·κ over its windows of N ≥ 20 from 4 GeV, κ = SE/value each window's bootstrap relative SE. One c per series cancels in the fitted parameters and sets only χ², S and the errors; the a/√E ⊕ b ⊕ c/E fit weights its windows of 1–4 GeV by the same c, which they do not enter. A per-window κ would put each window's own value back into its weight."
   },
   "literature": {
    "drawn": true,
@@ -137,8 +137,8 @@
    "data_max_gev": 20.0,
    "rule": "E = 1/x² of the 1/√E view's x = ⟨1/√p⟩: one exact bijection, so both views draw the same measurements.",
    "notes": [
-    "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve, band or extrapolation sets it: one that leaves the top is clipped there with a caret.",
-    "a₀/√E is drawn from 4 GeV, the lowest window edge it can use, and a/√E ⊕ b ⊕ c/E from 0 GeV, fitted to windows from 1 GeV; each is solid over the windows it ran through and dashed beyond, where it extrapolates its form, and a curve that leaves the top is clipped there with a caret.",
+    "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve or extrapolation sets it: one that leaves the top is clipped there with a caret.",
+    "Each series draws one fitted curve with no band round it: its a/√E ⊕ b ⊕ c/E from 0 GeV, fitted to windows from 1 GeV, or, where the series has none, its a₀/√E from 4 GeV, the lowest window edge that fit can use. The curve is solid over the windows it ran through and dashed beyond, where it extrapolates its form, and a curve that leaves the top is clipped there with a caret.",
     "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, slightly larger (Jensen's inequality), is in its tooltip."
    ]
   }
@@ -888,13 +888,13 @@
        "b2": 13786.9,
        "c2": 0.0,
        "se_a2": null,
-       "se_b2": 25807.4,
+       "se_b2": 26673.8,
        "se_c2": null,
        "a": 0.0,
        "b": 117.418,
        "c": 0.0,
        "se_a": null,
-       "se_b": 109.896,
+       "se_b": 113.585,
        "se_c": null,
        "held": [
         "a",
@@ -904,27 +904,13 @@
         "a2b2": null,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 6.15369e-09,
-        "b2": 13786.9,
-        "c2": -4.41839e-09,
-        "se_a2": 3317790.0,
-        "se_b2": 292968.0,
-        "se_c2": 4092300.0,
-        "rho": {
-         "a2b2": -0.993807,
-         "a2c2": -0.999641,
-         "b2c2": 0.991636
-        }
        }
       },
-      "chi2": 1.50586e-32,
+      "chi2": 1.31664e-32,
       "p_value": 1.0,
       "scale_factor": 1.0,
       "iterations": 1,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
@@ -1286,13 +1272,13 @@
        "b2": 13786.9,
        "c2": 0.0,
        "se_a2": null,
-       "se_b2": 25807.4,
+       "se_b2": 26673.8,
        "se_c2": null,
        "a": 0.0,
        "b": 117.418,
        "c": 0.0,
        "se_a": null,
-       "se_b": 109.896,
+       "se_b": 113.585,
        "se_c": null,
        "held": [
         "a",
@@ -1302,27 +1288,13 @@
         "a2b2": null,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 6.15369e-09,
-        "b2": 13786.9,
-        "c2": -4.41839e-09,
-        "se_a2": 3317790.0,
-        "se_b2": 292968.0,
-        "se_c2": 4092300.0,
-        "rho": {
-         "a2b2": -0.993807,
-         "a2c2": -0.999641,
-         "b2c2": 0.991636
-        }
        }
       },
-      "chi2": 1.50586e-32,
+      "chi2": 1.31664e-32,
       "p_value": 1.0,
       "scale_factor": 1.0,
       "iterations": 1,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
@@ -1342,9 +1314,7 @@
    "weight_scale": {
     "c": 13.6805,
     "n_windows": 2,
-    "c_low": 12.3476,
-    "n_low": 1,
-    "rule": "c is the median of √N·κ over this series' windows of N ≥ 20 from 4 GeV with a fit weight, κ = SE/value each window's bootstrap relative SE (at least 10⁻⁶); the fits weight window k by se = c·ŷ/√N. The a/√E ⊕ b ⊕ c/E fit weights a window from 4 GeV by se = c·ŷ/√N and a window below 4 GeV by se = c_low·ŷ/√N, c_low the median of √N·κ over this series' windows of 1–4 GeV with N ≥ 20 and a fit weight, whatever the mode, so the low anchor never sets its own weight."
+    "rule": "c is the median of √N·κ over this series' windows of N ≥ 20 from 4 GeV with a fit weight, κ = SE/value each window's bootstrap relative SE (at least 10⁻⁶); the fits weight window k by se = c·ŷ/√N. The a/√E ⊕ b ⊕ c/E fit weights its windows of 1–4 GeV by the same c, which they do not enter."
    }
   },
   {
@@ -1630,8 +1600,6 @@
    "weight_scale": {
     "c": null,
     "n_windows": 0,
-    "c_low": null,
-    "n_low": 0,
     "rule": "No window from 4 GeV carries a fit weight, so this series has no pooled scale and no fit."
    }
   }

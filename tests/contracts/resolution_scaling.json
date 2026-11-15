@@ -441,7 +441,7 @@
       },
       "curve_min_gev": {
        "type": "number",
-       "description": "a₀/√E is drawn from this energy (E_MIN_GEV), the lowest window edge it can use."
+       "description": "Where a series has no noise fit, its a₀/√E is drawn from this energy (E_MIN_GEV), the lowest window edge that fit can use."
       },
       "noise_min_gev": {
        "const": 1.0,
@@ -1346,8 +1346,6 @@
        "required": [
         "c",
         "n_windows",
-        "c_low",
-        "n_low",
         "rule"
        ],
        "properties": {
@@ -1356,27 +1354,16 @@
           "number",
           "null"
          ],
-         "minimum": 0
+         "minimum": 0,
+         "description": "The series' one pooled scale: the median of √N·κ over its n_windows fittable windows from 4 GeV. Every fit weights window k by se = c·ŷ/√N, and the noise fit a/√E ⊕ b ⊕ c/E takes the same c for its windows of 1–4 GeV, which do not enter it. Null when no window carries a fit weight."
         },
         "n_windows": {
          "type": "integer",
          "minimum": 0
         },
-        "c_low": {
-         "type": [
-          "number",
-          "null"
-         ],
-         "minimum": 0,
-         "description": "The noise fit's scale below 4 GeV: the median of √N·κ over the series' windows of 1–4 GeV with N ≥ the fit gate and κ ≥ KAPPA_FLOOR, whatever the mode; with none, those of N ≥ the whisker gate (median); with none at all, c (n_low = 0). The noise fit weights a window below 4 GeV by se = c_low·ŷ/√N, one from 4 GeV by se = c·ŷ/√N."
-        },
-        "n_low": {
-         "type": "integer",
-         "minimum": 0,
-         "description": "The windows c_low is the median over; 0 when c_low = c."
-        },
         "rule": {
-         "type": "string"
+         "type": "string",
+         "description": "The scale as a sentence: one scale, and the noise fit's windows of 1–4 GeV weighted by the same c."
         }
        },
        "additionalProperties": false
@@ -1385,14 +1372,14 @@
        "type": "null"
       }
      ],
-     "description": "Median and robust: the series' pooled scale c, the median of √N·κ over its n_windows fittable windows (N ≥ 20 from 4 GeV with κ ≥ KAPPA_FLOOR; with none, those of N ≥ the whisker gate), and the rule as a sentence. The fits weight window k by se = c·ŷ/√N; c cancels in the parameters and sets only χ², S and the errors. c is null when no window carries a fit weight. null under sample (delta-method weights). c_low and n_low: the second scale, which the noise fit takes below 4 GeV (the res-noise fix brief's FX2); the rule names both."
+     "description": "Median and robust: the series' one pooled scale c (Martin's directive, 2026-11-15), the median of √N·κ over its n_windows fittable windows (N ≥ 20 from 4 GeV with κ ≥ KAPPA_FLOOR; with none, those of N ≥ the whisker gate), and the rule as a sentence. Every fit weights window k by se = c·ŷ/√N, the noise fit a/√E ⊕ b ⊕ c/E its windows of 1–4 GeV included, which take the same c without entering it; c cancels in the parameters and sets only χ², S and the errors. c is null when no window carries a fit weight. null under sample (delta-method weights)."
     }
    },
    "additionalProperties": false
   },
   "noise": {
    "type": "object",
-   "description": "σ/E = a/√E ⊕ b ⊕ c/E, fitted as (σ/E)² = A/E + B + C/E² by weighted least squares with A, B, C ≥ 0 (stats/resolution_fit.fit_noise). Compact: no _stat fields, no curve and no note; the E view draws it from params. Its band, in z = (σ/E)², is the envelope of the band conditional on the held terms and the band of params.free where a term is held, else the fit's own band.",
+   "description": "σ/E = a/√E ⊕ b ⊕ c/E, fitted as (σ/E)² = A/E + B + C/E² by weighted least squares with A, B, C ≥ 0 (stats/resolution_fit.fit_noise). Compact: no _stat fields, no curve, no note. No band is drawn for it on either view (Martin's directive, 2026-11-15): the E view draws its curve alone, from params, so the block carries no all-free face and no band_quantile. Its errors are the terms' SEs, chi2/ndf, scale_factor and rho.",
    "required": [
     "form",
     "n_points",
@@ -1406,7 +1393,6 @@
     "scale_factor",
     "iterations",
     "converged",
-    "band_quantile",
     "provisional",
     "misfit"
    ],
@@ -1463,8 +1449,7 @@
       "se_b",
       "se_c",
       "held",
-      "rho",
-      "free"
+      "rho"
      ],
      "properties": {
       "a2": {
@@ -1551,7 +1536,7 @@
         ]
        },
        "maxItems": 2,
-       "description": "The terms the constraint holds at 0, in the order a, b, c. Where any is held the band is the envelope with params.free's band (or, without the free face, conditional on them)."
+       "description": "The terms the constraint holds at 0, in the order a, b, c."
       },
       "rho": {
        "type": "object",
@@ -1582,84 +1567,6 @@
        },
        "additionalProperties": false,
        "description": "Correlations of the squares (scale_factor cancels in them); null when either term is held."
-      },
-      "free": {
-       "anyOf": [
-        {
-         "type": "object",
-         "required": [
-          "a2",
-          "b2",
-          "c2",
-          "se_a2",
-          "se_b2",
-          "se_c2",
-          "rho"
-         ],
-         "properties": {
-          "a2": {
-           "type": "number",
-           "description": "A of the all-free face in %²·GeV; may be negative."
-          },
-          "b2": {
-           "type": "number",
-           "description": "B in %²; may be negative."
-          },
-          "c2": {
-           "type": "number",
-           "description": "C in %²·GeV²; may be negative."
-          },
-          "se_a2": {
-           "type": "number",
-           "minimum": 0,
-           "description": "Scaled by the fit's scale_factor, as the main SEs are."
-          },
-          "se_b2": {
-           "type": "number",
-           "minimum": 0
-          },
-          "se_c2": {
-           "type": "number",
-           "minimum": 0
-          },
-          "rho": {
-           "type": "object",
-           "required": [
-            "a2b2",
-            "a2c2",
-            "b2c2"
-           ],
-           "properties": {
-            "a2b2": {
-             "type": [
-              "number",
-              "null"
-             ]
-            },
-            "a2c2": {
-             "type": [
-              "number",
-              "null"
-             ]
-            },
-            "b2c2": {
-             "type": [
-              "number",
-              "null"
-             ]
-            }
-           },
-           "additionalProperties": false,
-           "description": "Correlations of the free face's squares (scale_factor cancels in them)."
-          }
-         },
-         "additionalProperties": false
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Where a term is held: the all-free face, (A, B, C) with no constraint, solved once at the constrained fit's final weights, with the same scale_factor and band_quantile. The band is the envelope in z = (σ/E)² of the conditional band and this face's band, z_lo = min(ẑ − h, ẑ_free − h_free), z_hi = max(ẑ + h, ẑ_free + h_free), then √ with the lower edge cut at 0; the line stays the constrained ẑ. null when nothing is held, or when the free face's normal matrix is singular (the band is then conditional on the held terms)."
       }
      },
      "additionalProperties": false
@@ -1684,11 +1591,6 @@
     },
     "converged": {
      "type": "boolean"
-    },
-    "band_quantile": {
-     "type": "number",
-     "exclusiveMinimum": 0,
-     "description": "The band's multiplier on √(gᵀΣg), g = (1/E, 1, 1/E²), in z = (σ/E)²: Student's t₀.₉₇₅,ndf when scale_factor > 1, else 1.96."
     },
     "provisional": {
      "type": "boolean",

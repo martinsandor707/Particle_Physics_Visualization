@@ -137,8 +137,8 @@
    "data_max_gev": 20.0,
    "rule": "E = 1/x² of the 1/√E view's x = ⟨1/√p⟩: one exact bijection, so both views draw the same measurements.",
    "notes": [
-    "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve, band or extrapolation sets it: one that leaves the top is clipped there with a caret.",
-    "a₀/√E is drawn from 4 GeV, the lowest window edge it can use, and a/√E ⊕ b ⊕ c/E from 0 GeV, fitted to windows from 1 GeV; each is solid over the windows it ran through and dashed beyond, where it extrapolates its form, and a curve that leaves the top is clipped there with a caret.",
+    "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve or extrapolation sets it: one that leaves the top is clipped there with a caret.",
+    "Each series draws one fitted curve with no band round it: its a/√E ⊕ b ⊕ c/E from 0 GeV, fitted to windows from 1 GeV, or, where the series has none, its a₀/√E from 4 GeV, the lowest window edge that fit can use. The curve is solid over the windows it ran through and dashed beyond, where it extrapolates its form, and a curve that leaves the top is clipped there with a caret.",
     "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, slightly larger (Jensen's inequality), is in its tooltip."
    ]
   }
@@ -918,19 +918,6 @@
         "a2b2": -0.710671,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 11972.6,
-        "b2": 6498.38,
-        "c2": -14724.6,
-        "se_a2": 150106.0,
-        "se_b2": 13244.5,
-        "se_c2": 185181.0,
-        "rho": {
-         "a2b2": -0.993877,
-         "a2c2": -0.99959,
-         "b2c2": 0.991662
-        }
        }
       },
       "chi2": 0.00632257,
@@ -938,7 +925,6 @@
       "scale_factor": 1.0,
       "iterations": 4,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
@@ -1315,19 +1301,6 @@
         "a2b2": -0.710671,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 11972.6,
-        "b2": 6498.38,
-        "c2": -14724.6,
-        "se_a2": 150106.0,
-        "se_b2": 13244.5,
-        "se_c2": 185181.0,
-        "rho": {
-         "a2b2": -0.993877,
-         "a2c2": -0.99959,
-         "b2c2": 0.991662
-        }
        }
       },
       "chi2": 0.00632257,
@@ -1335,7 +1308,6 @@
       "scale_factor": 1.0,
       "iterations": 4,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
@@ -1992,19 +1964,6 @@
         "a2b2": null,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 1226.46,
-        "b2": -101.437,
-        "c2": -1405.92,
-        "se_a2": 820.792,
-        "se_b2": 72.89,
-        "se_c2": 994.89,
-        "rho": {
-         "a2b2": -0.992984,
-         "a2c2": -0.988324,
-         "b2c2": 0.976361
-        }
        }
       },
       "chi2": 30.3979,
@@ -2012,7 +1971,6 @@
       "scale_factor": 3.89858,
       "iterations": 25,
       "converged": true,
-      "band_quantile": 4.303,
       "provisional": true,
       "misfit": false
      },
@@ -2390,19 +2348,6 @@
         "a2b2": null,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 1226.46,
-        "b2": -101.437,
-        "c2": -1405.92,
-        "se_a2": 820.792,
-        "se_b2": 72.89,
-        "se_c2": 994.89,
-        "rho": {
-         "a2b2": -0.992984,
-         "a2c2": -0.988324,
-         "b2c2": 0.976361
-        }
        }
       },
       "chi2": 30.3979,
@@ -2410,7 +2355,6 @@
       "scale_factor": 3.89858,
       "iterations": 25,
       "converged": true,
-      "band_quantile": 4.303,
       "provisional": true,
       "misfit": false
      },

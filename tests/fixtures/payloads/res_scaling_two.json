@@ -143,8 +143,8 @@
    "data_max_gev": 18.0,
    "rule": "E = 1/x² of the 1/√E view's x = ⟨1/√p⟩: one exact bijection, so both views draw the same measurements.",
    "notes": [
-    "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve, band or extrapolation sets it: one that leaves the top is clipped there with a caret.",
-    "a₀/√E is drawn from 4 GeV, the lowest window edge it can use, and a/√E ⊕ b ⊕ c/E from 0 GeV, fitted to windows from 1 GeV; each is solid over the windows it ran through and dashed beyond, where it extrapolates its form, and a curve that leaves the top is clipped there with a caret.",
+    "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve or extrapolation sets it: one that leaves the top is clipped there with a caret.",
+    "Each series draws one fitted curve with no band round it: its a/√E ⊕ b ⊕ c/E from 0 GeV, fitted to windows from 1 GeV, or, where the series has none, its a₀/√E from 4 GeV, the lowest window edge that fit can use. The curve is solid over the windows it ran through and dashed beyond, where it extrapolates its form, and a curve that leaves the top is clipped there with a caret.",
     "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, slightly larger (Jensen's inequality), is in its tooltip."
    ]
   }
@@ -1133,19 +1133,6 @@
         "a2b2": null,
         "a2c2": null,
         "b2c2": -0.619581
-       },
-       "free": {
-        "a2": -50059.0,
-        "b2": 6142.28,
-        "c2": 191218.0,
-        "se_a2": 60707.5,
-        "se_b2": 4071.89,
-        "se_c2": 181340.0,
-        "rho": {
-         "a2b2": -0.972419,
-         "a2c2": -0.970257,
-         "b2c2": 0.908514
-        }
        }
       },
       "chi2": 0.684032,
@@ -1153,7 +1140,6 @@
       "scale_factor": 1.0,
       "iterations": 18,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
@@ -1536,19 +1522,6 @@
         "a2b2": null,
         "a2c2": null,
         "b2c2": -0.684019
-       },
-       "free": {
-        "a2": -26918.5,
-        "b2": 4765.04,
-        "c2": 135372.0,
-        "se_a2": 58037.9,
-        "se_b2": 3974.77,
-        "se_c2": 180260.0,
-        "rho": {
-         "a2b2": -0.971942,
-         "a2c2": -0.973365,
-         "b2c2": 0.909167
-        }
        }
       },
       "chi2": 0.853964,
@@ -1556,7 +1529,6 @@
       "scale_factor": 1.0,
       "iterations": 23,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
@@ -2527,19 +2499,6 @@
         "a2b2": null,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 76860.6,
-        "b2": 2934.6,
-        "c2": -277170.0,
-        "se_a2": 126704.0,
-        "se_b2": 9019.45,
-        "se_c2": 344572.0,
-        "rho": {
-         "a2b2": -0.97529,
-         "a2c2": -0.989956,
-         "b2c2": 0.94466
-        }
        }
       },
       "chi2": 2.44896,
@@ -2547,7 +2506,6 @@
       "scale_factor": 1.0,
       "iterations": 22,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
@@ -2931,19 +2889,6 @@
         "a2b2": null,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 17992.8,
-        "b2": 6574.63,
-        "c2": -121391.0,
-        "se_a2": 89729.4,
-        "se_b2": 6732.8,
-        "se_c2": 249562.0,
-        "rho": {
-         "a2b2": -0.971746,
-         "a2c2": -0.986856,
-         "b2c2": 0.931274
-        }
        }
       },
       "chi2": 3.97456,
@@ -2951,7 +2896,6 @@
       "scale_factor": 1.0,
       "iterations": 22,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
@@ -3909,19 +3853,6 @@
         "a2b2": -0.837128,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 32659.3,
-        "b2": 6930.17,
-        "c2": -79598.7,
-        "se_a2": 225584.0,
-        "se_b2": 14696.0,
-        "se_c2": 621111.0,
-        "rho": {
-         "a2b2": -0.979465,
-         "a2c2": -0.99343,
-         "b2c2": 0.958426
-        }
        }
       },
       "chi2": 0.184798,
@@ -3929,7 +3860,6 @@
       "scale_factor": 1.0,
       "iterations": 8,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
@@ -4314,19 +4244,6 @@
         "a2b2": -0.845904,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 41362.6,
-        "b2": 7929.28,
-        "c2": -112109.0,
-        "se_a2": 182100.0,
-        "se_b2": 11633.0,
-        "se_c2": 528488.0,
-        "rho": {
-         "a2b2": -0.971045,
-         "a2c2": -0.990158,
-         "b2c2": 0.939859
-        }
        }
       },
       "chi2": 1.03591,
@@ -4334,7 +4251,6 @@
       "scale_factor": 1.0,
       "iterations": 9,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
@@ -5292,19 +5208,6 @@
         "a2b2": -0.839338,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 2648.15,
-        "b2": 997.858,
-        "c2": -6446.64,
-        "se_a2": 19551.2,
-        "se_b2": 1276.81,
-        "se_c2": 53721.9,
-        "rho": {
-         "a2b2": -0.979701,
-         "a2c2": -0.99394,
-         "b2c2": 0.959535
-        }
        }
       },
       "chi2": 0.0281407,
@@ -5312,7 +5215,6 @@
       "scale_factor": 1.0,
       "iterations": 6,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
@@ -5697,19 +5599,6 @@
         "a2b2": -0.845896,
         "a2c2": null,
         "b2c2": null
-       },
-       "free": {
-        "a2": 4145.93,
-        "b2": 967.57,
-        "c2": -10822.7,
-        "se_a2": 13648.6,
-        "se_b2": 871.943,
-        "se_c2": 39606.6,
-        "rho": {
-         "a2b2": -0.971031,
-         "a2c2": -0.990167,
-         "b2c2": 0.939853
-        }
        }
       },
       "chi2": 0.35291,
@@ -5717,7 +5606,6 @@
       "scale_factor": 1.0,
       "iterations": 7,
       "converged": true,
-      "band_quantile": 1.95996,
       "provisional": false,
       "misfit": false
      },
