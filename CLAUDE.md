@@ -348,6 +348,37 @@ When working with calorimeter simulation datasets in this repository:
   - **Bottom-Right (Reconstructed Energy Distribution vs. Separation $D$)**: Probability density curves and binned histograms across discrete separation intervals ($D$ bins). Overlays dashed single-particle benchmark distributions ("Isolated Reference (No Overlap)" for $E_1$ and $E_2$) and embeds a summary table of fitted $\mu$ and $\sigma$ parameters.
 * **Interactive Control Requirements**:
   - Global dual-ended sliders for $E_1$, $E_2$, and $D$ with chained Boolean AND logic.
+  - **The particle filter and the event pickers** (`query/particle.py`, `static/js/event_picker.js`, `controls/particle_filter.js`, `GET /api/event/candidates`; Martin's decisions, 2026-11-15).
+    - **What.** One filter with no A/B choice: the incident momentum p (GeV) and polar angle θ of either shower.
+      - θ is in degrees in the slider and the link, and converted to radians once, on the server. Every sentence writes its bounds in degrees with radians beside them, "θ in 10.0–15.0° (0.175–0.262 rad)", and the server's and the client's interval texts are equal for every bound.
+      - It is a sidebar block on both pages (Page 2: Views only).
+      - Its keys, `particle_p_min` / `_max` and `particle_theta_min` / `_max`, are view state, never Admin defaults and never in `filterParams()`.
+    - **It narrows the event pickers only:** Pick for me, Most tilted, previous / next and the 3-D card's Densest.
+      - The ensemble panels and every card never read it, so no panel's numbers move.
+      - The block, the Selection-scope drawers and the cloud's drawers say so.
+    - **The pool**, one definition for the count, every picker, previous / next and the flag:
+      - the E₁/E₂/D selection;
+      - the frame gate (a defined D on two showers; a direction and an entry point on one);
+      - and, only while a bound is set, a shower that deposited energy with p and θ inside the bounds.
+      - With no bound it is the population the notebook rules always drew from, so every existing response is unchanged except `event.candidates` and the tilted sentence's one fix below.
+    - **The rules:**
+      - **Pick for me** is a seeded uniform draw: entry (draw mod N) of a permutation of the pool in event-number order (`numpy.random.default_rng(42)`). No event repeats within N consecutive draws of one pool, and (seed, draw, filters) reproduces the pick. The draw counter is carried across commits and restarts only on an experiment switch: a reset would replay the first entry after a commit that left the pool unchanged.
+      - **Most tilted** is the local-coords notebook's rule on the pool, ranked by the matching shower's own θ. Inside a θ window the notebook's own ranking returns only the window's upper edge, which is why it is not the default.
+      - **Densest** stays.
+      - **Each rule's sentence says what was done** (the review's S3, 2026-11-15). At N = 1 it reads "The only one of the …". When no candidate has more hits than the mean, the tilted sentence names the service's fallback (the most hits) instead of a rule it did not apply; this moved the two-shower golden's one-event pick (DELIBERATE).
+    - **N is always on screen.** The block's count line gives the events, the matching showers per shower and the events where both match. With undefined D included, it also counts the events the frame gate leaves out.
+    - **N = 0 is a stated state,** never an error: every picker is shut with the reason as its title, and a 404 from the pick is read as that state. With a bound set, Page 2 waits for the count and sends no pick at all.
+    - **The follow policy.** After an E₁/E₂/D or particle commit:
+      - an event a picker brought (a pick, a step or a replacement) that left the pool is replaced by the next uniform draw, and the caption says so;
+      - an event a link or a typed number brought is never replaced, only flagged (hazard "event outside the candidates").
+    - **Shower focus.** A pick, a step or a replacement draws a matching shower, the current one when it matches.
+      - The Absolute 3-D view keeps Both and names the match; its projections draw the matching shower.
+      - A shower chosen by hand is drawn as asked, and the caption says it does not match.
+    - **2-D ↔ 3-D.** "Open in 3-D →" on the Event Inspector and "2-D ↗" on the 3-D event card are live links carrying the event, the shower and every filter.
+      - `event` / `shower` and `voxel_event` / `voxel_shower` stay separate keys, so neither page pins the other's event.
+      - The D-frame draws no single event, so a link from it opens the Absolute frame, and its title says so.
+    - **Previous / next skip the unplaceable.** With undefined D included, previous / next skip the events without D (57 on production), which the frame gate refuses. Such an event is drawn by typing its number and choosing shower B.
+    - **Measured** (production `hits_all_models`, 2026-11-15): p 5–6 GeV gives 1,070 events (441 A, 647 B, 18 both); with θ 10–15° too, 107 (43 / 65 / 1). Every count takes 1–5 ms warm.
   - Display channel radio toggle, five options: "Average Hit Density (Summed Energy)", "Grad-CAM Model Attention", "Energy-weighted Grad-CAM", "Shap-CAM Attribution", "Energy-weighted Shap-CAM".
   - Reference frame control, two tiers with one stored value: a primary radio "Absolute (detector coordinates)" (API `lab`, the cold-boot default) or "Separation-Aligned (D-Frame)", and under the latter a nested radio "Translated" (API `canonical`, the D-frame) or "Local (shower-fixed)" (API `local`). The legacy per-shower translated frame (API `trans`) has no radio: a `#frame=trans` link or a saved default opens it and reveals a hidden "Per-shower translated (legacy)" sub-option while it is active. The stored value, the URL hash (`#frame=lab|canonical|local|trans`) and the admin `default_coord_system` stay the flat four-value key; `js/labels.js` `FRAME_TREE` is the one definition. The separation vector D is drawn in the Absolute frame only; D is always the absolute-frame `centroid_AB_distance`. The D-frame's entry panel writes its horizontal axis as D — the signed x′ coordinate along the A→B separation, anchors at D = ∓⟨D_entry⟩/2, tick values the signed x′ in mm — while the depth panels keep x′, y′, z′, and the server's axis symbols and panel names (X′Y′, Y′Z′, X′Z′) are not renamed.
   - Absolute / segmentation / density is the built-in cold-boot view. An operator may save another in the **Admin Settings** panel (`/api/admin/config`). Saved defaults apply only to a link that carries no view state, so a bookmark never changes meaning. The built-in values (`state.js` `DEFAULTS`) are never edited to change the team's view.

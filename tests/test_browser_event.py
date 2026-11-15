@@ -300,8 +300,8 @@ def test_the_compare_view_lays_the_three_frames_out_in_rows(live_server):
 COUNT_OFF = "Particle filter off: the pickers draw from all 2 selected events."
 COUNT_P67 = ("N = 1 event holds a matching particle (1 matching shower: 0 A, 1 B), "
              "of the 2 selected by E₁, E₂ and D.")
-EMPTY_P78 = ("N = 0: no selected event holds a shower with p in 7.00–8.00 GeV that deposited energy. "
-             "Widen the particle filter, or E₁, E₂ and D.")
+EMPTY_P78 = ("N = 0: no selected event with a defined separation holds a shower with p in 7.00–8.00 GeV that "
+             "deposited energy. Widen the particle filter, or E₁, E₂ and D.")
 ONLY_CANDIDATE = "Candidate 1 of 1, in event-number order."
 MATCH_B = "Shower B matches the particle filter: p = 6.39 GeV."
 MATCH_A = "Shower A matches the particle filter: p = 2.71 GeV."
@@ -312,8 +312,9 @@ OUTSIDE_HAZARD = "event outside the candidates"
 #: The uniform rule's sentence when the pool holds one event (brief §3.6), on p 6-7 and on p ≤ 3 GeV.
 ONLY_ONE_P67 = ("The only one of the selected events with a defined separation holding a shower with "
                 "p in 6.00–7.00 GeV that deposited energy (seed 42, draw 0).")
+#: The replacement is the second draw of the page: the counter carries across commits (the fix round, S4).
 ONLY_ONE_P3 = ("The only one of the selected events with a defined separation holding a shower with "
-               "p ≤ 3.00 GeV that deposited energy (seed 42, draw 0).")
+               "p ≤ 3.00 GeV that deposited energy (seed 42, draw 1).")
 #: Every picker and step of the Event Inspector.
 PICKERS = ("event-pick", "event-pick-tilted", "event-prev", "event-next")
 
@@ -476,11 +477,12 @@ def test_a_particle_commit_asks_only_for_the_pool_and_the_event_and_replaces_a_p
         assert page.input_value("#event-number") == "1"
         assert "particle_p_min" not in _fragment(page.evaluate(_HASH)), "a bound at the domain's edge is stored as null"
 
-        # p ≤ 3 GeV: event 1 has left; the next uniform draw (draw 0 again) pins event 0 with its matching shower A.
+        # p ≤ 3 GeV: event 1 has left; the next uniform draw pins event 0 with its matching shower A. The counter
+        # carries across commits, so after the first Pick for me (draw 0) the replacement is draw 1.
         sent = _commit(page, net, [("pp-num-hi", 3)], wait_for="N = 1 event")
         assert _paths(sent) == ["/api/event/candidates", "/api/event", "/api/event/pick", "/api/event"], sent
         pick = _query(sent[2])
-        assert pick["rule"] == "uniform" and pick["draw"] == "0" and float(pick["particle_p_max"]) == 3, pick
+        assert pick["rule"] == "uniform" and pick["draw"] == "1" and float(pick["particle_p_max"]) == 3, pick
         assert _query(sent[3])["event_number"] == "0" and _query(sent[3])["shower"] == "a", sent[3]
         page.wait_for_function("() => document.getElementById('event-number').value === '0'", timeout=30_000)
         page.wait_for_function("() => document.getElementById('event-grid-label').textContent.startsWith('Event 0,')",
