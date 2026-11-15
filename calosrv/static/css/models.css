@@ -98,6 +98,10 @@
 .app[data-msub="distill"] #group-lgroups,
 .app[data-msub="perf"] #group-lgroups { display: none; }
 
+/* The particle filter chooses the 3-D event on Views only. */
+.app[data-msub="distill"] #group-particle,
+.app[data-msub="perf"] #group-particle { display: none; }
+
 /* --------------------------------------------------------- sections */
 
 /* Each section is the Physics section's two-column grid of cards with its
