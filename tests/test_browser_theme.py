@@ -1104,6 +1104,63 @@ def test_the_models_subpage_chrome_and_catalogue_text_are_legible_in_place(live_
     assert problems == [], problems
 
 
+#: The particle filter's block with an active filter on both axes (brief particle-filter §7): p 6-7 GeV and
+#: θ 17-19° select event 1 of the demonstration file through its shower B.
+PARTICLE_ACTIVE = "particle_p_min=6&particle_p_max=7&particle_theta_min=17&particle_theta_max=19"
+#: What a reader sees there, as `_LEGIBILITY` records it (each text's first 40 characters): the heading and its
+#: "(event pickers)", the labels, the count line, the scope note and the Clear button.
+PARTICLE_TEXTS = ("Particle Filter", "(event pickers)", "p — particle momentum [GeV]", "θ — incident polar angle [°]",
+                  "N = 1 event holds a matching particle", "Narrows only which events the pickers",
+                  "Clear particle filter")
+
+
+def _particle_screens():
+    """Where the block's screens go: CALOSRV_PF_SCREENS, else nowhere (the check runs without them)."""
+    folder = os.environ.get("CALOSRV_PF_SCREENS")
+    if not folder:
+        return None
+    from pathlib import Path
+
+    path = Path(folder)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+@pytest.mark.parametrize("path", ["/", "/models"], ids=["physics", "models"])
+def test_the_particle_filter_block_text_clears_4_5_on_its_card_in_both_themes(live_server, path):
+    """Brief particle-filter §7: every text of the block (heading, labels, the fields' dash and units, hints, the
+    count line, the scope note and the Clear button), with an active filter, clears 4.5:1 on its own ground in both
+    themes, on both pages. With CALOSRV_PF_SCREENS set, the block is saved there as a PNG per page and theme."""
+    measured, screens = {}, _particle_screens()
+    with live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch()
+        problems = []
+        for scheme in ("dark", "light"):
+            _, page, found, _ = _open(p, live_server["base"], path, scheme=scheme, browser=browser,
+                                      fragment=f"#table_name={BASELINE_TABLE}&{PARTICLE_ACTIVE}",
+                                      ready="() => !document.getElementById('group-particle').hidden && "
+                                            "document.getElementById('particle-count').textContent.startsWith('N = ')")
+            assert page.evaluate("() => document.documentElement.dataset.theme") == scheme
+            page.locator("#group-particle").scroll_into_view_if_needed()
+            measured[scheme] = page.evaluate(_LEGIBILITY, ["#group-particle"])
+            if screens is not None:
+                name = "physics" if path == "/" else "models"
+                page.locator("#group-particle").screenshot(path=str(screens / f"particle-block-{name}-{scheme}.png"))
+            problems += found
+            page.close()
+        browser.close()
+    for scheme, rows in measured.items():
+        worst = min(rows, key=lambda r: r["ratio"])
+        print(f"{path} {scheme}: {len(rows)} texts, worst {worst['ratio']}:1 "
+              f"({worst['tag']}#{worst['id']}.{worst['cls']} {worst['text']!r} {worst['color']} on {worst['ground']})")
+        seen = " | ".join(r["text"] for r in rows)
+        for text in PARTICLE_TEXTS:
+            assert text in seen, (scheme, text, seen)
+        failing = [r for r in rows if r["ratio"] < TEXT_FLOOR]
+        assert not failing, (scheme, failing)
+    assert problems == [], problems
+
+
 #: WCAG's floor for a control's non-text glyph.
 GLYPH_FLOOR = 3.0
 #: The worst the dark chrome measures today: the metric cards' faded <small> lines in the sidebar, 3.74:1

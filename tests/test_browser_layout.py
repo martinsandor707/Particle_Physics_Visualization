@@ -424,3 +424,68 @@ def test_the_longitudinal_channels_group_fits_the_sidebar(live_server, path, vie
     assert state["sidebar"][0] <= state["sidebar"][1], f"the sidebar overflows horizontally: {state}"
     assert state["group"][0] <= state["group"][1], f"the group overflows: {state}"
     assert state["outside"] == [], state["outside"]
+
+
+# ------------------------------------------------- the particle filter --
+
+#: The sidebar's Particle Filter block (brief particle-filter §7) against the sidebar and the page: every box
+#: of the block inside both the block's and the sidebar's content box, and no horizontal overflow anywhere.
+_PARTICLE_LAYOUT = """() => {
+  const doc = document.documentElement;
+  const sidebar = document.getElementById('sidebar');
+  const group = document.getElementById('group-particle');
+  const s = sidebar.getBoundingClientRect();
+  const g = group.getBoundingClientRect();
+  const outside = [...group.querySelectorAll('*')].filter((el) => el.getClientRects().length > 0).map((el) => {
+    const b = el.getBoundingClientRect();
+    return { id: el.id || el.className || el.tagName, left: b.left, right: b.right, width: b.width };
+  }).filter((b) => b.width > 0 && (b.left < Math.max(s.left, g.left) - 0.5 || b.right > Math.min(s.right, g.right) + 0.5));
+  const shown = (id) => { const el = document.getElementById(id); return Boolean(el) && el.getClientRects().length > 0; };
+  return {
+    theme: doc.dataset.theme ?? null,
+    shown: !group.hidden && group.getClientRects().length > 0,
+    controls: ['ctl-particle-p', 'ctl-particle-theta', 'particle-count', 'particle-scope', 'particle-clear'].filter(shown),
+    clearEnabled: !document.getElementById('particle-clear').disabled,
+    count: document.getElementById('particle-count').textContent,
+    page: [doc.scrollWidth, doc.clientWidth],
+    sidebar: [sidebar.scrollWidth, sidebar.clientWidth],
+    group: [group.scrollWidth, group.clientWidth],
+    outside,
+  };
+}"""
+
+#: An active filter on both axes, so the block draws its longest count line (p 6-7 GeV selects event 1 of
+#: the demonstration file through its shower B, θ 18.16°).
+PARTICLE_ACTIVE = "particle_p_min=6&particle_p_max=7&particle_theta_min=17&particle_theta_max=19"
+
+
+@pytest.mark.parametrize("theme", ["dark", "light"])
+@pytest.mark.parametrize("viewport", [(1024, 768), (1600, 900)], ids=lambda v: f"{v[0]}x{v[1]}")
+@pytest.mark.parametrize("path", ["/", "/models"], ids=["physics", "models"])
+def test_the_particle_filter_block_fits_the_sidebar(live_server, path, viewport, theme):
+    """Brief particle-filter §7: the block, shown with an active filter (both sliders, the count line, the scope
+    note and Clear), fits the sidebar with no horizontal overflow of the page, the sidebar or the block, at 1024
+    and 1600 px, in either theme (switched through the header toggle)."""
+    with live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
+        page.goto(f"{live_server['base']}{path}#{PARTICLE_ACTIVE}")
+        page.wait_for_function(
+            "() => !document.getElementById('group-particle').hidden "
+            "&& document.getElementById('particle-count').textContent.startsWith('N = ')", timeout=30_000)
+        page.wait_for_timeout(600)
+        if theme == "light":
+            page.click("#theme-toggle")
+            page.wait_for_function("() => document.documentElement.dataset.theme === 'light'", timeout=10_000)
+            page.wait_for_timeout(300)
+        page.locator("#group-particle").scroll_into_view_if_needed()
+        state = page.evaluate(_PARTICLE_LAYOUT)
+        browser.close()
+    assert state["theme"] == theme and state["shown"], state
+    assert state["controls"] == ["ctl-particle-p", "ctl-particle-theta", "particle-count", "particle-scope",
+                                 "particle-clear"], state
+    assert state["clearEnabled"] and state["count"].startswith("N = 1 event holds a matching particle"), state
+    assert state["page"][0] <= state["page"][1], f"the page overflows horizontally: {state}"
+    assert state["sidebar"][0] <= state["sidebar"][1], f"the sidebar overflows horizontally: {state}"
+    assert state["group"][0] <= state["group"][1], f"the block overflows: {state}"
+    assert state["outside"] == [], state["outside"]

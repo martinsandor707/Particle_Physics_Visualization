@@ -5,11 +5,20 @@ event of the demonstration dataset is pinned through the link, the picker
 and the notebook's seeded rule; the nine panels are read back for their
 geometry - isometric, one window - and the drawer and the export are checked
 to be what the directive asks for.
+
+The particle filter (brief particle-filter §5-§8): the sidebar block's count
+line, a typed p interval, Pick for me pinning a matching shower with the
+caption's place and match lines and the particle keys in the hash; a particle
+commit asking for the pool and the pinned event alone; a picked event that
+leaves the pool replaced (the caption's replaced line, the shower focused), a
+linked one kept and flagged; N = 0 shutting every picker with its reason and
+no banner; and "Open in 3-D" carrying the event to the Models page's 3-D card.
 """
 
 from __future__ import annotations
 
 import os
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -274,3 +283,325 @@ def test_the_compare_view_lays_the_three_frames_out_in_rows(live_server):
         assert "compare=true" in page.evaluate(_HASH)
         assert errors == [], errors
         browser.close()
+
+
+# ---------------------------------------------------- the particle filter --
+#
+# The sidebar's Particle Filter block (brief particle-filter §5-§8, as built at c14f9a2): one particle's
+# momentum p and polar angle θ narrow which events the pickers offer. The two-event demonstration file
+# (brief §3.6c, θ in degrees):
+#   event 0: A p 2.713, θ 22.30; B p 12.541, θ 26.40;
+#   event 1: A p 17.876, θ 16.27; B p 6.386, θ 18.16;
+# so p 2-3 GeV selects event 0 through A, p 6-7 GeV event 1 through B, and p 7-8 GeV nothing. The p slider's
+# domain is the showers' own range snapped outward, 2.70-17.90 GeV, so a typed 2 is the domain's edge: stored
+# as null, the interval reads "p ≤ 3.00 GeV".
+
+#: The sentences of brief §5.1, on the demonstration file.
+COUNT_OFF = "Particle filter off: the pickers draw from all 2 selected events."
+COUNT_P67 = ("N = 1 event holds a matching particle (1 matching shower: 0 A, 1 B), "
+             "of the 2 selected by E₁, E₂ and D.")
+EMPTY_P78 = ("N = 0: no selected event holds a shower with p in 7.00–8.00 GeV that deposited energy. "
+             "Widen the particle filter, or E₁, E₂ and D.")
+ONLY_CANDIDATE = "Candidate 1 of 1, in event-number order."
+MATCH_B = "Shower B matches the particle filter: p = 6.39 GeV."
+MATCH_A = "Shower A matches the particle filter: p = 2.71 GeV."
+REPLACED_1_BY_0 = "Event 1 left the candidates; event 0 replaces it."
+NOT_A_CANDIDATE = ("Not a candidate: no shower matches the particle filter; drawn as asked, and previous / next "
+                   "walk the candidates.")
+OUTSIDE_HAZARD = "event outside the candidates"
+#: The uniform rule's sentence when the pool holds one event (brief §3.6), on p 6-7 and on p ≤ 3 GeV.
+ONLY_ONE_P67 = ("The only one of the selected events with a defined separation holding a shower with "
+                "p in 6.00–7.00 GeV that deposited energy (seed 42, draw 0).")
+ONLY_ONE_P3 = ("The only one of the selected events with a defined separation holding a shower with "
+               "p ≤ 3.00 GeV that deposited energy (seed 42, draw 0).")
+#: Every picker and step of the Event Inspector.
+PICKERS = ("event-pick", "event-pick-tilted", "event-prev", "event-next")
+
+
+def _watch(page):
+    """Record every /api/ request the page sends, and which are still in flight."""
+    net = {"urls": [], "pending": set()}
+
+    def sent(request):
+        if "/api/" in request.url:
+            net["urls"].append(request.url)
+            net["pending"].add(request)
+
+    page.on("request", sent)
+    page.on("requestfinished", lambda r: net["pending"].discard(r))
+    page.on("requestfailed", lambda r: net["pending"].discard(r))
+    return net
+
+
+def _idle(page, net, quiet_ms=400, timeout_ms=30_000):
+    """Wait until no /api/ request has been in flight for `quiet_ms`: every request a commit causes, chained ones
+    (the candidates, then the event, then a replacement's pick and its event) included, has been sent and answered."""
+    waited = quiet = 0
+    while quiet < quiet_ms:
+        if waited > timeout_ms:
+            raise AssertionError(f"requests still in flight: {[r.url for r in net['pending']]}")
+        page.wait_for_timeout(100)
+        waited += 100
+        quiet = quiet + 100 if not net["pending"] else 0
+
+
+def _paths(urls):
+    return [urlparse(u).path for u in urls]
+
+
+def _query(url):
+    return {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
+
+
+def _fragment(url_or_hash):
+    text = url_or_hash.split("#", 1)[1] if "#" in url_or_hash else url_or_hash
+    return {k: v[0] for k, v in parse_qs(text).items()}
+
+
+def _open_particle(p, base, fragment="", *, scheme="dark", viewport=(1600, 900), args=None):
+    """The Physics page with the particle block shown and its first count in; failed responses are recorded."""
+    browser = p.chromium.launch(args=args)
+    page = browser.new_page(color_scheme=scheme, viewport={"width": viewport[0], "height": viewport[1]})
+    problems: list[str] = []
+    page.on("pageerror", lambda error: problems.append(f"pageerror: {error}"))
+    page.on("response", lambda r: problems.append(f"HTTP {r.status} {r.url}") if r.status >= 400 else None)
+    net = _watch(page)
+    page.goto(f"{base}/{fragment}")
+    page.wait_for_function("() => document.getElementById('stat-events').textContent !== '—'", timeout=30_000)
+    _wait_count(page)
+    _idle(page, net)
+    return browser, page, problems, net
+
+
+def _wait_count(page, text=None):
+    """Wait until the block is shown and its count line is in (`text`, when given, in it)."""
+    page.wait_for_function(
+        """(text) => { const g = document.getElementById('group-particle');
+          const c = document.getElementById('particle-count');
+          return g && !g.hidden && c && c.textContent !== '—' && c.textContent.trim() !== ''
+            && (text === null || c.textContent.includes(text)); }""",
+        arg=text, timeout=30_000)
+
+
+def _type_bound(page, field, value):
+    """Type one bound into the block's numeric field and press Enter: one commit."""
+    page.fill(f"#{field}", str(value))
+    page.press(f"#{field}", "Enter")
+
+
+def _commit(page, net, fields, wait_for=None):
+    """Type each (field, value) in turn, waiting after each for the page to fall quiet; the requests they sent."""
+    start = len(net["urls"])
+    for field, value in fields:
+        _type_bound(page, field, value)
+        _idle(page, net)
+    if wait_for:
+        _wait_count(page, wait_for)
+        _idle(page, net)
+    return net["urls"][start:]
+
+
+def _caption(page):
+    return page.evaluate(_TEXT, "event-caption")
+
+
+def _details(page, panel):
+    return page.evaluate("(id) => { const b = document.querySelector(`button[data-inspect=\"${id}\"]`);"
+                         " return { flagged: b.classList.contains('is-flagged'), title: b.title }; }", panel)
+
+
+def test_the_particle_block_counts_its_pool_and_pick_for_me_pins_a_matching_shower(live_server):
+    """The block is shown with its count line; a typed p interval sends the candidates request alone (nothing
+    pinned) and updates the count; Pick for me pins the one candidate with its matching shower, the caption
+    carries the place and match lines, and the hash the particle keys."""
+    base = live_server["base"]
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, net = _open_particle(p, base)
+        assert page.evaluate(_HIDDEN, "group-particle") is False
+        assert page.evaluate(_TEXT, "particle-count") == COUNT_OFF
+        assert page.is_disabled("#particle-clear")
+        assert page.evaluate(_HIDDEN, "event-grid") is True
+
+        sent = _commit(page, net, [("pp-num-hi", 7), ("pp-num-lo", 6)], wait_for="N = 1 event")
+        assert page.evaluate(_TEXT, "particle-count") == COUNT_P67
+        # Nothing is pinned: each commit asks for the pool alone.
+        assert _paths(sent) == ["/api/event/candidates"] * 2, sent
+        last = _query(sent[-1])
+        assert float(last["particle_p_min"]) == 6 and float(last["particle_p_max"]) == 7, last
+        assert not page.is_disabled("#particle-clear")
+        hash_ = _fragment(page.evaluate(_HASH))
+        assert float(hash_["particle_p_min"]) == 6 and float(hash_["particle_p_max"]) == 7, hash_
+
+        start = len(net["urls"])
+        page.click("#event-pick")
+        _wait_for_event_grid(page)
+        _idle(page, net)
+        assert _paths(net["urls"][start:]) == ["/api/event/pick", "/api/event"], net["urls"][start:]
+        pick = _query(net["urls"][start])
+        assert pick["rule"] == "uniform" and pick["seed"] == "42" and pick["draw"] == "0", pick
+        assert float(pick["particle_p_min"]) == 6 and float(pick["particle_p_max"]) == 7, pick
+        event = _query(net["urls"][start + 1])
+        # The matching shower is asked for in the event's first request.
+        assert event["event_number"] == "1" and event["shower"] == "b", event
+        assert page.input_value("#event-number") == "1"
+        assert page.is_checked('input[name="event-shower"][value="b"]')
+        assert page.evaluate(_TEXT, "event-grid-label").startswith("Event 1, shower B:")
+        caption = _caption(page)
+        for line in (ONLY_CANDIDATE, MATCH_B, ONLY_ONE_P67):
+            assert line in caption, (line, caption)
+        hash_ = _fragment(page.evaluate(_HASH))
+        assert hash_["event"] == "1" and hash_["shower"] == "b", hash_
+        assert float(hash_["particle_p_min"]) == 6 and float(hash_["particle_p_max"]) == 7, hash_
+        assert OUTSIDE_HAZARD not in _details(page, "event-lab-xy")["title"]
+        browser.close()
+    assert problems == [], problems
+
+
+def test_a_particle_commit_asks_only_for_the_pool_and_the_event_and_replaces_a_picked_event_that_left(live_server):
+    """A particle commit sends /api/event/candidates and /api/event alone (never /api/projections or a card);
+    an event a pick brought that leaves the pool is replaced by the next uniform draw, with the caption's
+    replaced line and the shower focused on the replacement's match."""
+    base = live_server["base"]
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, net = _open_particle(p, base)
+        _commit(page, net, [("pp-num-hi", 7), ("pp-num-lo", 6)], wait_for="N = 1 event")
+        page.click("#event-pick")
+        _wait_for_event_grid(page)
+        _idle(page, net)
+        assert page.input_value("#event-number") == "1"
+
+        # p ≤ 7 GeV: event 1 stays a candidate (its B, 6.39 GeV), so it is kept; one pool and one event request.
+        sent = _commit(page, net, [("pp-num-lo", 2)], wait_for="N = 2 events")
+        assert _paths(sent) == ["/api/event/candidates", "/api/event"], sent
+        assert page.input_value("#event-number") == "1"
+        assert "particle_p_min" not in _fragment(page.evaluate(_HASH)), "a bound at the domain's edge is stored as null"
+
+        # p ≤ 3 GeV: event 1 has left; the next uniform draw (draw 0 again) pins event 0 with its matching shower A.
+        sent = _commit(page, net, [("pp-num-hi", 3)], wait_for="N = 1 event")
+        assert _paths(sent) == ["/api/event/candidates", "/api/event", "/api/event/pick", "/api/event"], sent
+        pick = _query(sent[2])
+        assert pick["rule"] == "uniform" and pick["draw"] == "0" and float(pick["particle_p_max"]) == 3, pick
+        assert _query(sent[3])["event_number"] == "0" and _query(sent[3])["shower"] == "a", sent[3]
+        page.wait_for_function("() => document.getElementById('event-number').value === '0'", timeout=30_000)
+        page.wait_for_function("() => document.getElementById('event-grid-label').textContent.startsWith('Event 0,')",
+                               timeout=30_000)
+        assert page.is_checked('input[name="event-shower"][value="a"]')
+        caption = _caption(page)
+        for line in (REPLACED_1_BY_0, MATCH_A, ONLY_CANDIDATE, ONLY_ONE_P3):
+            assert line in caption, (line, caption)
+        assert OUTSIDE_HAZARD not in _details(page, "event-lab-xy")["title"]
+        browser.close()
+    assert problems == [], problems
+
+
+def test_an_event_from_a_link_is_kept_and_flagged_when_it_leaves_the_pool(live_server):
+    """The reader's own event (from the link) is never replaced: drawn as asked, its caption's place line says it
+    is not a candidate, and every event panel's Details button carries the hazard."""
+    base = live_server["base"]
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, net = _open_particle(p, base, "#event=1&shower=b")
+        _wait_for_event_grid(page)
+        _idle(page, net)
+        before = _details(page, "event-lab-xy")
+        assert OUTSIDE_HAZARD not in before["title"], before
+
+        sent = _commit(page, net, [("pp-num-hi", 3)], wait_for="N = 1 event")
+        assert _paths(sent) == ["/api/event/candidates", "/api/event"], sent
+        assert page.input_value("#event-number") == "1"
+        assert page.is_checked('input[name="event-shower"][value="b"]')
+        caption = _caption(page)
+        assert NOT_A_CANDIDATE in caption, caption
+        assert "replaces it" not in caption, caption
+        for panel in (f"event-{row}-{col}" for row in ROWS for col in COLS):
+            details = _details(page, panel)
+            assert details["flagged"] and OUTSIDE_HAZARD in details["title"], (panel, details)
+        page.click('button[data-inspect="event-lab-xy"]')
+        body = page.evaluate(_TEXT, "inspector-body")
+        assert NOT_A_CANDIDATE in body and "Particle filter: p ≤ 3.00 GeV." in body, body[:600]
+
+        # Clear: event 1 is a candidate again, still the reader's, and the hazard goes.
+        start = len(net["urls"])
+        page.click("#particle-clear")
+        _wait_count(page, COUNT_OFF)
+        _idle(page, net)
+        assert _paths(net["urls"][start:]) == ["/api/event/candidates", "/api/event"], net["urls"][start:]
+        assert page.input_value("#event-number") == "1"
+        assert _details(page, "event-lab-xy") == before, "the hazard goes with the filter"
+        assert NOT_A_CANDIDATE not in _caption(page)
+        browser.close()
+    assert problems == [], problems
+
+
+def test_an_empty_pool_shuts_every_picker_with_its_reason_and_raises_no_banner(live_server):
+    """N = 0: no request but the pool's, every picker and step disabled with the empty line as its title, the
+    block's count line replaced by that line, and no error banner; a wider filter gives the pickers back."""
+    base = live_server["base"]
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, net = _open_particle(p, base)
+        sent = _commit(page, net, [("pp-num-hi", 8), ("pp-num-lo", 7)], wait_for="N = 0")
+        assert _paths(sent) == ["/api/event/candidates"] * 2, sent
+        assert page.evaluate(_TEXT, "particle-count") == EMPTY_P78
+        for button in PICKERS:
+            assert page.is_disabled(f"#{button}"), button
+            assert page.get_attribute(f"#{button}", "title") == EMPTY_P78, button
+        assert page.evaluate(_HIDDEN, "banner") is True
+        assert page.evaluate(_HIDDEN, "event-grid") is True
+
+        page.click("#particle-clear")
+        _wait_count(page, COUNT_OFF)
+        _idle(page, net)
+        for button in ("event-pick", "event-pick-tilted"):
+            assert not page.is_disabled(f"#{button}"), button
+            assert page.get_attribute(f"#{button}", "title") != EMPTY_P78, button
+        assert page.get_attribute("#event-pick", "title").startswith("A candidate event drawn uniformly at random")
+        assert page.evaluate(_HIDDEN, "banner") is True
+        browser.close()
+    assert problems == [], problems
+
+
+def test_open_in_3d_carries_the_event_shower_and_particle_keys_to_the_models_page(live_server):
+    """"Open in 3-D" shows while an event is pinned; its href carries the event, the shower, the particle keys and
+    voxel_scope=event (Page 1's own event and shower kept); followed, the Models page's 3-D event card draws that
+    event and shower under the particle filter."""
+    from test_browser_models import GL_ARGS, _scroll_to
+    from test_browser_theme import _GL_DRAWN
+
+    base = live_server["base"]
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, net = _open_particle(p, base, args=GL_ARGS)
+        assert page.evaluate(_HIDDEN, "event-open-3d") is True
+        _commit(page, net, [("pp-num-hi", 7), ("pp-num-lo", 6)], wait_for="N = 1 event")
+        page.click("#event-pick")
+        _wait_for_event_grid(page)
+        _idle(page, net)
+        assert page.evaluate(_HIDDEN, "event-open-3d") is False
+        assert page.get_attribute("#event-open-3d", "title").startswith(
+            "Open this event and shower in the Models page's 3-D view")
+        href = page.get_attribute("#event-open-3d", "href")
+        assert urlparse(href).path == "/models", href
+        target = _fragment(href)
+        assert target["voxel_event"] == "1" and target["voxel_shower"] == "b" and target["voxel_scope"] == "event"
+        assert float(target["particle_p_min"]) == 6 and float(target["particle_p_max"]) == 7, target
+        assert target["event"] == "1" and target["shower"] == "b", target
+        assert "frame" not in target, target
+
+        start = len(net["urls"])
+        page.click("#event-open-3d")
+        page.wait_for_url("**/models#*", timeout=30_000)
+        page.wait_for_function("() => document.getElementById('stat-kind')?.textContent.trim() !== '—'",
+                               timeout=30_000)
+        _scroll_to(page, "vox-event")
+        page.wait_for_function(_GL_DRAWN, arg="vox-event", timeout=30_000)
+        _idle(page, net)
+        assert page.evaluate("() => document.querySelector('.main .card[data-panel=\"vox-event\"] .title')"
+                             "?.textContent") == "One Event in 3-D — Detector Cells"
+        assert page.input_value('.main .card[data-panel="vox-event"] [data-voxel-event]') == "1"
+        voxels = [_query(u) for u in net["urls"][start:]
+                  if urlparse(u).path == "/api/event" and _query(u).get("format") == "voxels"]
+        assert voxels, net["urls"][start:]
+        assert all(v["event_number"] == "1" and v["shower"] == "b" and float(v["particle_p_min"]) == 6
+                   for v in voxels), voxels
+        # A linked event: neither the densest pick nor a uniform draw replaces it.
+        assert "/api/event/pick" not in _paths(net["urls"][start:]), net["urls"][start:]
+        browser.close()
+    assert problems == [], problems

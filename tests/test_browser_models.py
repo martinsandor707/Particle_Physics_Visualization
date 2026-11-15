@@ -71,6 +71,11 @@ page is checked as a reader meets it:
   switch with no request, and the export leaves it out and greys its entry;
   on screen its entry is drawn in the card's legible inactive ink, and the
   open drawer names it in Marks and legend until it is switched back on;
+* the particle filter on Views (brief particle-filter §8): the 3-D event card's
+  Pick for me, Most tilted and Densest drawing from the pool, the densest
+  candidate drawn with its matching shower, "2-D ↗" opening the Event
+  Inspector on the same event and shower; N = 0 showing the empty line on
+  the event pair with no pick or event request; the block on Views only;
 * the 3-D cards' slice mode: K slices stepped with Previous, Next and the
   scrubber, K clamped to the volume's depth, the slices' cubes adding up to
   the whole volume's, the paired depth projections bracketing the slice drawn,
@@ -3884,6 +3889,198 @@ def test_the_absolute_3d_card_opens_on_the_selection_and_one_event_is_a_click_aw
         assert not _requests_of(requests, "/api/selection-cells") and not _requests_of(requests, "/api/event")
         browser.close()
         assert problems == [], problems
+
+
+# ------------------------------------------------- the particle filter, 3-D --
+#
+# The particle filter on the 3-D event card (brief particle-filter §8.3-§8.5, as built at c14f9a2), on the
+# two-event demonstration file: p 6-7 GeV selects event 1 through its shower B, p 7-8 GeV nothing.
+
+#: The 3-D event card's "2-D ↗" link, by the selector the brief fixes (particle-filter §3.6c and §7).
+OPEN_2D = 'a[data-voxel-open-2d]'
+#: The 3-D event card's pickers and steps (voxel_views.js), and its "2-D ↗" link.
+_VOXEL_PICKERS = """(open2d) => {
+  const card = document.querySelector('.main .card[data-panel="vox-event"]');
+  const visible = (el) => Boolean(el) && !el.hidden && el.getClientRects().length > 0;
+  const state = (sel) => { const b = card.querySelector(sel);
+    return b ? { visible: visible(b), disabled: b.disabled, title: b.title, text: b.textContent.trim() } : null; };
+  const link = card.querySelector(open2d);
+  return {
+    pick: state('[data-voxel-pick]'), tilted: state('[data-voxel-tilted]'), densest: state('[data-voxel-densest]'),
+    prev: state('[data-voxel-step="prev"]'), next: state('[data-voxel-step="next"]'),
+    open2d: link ? { visible: visible(link), href: link.getAttribute('href'), title: link.title,
+                     text: link.textContent.trim() } : null,
+  };
+}"""
+
+#: Whether the sidebar's particle block is laid out on the subpage on show.
+_PARTICLE_SHOWN = """() => { const g = document.getElementById('group-particle');
+  return Boolean(g) && !g.hidden && getComputedStyle(g).display !== 'none' && g.getClientRects().length > 0; }"""
+
+
+def test_the_3d_event_card_picks_from_the_particle_pool_and_links_to_the_event_inspector(models_live_server):
+    """On Views, with the One event scope and a p interval in the link: the block shows its count; Densest (the
+    scope's default) draws the densest candidate, event 1, with its matching shower B asked for in the cubes'
+    request; the toolbar carries Pick for me, Most tilted and Densest; Pick for me sends a uniform draw under the
+    particle keys; "2-D ↗" carries the drawn event and shower, and followed it opens the Event Inspector on them."""
+    from test_browser_event import COUNT_P67, _fragment, _idle, _query, _wait_count, _watch
+
+    base = models_live_server["base"]
+    theme = _theme_module()
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(
+            p, base, BASELINE_TABLE, fragment="&model=energy&voxel_scope=event&particle_p_min=6&particle_p_max=7")
+        net = _watch(page)
+        _wait_count(page, COUNT_P67)
+        assert page.evaluate(_PARTICLE_SHOWN)
+        assert page.evaluate("() => document.getElementById('particle-count').textContent") == COUNT_P67
+        _scroll_to(page, "vox-event")
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        for card in ("vproj-xy", "vproj-xz", "vproj-yz"):
+            _scroll_to(page, card)
+        _idle(page, net)
+
+        picks = _requests_of(requests, "/api/event/pick")
+        assert picks and all(q["rule"] == "densest" and float(q["particle_p_min"]) == 6
+                             and float(q["particle_p_max"]) == 7 for q in picks), picks
+        voxels = _requests_of(requests, "/api/event", format="voxels")
+        assert voxels and voxels[-1]["event_number"] == "1" and voxels[-1]["shower"] == "b", voxels
+        assert float(voxels[-1]["particle_p_min"]) == 6, voxels[-1]
+        rasters = [q for q in _requests_of(requests, "/api/event") if "format" not in q]
+        assert rasters and rasters[-1]["event_number"] == "1" and rasters[-1]["shower"] == "b", rasters
+
+        tools = page.evaluate(_VOXEL_PICKERS, OPEN_2D)
+        for name, label in (("pick", "Pick for me"), ("tilted", "Most tilted"), ("densest", "Densest")):
+            assert tools[name]["visible"] and not tools[name]["disabled"], (name, tools)
+            assert tools[name]["text"] == label, (name, tools)
+        assert tools["pick"]["title"].startswith("A candidate event drawn uniformly at random"), tools
+        assert tools["tilted"]["title"].startswith("The reference notebook's showcase rule on the candidates"), tools
+
+        # Pick for me: the uniform draw of the pool, under the particle keys; the one candidate is event 1.
+        start = len(net["urls"])
+        page.click('.main .card[data-panel="vox-event"] [data-voxel-pick]')
+        _idle(page, net)
+        sent = [_query(u) for u in net["urls"][start:] if urlparse(u).path == "/api/event/pick"]
+        assert len(sent) == 1, net["urls"][start:]
+        assert sent[0]["rule"] == "uniform" and sent[0]["seed"] == "42" and sent[0]["draw"] == "0", sent
+        assert float(sent[0]["particle_p_min"]) == 6 and float(sent[0]["particle_p_max"]) == 7, sent
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        assert _hash(page).get("voxel_event") == "1" and _hash(page).get("voxel_shower") == "b", _hash(page)
+
+        # Densest: back to the densest candidate, re-picked under the particle keys; the link names no event.
+        start = len(net["urls"])
+        page.click('.main .card[data-panel="vox-event"] [data-voxel-densest]')
+        _idle(page, net)
+        sent = [_query(u) for u in net["urls"][start:] if urlparse(u).path == "/api/event/pick"]
+        assert all(q["rule"] == "densest" and float(q["particle_p_min"]) == 6 for q in sent), sent
+        assert "voxel_event" not in _hash(page) and _hash(page).get("voxel_shower") == "b", _hash(page)
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+
+        # "2-D ↗": the live link carries the drawn event and shower, the particle keys kept.
+        link = f'.main .card[data-panel="vox-event"] {OPEN_2D}'
+        tools = page.evaluate(_VOXEL_PICKERS, OPEN_2D)
+        assert tools["open2d"], f"no {OPEN_2D} on the 3-D event card"
+        assert tools["open2d"]["visible"] and tools["open2d"]["text"] == "2-D ↗", tools
+        assert tools["open2d"]["title"].startswith("Open this event in the Physics page's Event Inspector"), tools
+        page.hover(link)
+        href = page.get_attribute(link, "href")
+        assert urlparse(href).path == "/", href
+        target = _fragment(href)
+        assert target["event"] == "1" and target["shower"] == "b", target
+        assert float(target["particle_p_min"]) == 6 and float(target["particle_p_max"]) == 7, target
+        page.click(link)
+        page.wait_for_url(re.compile(r"/#"), timeout=30_000)
+        page.wait_for_function("() => document.getElementById('event-grid-label')?.textContent.startsWith('Event 1,')",
+                               timeout=30_000)
+        assert page.input_value("#event-number") == "1"
+        assert page.is_checked('input[name="event-shower"][value="b"]')
+        assert page.evaluate("() => document.getElementById('event-grid-label').textContent").startswith(
+            "Event 1, shower B:")
+        _wait_count(page, COUNT_P67)
+        browser.close()
+    assert problems == [], problems
+
+
+def _assert_empty_pair(page, line):
+    """The four cards of the event pair show `line` as a notice (data-kind "empty", not an error), and every
+    picker and step of the 3-D event card is shut with `line` as its title."""
+    page.wait_for_function(
+        f"""() => {EVENT_PAIR!r}.every((id) => {{ const s = ({_CARD})(id);
+          return s && s.kind === 'empty' && !s.loading; }})""", timeout=30_000)
+    for card in EVENT_PAIR:
+        state = page.evaluate(_CARD, card)
+        assert state["message"] == line and state["kind"] == "empty", (card, state)
+    tools = page.evaluate(_VOXEL_PICKERS, OPEN_2D)
+    for name in ("pick", "tilted", "densest", "prev", "next"):
+        assert tools[name]["disabled"] and tools[name]["title"] == line, (name, tools)
+
+
+def test_an_empty_pool_shows_the_empty_line_on_the_3d_event_pair_and_asks_for_no_event(models_live_server):
+    """N = 0 on the One event scope: after a particle commit that empties the pool, the four cards of the event
+    pair show the empty line as a notice (not an error), the pickers are shut with that line as their title, and
+    the commit sends no /api/event/pick or /api/event request: the pool's request alone. No banner, no failed
+    response."""
+    from test_browser_event import EMPTY_P78, _commit, _idle, _paths, _watch
+
+    theme = _theme_module()
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, _ = _open(p, models_live_server["base"], BASELINE_TABLE,
+                                           fragment="&model=energy&voxel_scope=event")
+        net = _watch(page)
+        _scroll_to(page, "vox-event")
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        _idle(page, net)
+
+        _commit(page, net, [("pp-num-hi", 8)], wait_for="N = 2 events")
+        # The commit that empties the pool asks for the pool alone: no pick, no event.
+        sent = _commit(page, net, [("pp-num-lo", 7)], wait_for="N = 0")
+        _assert_empty_pair(page, EMPTY_P78)
+        _idle(page, net)
+        assert _paths(sent) == ["/api/event/candidates"], sent
+        assert page.evaluate("() => document.getElementById('particle-count').textContent") == EMPTY_P78
+        assert page.evaluate("() => document.getElementById('banner').hidden")
+        browser.close()
+    assert problems == [], problems
+
+
+def test_a_link_opened_on_an_empty_pool_asks_for_no_pick_and_no_event(models_live_server):
+    """Brief particle-filter §8.3: "Page 2 with no voxel_event shows the emptyLine in place of the event pair's
+    plots and requests neither /api/event/pick nor /api/event", here for a link that opens the One event scope on
+    an empty pool (p 7-8 GeV): the same line, no event drawn, no pick asked for, and so no failed response."""
+    from test_browser_event import EMPTY_P78, _wait_count
+
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(
+            p, models_live_server["base"], BASELINE_TABLE,
+            fragment="&model=energy&voxel_scope=event&particle_p_min=7&particle_p_max=8")
+        _wait_count(page, EMPTY_P78)
+        _scroll_to(page, "vox-event")
+        _assert_empty_pair(page, EMPTY_P78)
+        _quiet(page)
+        assert not _requests_of(requests, "/api/event"), _urls(requests)
+        assert page.evaluate("() => document.getElementById('banner').hidden")
+        assert not _requests_of(requests, "/api/event/pick"), _urls(requests)
+        browser.close()
+    assert problems == [], problems
+
+
+def test_the_particle_block_shows_on_views_only(models_live_server):
+    """The block belongs to the 3-D event pair's pickers: shown on Views, hidden (by CSS) on Distillations and
+    Performance, and shown again on Views with its count kept."""
+    from test_browser_event import COUNT_OFF, _wait_count
+
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, _ = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _wait_count(page, COUNT_OFF)
+        assert page.evaluate(_PARTICLE_SHOWN)
+        for msub in ("distill", "perf"):
+            _show_subpage(page, msub)
+            assert not page.evaluate(_PARTICLE_SHOWN), msub
+        _show_subpage(page, "views")
+        assert page.evaluate(_PARTICLE_SHOWN)
+        assert page.evaluate("() => document.getElementById('particle-count').textContent") == COUNT_OFF
+        browser.close()
+    assert problems == [], problems
 
 
 def test_the_3d_slices_step_with_no_request_and_keep_the_turned_and_zoomed_camera(models_live_server):
