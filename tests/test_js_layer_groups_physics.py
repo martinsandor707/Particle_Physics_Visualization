@@ -23,6 +23,10 @@ of each option.
 * C7: the relative strip and seams on the native-layer axis in cm, the
   reach in their tooltips, the no-grid badge on w, nothing on rho.
 
+The boot (``PAGE_BOOT``) also answers the Particle Filter's candidates and
+the pick from the recorded payloads; ``test_js_physics_shell.py`` reuses it
+for the particle filter's own scenarios.
+
 Skipped when ``node`` is not on the PATH.
 """
 
@@ -51,7 +55,11 @@ UNIFORM_56 = "5.5.5.5.4.4.4.4.4.4.4.4.4"
 #: Another valid partition of 56, for an Apply while Pooled.
 OTHER_56 = "4.4.4.4.4.4.4.4.4.4.4.4.8"
 
-_HARNESS = r"""
+#: The page booted whole: the fake document, the recording ECharts and fetch,
+#: then ``main.js`` imported and settled. A scenario is appended to it, and
+#: ``/*__PRE_BOOT__*/`` may be replaced by code that runs before the import
+#: (``test_js_physics_shell.py`` drives the particle filter through it).
+PAGE_BOOT = r"""
 import fs from 'node:fs';
 const [jsRoot, fixtureDir, hash, scenario] = JSON.parse(process.argv.at(-1));
 const load = (name) => JSON.parse(fs.readFileSync(`${fixtureDir}/${name}.json`, 'utf8'));
@@ -189,6 +197,8 @@ const ROUTES = {
   '/api/energy-distribution': () => load('energy_d_two'),
   '/api/model-performance': () => load('perf_two_energy'),
   '/api/event': () => load('event_raster_base'),
+  '/api/event/candidates': () => load('candidates_base_off'),
+  '/api/event/pick': () => load('pick_base_uniform'),
 };
 // A gate holds /api/projections responses in flight while `gateOn`, so a scenario
 // can change the mode before a response lands (the LG-C1 races); `openGates` lets them land.
@@ -199,10 +209,13 @@ globalThis.fetch = async (url) => {
   const u = new URL(String(url));
   requests.push({ path: u.pathname, params: Object.fromEntries(u.searchParams) });
   const route = ROUTES[u.pathname];
-  const body = route ? route(u.searchParams) : { detail: 'not recorded' };
+  // A route answers a body, or {__status, detail} for a refusal.
+  const answer = route ? route(u.searchParams) : { __status: 404, detail: 'not recorded' };
+  const status = answer?.__status ?? 200;
+  const body = answer?.__status ? { detail: answer.detail } : answer;
   if (gateOn && u.pathname === '/api/projections') await new Promise((release) => gates.push(release));
   return {
-    ok: Boolean(route), status: route ? 200 : 404, headers: { get: () => 'application/json' },
+    ok: status < 400, status, headers: { get: () => 'application/json' },
     json: async () => body, text: async () => JSON.stringify(body),
   };
 };
@@ -273,8 +286,12 @@ for (const name of ['render', 'setLayerGroups']) {
     return result;
   };
 }
+/*__PRE_BOOT__*/
 await import(`${jsRoot}/main.js`);
 await settle();
+"""
+
+_HARNESS = PAGE_BOOT + r"""
 const out = { boot: { requests: requests.map((r) => r.path), projections: projectionRequests() } };
 const group = byId('group-lgroups');
 out.control = {

@@ -28,6 +28,7 @@ import { State, isCoregistered } from './state.js';
 import { UploadForm } from './controls/upload.js';
 import { AdminModal } from './controls/admin.js';
 import { FilterBlock } from './controls/filter_block.js';
+import { mountParticleFilter } from './controls/particle_filter.js';
 import { ProjectionPanel } from './panels/projection.js';
 import { FrameGrid, GRID_ROWS, GRID_COLS, DEPTH_COLS } from './panels/frame_grid.js';
 import { EventInspector } from './event_inspector.js';
@@ -529,12 +530,38 @@ const inspector = new EventInspector({
 
 /* The E1, E2 and D sliders and the undefined-D option, adopted per experiment:
  * a single shower filters on its incident momentum p alone. Dragging asks for
- * the sampled preview, a release for the exact refresh. */
+ * the sampled preview, a release for the exact refresh. A commit moves the
+ * candidates too: the pickers' draws start again, the particle block counts
+ * afresh, and the pinned event's reload applies the follow policy. */
 const filters = new FilterBlock({
   state,
   onPreview: () => requestPreview(),
-  onCommit: () => refreshAll(),
+  onCommit: () => {
+    inspector.filtersCommitted();
+    refreshParticle();
+    refreshAll();
+  },
 });
+
+/* The Particle Filter (controls/particle_filter.js): p and θ narrow which
+ * events the pickers offer, never the ensemble panels or a card. The block
+ * owns GET /api/event/candidates and refreshes itself after its own commit;
+ * the page then asks again for the pinned event alone, under the follow
+ * policy - no projections, no card. Every candidates payload reaches the
+ * inspector: N for the caption, N = 0 to shut the pickers. */
+const particle = mountParticleFilter({
+  state,
+  onCommit: () => inspector.particleCommitted(),
+  onCandidates: (payload) => inspector.setCandidates(payload),
+});
+
+/** Ask the block for the candidates again; a failure is said on the banner, a superseded request is not. */
+function refreshParticle() {
+  return particle.refresh().catch((error) => {
+    if (!isAbort(error)) reportError(error, 'particle filter');
+    return null;
+  });
+}
 
 /* ------------------------------------------------------------------ loading */
 
@@ -1606,6 +1633,16 @@ async function activateExperiment(experiment) {
   // The experiment's own filter axes and bounds; the domains are recorded
   // before the one hash write, so a link carries no raw dataset bound.
   filters.adopt(experiment, pagePlan.axes);
+  // The Particle Filter after the filters: shown where the Event Inspector is
+  // offered, θ alone on one shower; the draws start again on a new experiment.
+  inspector.setExperiment({ nShowers: pagePlan.nShowers });
+  particle.adopt(experiment, {
+    enabled: pagePlan.eventInspector,
+    nShowers: pagePlan.nShowers,
+    reason: pagePlan.eventInspector ? null : (pagePlan.reasons?.['event-inspector'] ?? null),
+  })?.catch((error) => {
+    if (!isAbort(error)) reportError(error, 'particle filter');
+  });
 
   if (pagePlan.spatial) {
     // The resolution slider's useful ceiling is set by the detector: beyond the
@@ -1669,9 +1706,11 @@ const STATUS_IDS = ['stat-events', 'stat-hits', 'stat-edep', 'stat-d', 'stat-nod
 
 /* The abort keys of every request outside the physics section (whose own
  * keys `physics.reset()` aborts): the projections, plot 4, the model cards,
- * the comparison rows, the windowed axes and the Event Inspector. */
+ * the comparison rows, the windowed axes, the Event Inspector and the
+ * Particle Filter's candidates. */
 const SPATIAL_ABORT_KEYS = ['projections', 'energy', 'performance', 'compare-lab', 'compare-trans',
-  'compare-local', 'compare-canonical', 'window-axis-yz', 'window-axis-xz', 'event', 'event-pick'];
+  'compare-local', 'compare-canonical', 'window-axis-yz', 'window-axis-xz', 'event', 'event-pick',
+  'event-candidates'];
 
 /* ------------------------------------------------------------------- wiring */
 
@@ -1987,6 +2026,10 @@ const REQUIRED_IDS = [
   'plot-xy', 'plot-yz', 'plot-xz', 'plot-energy', 'ensemble-grid',
   'event-grid', 'event-grid-rows', 'event-grid-label', 'event-grid-close', 'info-event',
   'event-number', 'event-prev', 'event-next', 'event-pick', 'event-close', 'event-status', 'event-caption',
+  'event-pick-tilted', 'event-open-3d',
+  'group-particle', 'particle-heading', 'ctl-particle-p', 'particle-p-label', 'pp-num-lo', 'pp-num-hi', 'pp-fill',
+  'pp-lo', 'pp-hi', 'particle-p-hint', 'ctl-particle-theta', 'particle-theta-label', 'pt-num-lo', 'pt-num-hi',
+  'pt-fill', 'pt-lo', 'pt-hi', 'particle-theta-hint', 'particle-count', 'particle-scope', 'particle-clear',
   'compare-grid', 'compare-grid-rows', 'compare-grid-label', 'compare-grid-close', 'opt-compare',
   'e1-lo', 'e1-hi', 'e1-fill', 'e1-num-lo', 'e1-num-hi',
   'e2-lo', 'e2-hi', 'e2-fill', 'e2-num-lo', 'e2-num-hi',
