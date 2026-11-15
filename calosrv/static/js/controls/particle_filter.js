@@ -27,6 +27,7 @@
 
 import { RangeSlider } from './range_slider.js';
 import { getJson, isAbort } from '../api.js';
+import { relabel, restoreLabel } from '../page_common.js';
 import { snapDomain } from '../state.js';
 import {
   CANDIDATES_ROUTE, PARTICLE_STEP, countLine, emptyLine, intervalText, scopeNote, unplaceableLine,
@@ -54,7 +55,11 @@ export const PARTICLE_IDS = Object.freeze({
   count: 'particle-count',
   scope: 'particle-scope',
   clear: 'particle-clear',
+  thetaHint: 'particle-theta-hint',
 });
+
+/** The θ hint on single-shower data, whose one shower has its own column (the markup names A and B). */
+export const SINGLE_THETA_HINT = 'Incident polar angle of the shower (incoming_theta), in degrees.';
 
 /* ------------------------------------------------------------ pure parts -- */
 
@@ -217,6 +222,9 @@ export class ParticleFilter {
       if (this.state.set({ [min]: null, [max]: null }, { silent: true })) this.state.writeHash?.();
     }
     if (this.el.scope) this.el.scope.textContent = scopeNote({ nShowers: this.nShowers });
+    // One shower: the θ hint names its own column; two showers get the markup's back.
+    if (this.nShowers === 1) relabel(this.el.thetaHint, SINGLE_THETA_HINT);
+    else restoreLabel(this.el.thetaHint);
     for (const key of Object.keys(this.sliders)) this.disableAxis(key);
     this.syncClear();
     this.writeLines(['—']);

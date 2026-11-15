@@ -301,6 +301,8 @@ for (const id of ['pp-lo', 'pp-hi', 'pt-lo', 'pt-hi']) {
 byId('group-particle').hidden = true;
 byId('particle-clear').disabled = true;
 byId('particle-count').textContent = '—';
+const THETA_HINT = 'Polar angle of the same shower (incoming_theta_A or _B), in degrees.';
+byId('particle-theta-hint').append(document.createTextNode(THETA_HINT));
 const requests = [];
 let respond = () => P.off;
 globalThis.fetch = async (url) => {
@@ -383,7 +385,8 @@ requests.length = 0;
 await control.adopt({ table_name: 'single_hits' }, { enabled: true, nShowers: 1 });
 block.single = { pHidden: byId('ctl-particle-p').hidden, params: state.particleParams(),
   scope: byId('particle-scope').textContent, requests: requests.map((r) => r.query),
-  count: byId('particle-count').textContent };
+  count: byId('particle-count').textContent, thetaHint: byId('particle-theta-hint').textContent,
+  singleHint: pf.SINGLE_THETA_HINT };
 
 // Disabled: hidden, no request, refresh null.
 requests.length = 0;
@@ -393,6 +396,7 @@ block.disabled = { hidden: byId('group-particle').hidden, requests: requests.len
 
 // A failure that is not an abort is rethrown; an abort is null.
 await control.adopt({ table_name: 'experiment_baseline' }, { enabled: true, nShowers: 2 });
+block.restoredHint = { text: byId('particle-theta-hint').textContent, markup: THETA_HINT };
 globalThis.fetch = async () => ({ ok: false, status: 500, statusText: 'Boom', json: async () => ({ detail: 'Boom.' }) });
 try { await control.refresh(); block.error = 'none'; } catch (error) { block.error = error.message; }
 globalThis.fetch = async () => { const e = new Error('gone'); e.name = 'AbortError'; throw e; };
@@ -823,6 +827,11 @@ def test_one_shower_filters_on_theta_alone(r):
     assert single["scope"] == r["misc"]["scopeSingle"]
     assert [q["table_name"] for q in single["requests"]] == ["single_hits"]
     assert single["count"] == r["count"]["fixtureSingle"]
+    # The θ hint names the one shower's own column, and two showers get the markup's text back.
+    assert single["thetaHint"] == single["singleHint"]
+    assert "incoming_theta)" in single["thetaHint"] and "_A" not in single["thetaHint"]
+    restored = r["block"]["restoredHint"]
+    assert restored["text"] == restored["markup"]
 
 
 def test_a_disabled_block_hides_and_asks_nothing(r):
