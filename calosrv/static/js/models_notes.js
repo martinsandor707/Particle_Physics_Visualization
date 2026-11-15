@@ -1278,6 +1278,13 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     const bAlone = fit.params?.b2 >= y.hi * y.hi;
     dis.push(`${s.label}: its ${NOISE_FORM} curve lies above the top of the main panel (${pct(y.hi)}) at every E on the axis${bAlone ? `, its constant term b = ${pct(fit.params?.b)} alone reaching it` : ''}; it is clipped there with a caret.`);
   }
+  // A fallback a₀/√E above the top at its first energy comes down into the plot, since it falls with E (the panel's
+  // entry, review-ui F5), or lies above the whole axis; the drawer names it as it names the three-term curves.
+  for (const { s, f } of curves.filter(({ form, f }) => form === 'pinned' && f.entry)) {
+    dis.push(f.entry.above
+      ? `${s.label}: its origin-pinned a₀/√E lies above the top of the main panel (${pct(y.hi)}) at every energy from ${curveMin} GeV; it is clipped there with a caret.`
+      : `${s.label}: its origin-pinned a₀/√E comes down into the main panel from its top (${pct(y.hi)}) at E = ${sig(f.entry.lineAt)} GeV, with a caret there: it falls as 1/√E, so from ${curveMin} GeV up to that energy it lies above the top.`);
+  }
   const misfits = misfitLine(curves.map(({ s, f, form }) => ({ s, f: { form, fit: f.fit, misfit: f.misfit } })), gates, (form) => ENERGY_FORM_NAMES[form]);
   if (misfits) dis.push(misfits);
   if (!spanList.length) {

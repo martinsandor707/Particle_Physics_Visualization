@@ -1410,7 +1410,9 @@ export function fitTableRows(payload, opts = {}) {
  * never made is never called "table only".
  */
 function energyTableName(form, fit, sym = 'σ/E', mf = null, missing = TOO_FEW_WINDOWS) {
-  if (form === 'affine') return 'Affine a/√E + b — drawn in the 1/√E view';
+  // A series with no fit from 4 GeV (robust declines, no pooled scale, too few windows) has no affine or quadrature
+  // fit either: the cell gives the same cause as the pinned one, never "drawn in the 1/√E view" for a fit that is not.
+  if (form === 'affine') return fit ? 'Affine a/√E + b — drawn in the 1/√E view' : `Affine a/√E + b — not fitted: ${missing}`;
   if (form === 'pinned') {
     if (!pinnedDrawable(fit)) return `Origin-pinned a₀/√E ⊕ 0 — not drawn: ${missing}`;
     if (noiseDrawable(mf?.noise)) return 'Origin-pinned a₀/√E ⊕ 0 — table only on this view';
@@ -1420,6 +1422,7 @@ function energyTableName(form, fit, sym = 'σ/E', mf = null, missing = TOO_FEW_W
     if (noiseDrawable(fit)) return `${NOISE_FORM_NAME} — drawn`;
     return `${NOISE_FORM_NAME} — not drawn: ${noiseReasonClause(mf)}`;
   }
+  if (!fit) return `Quadrature a/√E ⊕ b — not fitted: ${missing}`;
   const reason = quadratureReason(fit, sym);
   return `Quadrature a/√E ⊕ b — table only${reason ? `: ${reason}` : ''}`;
 }
