@@ -30,6 +30,16 @@ Event Inspector, pinned by the two-shower golden snapshot); ``per_axis``, one
 half-width per axis, is the cubes' default, and the Models page asks the
 raster for it too, so the 3-D box and its three projections agree. Any other
 value is refused naming ``window``.
+
+**The particle filter** (``particle_p_min`` / ``_max`` in GeV,
+``particle_theta_min`` / ``_max`` in degrees; ``query/particle.py``) narrows
+only which events the pickers offer. Both formats of ``/api/event`` carry
+``event.candidates`` - whether the event is a candidate, its place among them
+and the matching showers of it and its neighbours - and walk the candidates
+with ``event.prev`` / ``event.next``; ``/api/event/pick`` draws from them, by
+the notebook rules or a seeded uniform shuffle (``rule=uniform``, ``draw``);
+``GET /api/event/candidates`` counts them without reading a hit. With no
+bound set a pick that names no rule is answered as before the filter existed.
 """
 
 from __future__ import annotations
@@ -43,10 +53,12 @@ from ..db.registry import ExperimentRecord
 from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
 from ..query import canonical, capabilities, event_inspector, frame_sql, voxel_event
+from ..query import particle as particle_mod
 from ..query import showers as showers_mod
+from ..query.particle import ParticleSpec
 from ..text import typographic
 from . import budget, frame_canonical
-from .deps import CursorDep, FilterDep, RecordDep, capable
+from .deps import CursorDep, FilterDep, ParticleDep, RecordDep, capable
 
 router = APIRouter()
 
@@ -84,6 +96,7 @@ def get_event(
     con: CursorDep,
     record: EventRecordDep,
     spec: FilterDep,
+    particle: ParticleDep,
     event_number: int = Query(..., description="The event to draw."),
     format: str = Query(voxel_event.FORMAT_RASTER, description=_FORMAT_HELP),
     shower: str | None = Query(
@@ -148,7 +161,8 @@ def get_event(
         event_inspector.check_window(window)
     if format == voxel_event.FORMAT_VOXELS:
         return _voxels(con, record, spec, timer, event_number, shower, coordinates, frame, channel,
-                       model, cap, event_inspector.WINDOW_PER_AXIS if window is None else window)
+                       model, cap, event_inspector.WINDOW_PER_AXIS if window is None else window,
+                       particle=particle)
 
     shower = "a" if shower is None else shower
     if shower not in event_inspector.SHOWERS:
@@ -158,7 +172,8 @@ def get_event(
     _check_coordinates(coordinates)
     footprint = canonical.cell_footprint(con, record)
     body = event_inspector.inspect(con, record, spec, event_number, shower, coordinates, footprint,
-                                   window=event_inspector.WINDOW_SHARED if window is None else window)
+                                   window=event_inspector.WINDOW_SHARED if window is None else window,
+                                   particle=particle)
     notices = [{"scope": "event", "text": body["coordinates"]["note"]},
                {"scope": "event", "text": body["window"]["rule"]},
                {"scope": "event", "text": body["scale"]["rule"]}]
@@ -166,7 +181,7 @@ def get_event(
         notices.append({"scope": "event", "text": note})
     meta = ApiMeta(
         table_name=record.table_name, exact=True, query_ms=body.pop("elapsed_ms"),
-        total_ms=timer.elapsed_ms, warnings=_outside(body, event_number),
+        total_ms=timer.elapsed_ms, warnings=_outside(body, event_number, particle),
         notes={"event": int(event_number), "shower": shower, "coordinates": coordinates,
                "notices": notices},
     )
@@ -192,18 +207,33 @@ def _cap(cap: int | None) -> int:
     return cap
 
 
-def _outside(body: dict[str, Any], event_number: int) -> list[str]:
-    if body["event"]["in_selection"]:
-        return []
-    return [
-        f"Event {event_number} lies outside the current selection; it is drawn as asked, and the "
-        "previous / next controls walk the selection."
-    ]
+def _outside(body: dict[str, Any], event_number: int, particle: ParticleSpec) -> list[str]:
+    """The warning for an event drawn although the pickers would not offer it.
+
+    Outside the selection, today's sentence (previous / next walk the
+    candidates once the particle filter is set). Inside the selection but
+    outside an active filter's candidates because none of its showers matches,
+    the particle filter's own sentence. An event the frame gate alone keeps
+    out (no defined separation, or no direction or entry point) is drawn
+    without one, as it always was.
+    """
+    event = body["event"]
+    if not event["in_selection"]:
+        walked = "candidates" if particle.active else "selection"
+        return [
+            f"Event {event_number} lies outside the current selection; it is drawn as asked, and the "
+            f"previous / next controls walk the {walked}."
+        ]
+    candidates = event.get("candidates") or {}
+    if particle.active and candidates.get("in_pool") is False and not candidates.get("matched"):
+        return [particle_mod.outside_pool_warning(event_number, particle)]
+    return []
 
 
 def _voxels(con, record: ExperimentRecord, spec, timer: Timer, event_number: int, shower: str | None,
             coordinates: str, frame: str, channel: str, model: str, cap: int | None,
-            window: str = event_inspector.WINDOW_PER_AXIS) -> dict[str, Any]:
+            window: str = event_inspector.WINDOW_PER_AXIS,
+            particle: ParticleSpec = particle_mod.INACTIVE) -> dict[str, Any]:
     """The cubes, built once and rendered until the whole enveloped body fits the contract.
 
     The guard's first lever on a splat frame is the voxel pitch (20 to 40 mm:
@@ -216,7 +246,7 @@ def _voxels(con, record: ExperimentRecord, spec, timer: Timer, event_number: int
     cap = _cap(cap)
     footprint = canonical.cell_footprint(con, record)
     builder = voxel_event.build(con, record, spec, event_number, frame, shower, channel, model,
-                                coordinates, footprint, window=window)
+                                coordinates, footprint, window=window, particle=particle)
     if builder.canonical is not None:
         # The D-frame's own sentence for an event whose entry anchors fix no rotation.
         notice = frame_canonical.ill_conditioned_event_notice(builder.canonical["d_entry_mm"])
@@ -233,7 +263,7 @@ def _voxels(con, record: ExperimentRecord, spec, timer: Timer, event_number: int
         notices += [{"scope": "budget", "text": text} for text in steps]
         meta = ApiMeta(
             table_name=record.table_name, exact=True, query_ms=body.pop("elapsed_ms"),
-            total_ms=timer.elapsed_ms, warnings=_outside(body, event_number),
+            total_ms=timer.elapsed_ms, warnings=_outside(body, event_number, particle),
             notes={"event": int(event_number), "format": voxel_event.FORMAT_VOXELS,
                    "shower": shower, "frame": frame, "channel": channel,
                    "model": builder.network,
@@ -268,29 +298,67 @@ def _voxels(con, record: ExperimentRecord, spec, timer: Timer, event_number: int
                                  attempts=4, remedy="a smaller cap brings it under")
 
 
-@router.get("/api/event/pick", summary="An event picked by a stated notebook rule")
+@router.get("/api/event/pick", summary="An event picked by a stated rule from the candidates")
 def pick_event(
     con: CursorDep,
     record: InspectableDep,
     spec: FilterDep,
-    seed: int = Query(42, ge=0, description="Seed of the random draw from the pool (tilted rule)."),
-    pool_size: int = Query(20, ge=1, le=200, description="Size of the pool the rule ranks."),
+    particle: ParticleDep,
+    seed: int = Query(event_inspector.DEFAULT_SEED, ge=0,
+                      description="Seed of the random draw (tilted) or of the shuffle (uniform)."),
+    pool_size: int = Query(20, ge=1, le=200, description="Size of the pool the tilted and densest rules rank."),
     rule: str | None = Query(
         None,
         description=(
             "tilted (default): a seeded draw from the most tilted of the events with more hits than "
-            "the mean (local-coords notebook, Page 1); densest: the event with the most cells, "
-            "ties to the lowest number (High_energy notebook, Page 2's 3-D displays)."
+            "the mean (local-coords notebook, Page 1's Most tilted); densest: the event with the most "
+            "cells, ties to the lowest number (High_energy notebook, Page 2's 3-D displays); uniform: "
+            "entry draw mod N of a seeded shuffle of the candidates in event-number order (Pick for "
+            "me). Every rule draws from the candidates: the selection, the events the per-shower "
+            "frames can place and, when a particle bound is set, the events holding a matching shower."
         ),
+    ),
+    draw: int = Query(
+        0, ge=0,
+        description=("uniform only: which draw of the seeded shuffle, 0 for the first; draw N wraps "
+                     "round to the first, so no event repeats within N consecutive draws."),
     ),
 ):
     timer = Timer()
     body = event_inspector.pick(con, record, spec, seed=seed, pool_size=pool_size,
-                                rule=event_inspector.RULE_TILTED if rule is None else rule)
-    if rule is None:
-        # A request that names no rule is answered as before rules existed: the
-        # two-shower golden snapshot pins that body byte for byte.
-        body.pop("rule_id")
-        body.pop("seed_used")
+                                rule=event_inspector.RULE_TILTED if rule is None else rule,
+                                particle=particle, draw=draw)
+    if rule is None and not particle.active:
+        # A request that names no rule and no particle bound is answered as before rules
+        # existed: the two-shower golden snapshot pins that body byte for byte.
+        for key in ("rule_id", "seed_used", "matched", "particle"):
+            body.pop(key)
     meta = ApiMeta(table_name=record.table_name, exact=True, total_ms=timer.elapsed_ms)
     return envelope(meta, **body, filter=spec.as_dict())
+
+
+@router.get("/api/event/candidates", summary="The event pickers' candidates, counted")
+def event_candidates(
+    con: CursorDep,
+    record: InspectableDep,
+    spec: FilterDep,
+    particle: ParticleDep,
+    event_number: int | None = Query(
+        None,
+        description=("An event to place among the candidates: whether it is one, its index in "
+                     "event-number order, its neighbours and their matching showers. No hit is read."),
+    ),
+):
+    """The pool the pickers draw from: its counts, the dataset's slider bounds, one event's place.
+
+    Reads the event table only, never the hits: the count is cheap enough to
+    ask for on every particle-filter commit.
+    """
+    timer = Timer()
+    counts = particle_mod.candidates(con, record, spec, particle)
+    bounds = particle_mod.bounds(con, record)
+    event = (None if event_number is None
+             else particle_mod.membership(con, record, spec, particle, event_number))
+    meta = ApiMeta(table_name=record.table_name, exact=True, query_ms=timer.elapsed_ms,
+                   total_ms=timer.elapsed_ms, notes={"notes": {}})
+    return envelope(meta, candidates=counts, bounds=bounds, event=event, filter=spec.as_dict())

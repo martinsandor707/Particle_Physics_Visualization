@@ -90,7 +90,36 @@
   ],
   "n_primary_cells": 0,
   "primary_species": null,
-  "primary_note": "primary hit missing: no cell of this event is primary-tagged."
+  "primary_note": "primary hit missing: no cell of this event is primary-tagged.",
+  "candidates": {
+   "particle": {
+    "active": false,
+    "p_gev": [
+     null,
+     null
+    ],
+    "theta_deg": [
+     null,
+     null
+    ],
+    "theta_rad": [
+     null,
+     null
+    ]
+   },
+   "in_pool": true,
+   "index": 2,
+   "n_events": 287,
+   "matched": [
+    "a"
+   ],
+   "prev_matched": [
+    "a"
+   ],
+   "next_matched": [
+    "a"
+   ]
+  }
  },
  "coordinates": {
   "source": "lattice",

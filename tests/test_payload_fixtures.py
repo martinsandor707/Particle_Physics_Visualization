@@ -42,6 +42,8 @@ BASE = {"table_name": BASELINE_TABLE}
 BASE_UNIFORM_GROUPS = "5.5.5.5.4.4.4.4.4.4.4.4.4"
 #: The aggregate ``xgb_client`` analyses with its in-test XGBoost models.
 XGB = {"table_name": xgb_table(XGB_SOURCE)}
+#: A particle filter the baseline's event 0 meets through shower A alone.
+PARTICLE_2_3 = {"particle_p_min": 2.0, "particle_p_max": 3.0}
 
 #: name -> (fixture, path, params, contract or None)
 PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
@@ -198,6 +200,25 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
                                       {**BASE, "coord_system": "trans",
                                        "depth_groups": BASE_UNIFORM_GROUPS}, None),
     "event_raster_base": ("single_client", "/api/event", {**BASE, "event_number": 0}, None),
+    # The particle filter (event pickers only). On the baseline's two events p 2-3 GeV selects
+    # event 0 through shower A only: its raster is the one candidate; event 1's cubes are drawn as
+    # asked outside the candidates, with the warning. 5-6 GeV holds no candidate (N = 0).
+    "candidates_base_off": ("single_client", "/api/event/candidates", {**BASE, "event_number": 0},
+                            "event_candidates"),
+    "candidates_base_particle": ("single_client", "/api/event/candidates",
+                                 {**BASE, **PARTICLE_2_3, "event_number": 0}, "event_candidates"),
+    "candidates_base_empty": ("single_client", "/api/event/candidates",
+                              {**BASE, "particle_p_min": 5.0, "particle_p_max": 6.0, "event_number": 0},
+                              "event_candidates"),
+    "candidates_single_theta": ("single_client", "/api/event/candidates",
+                                {**HITS, "particle_theta_min": 20.0, "particle_theta_max": 25.0,
+                                 "event_number": 3}, "event_candidates"),
+    "pick_base_uniform": ("single_client", "/api/event/pick", {**BASE, "rule": "uniform"}, None),
+    "event_raster_base_particle": ("single_client", "/api/event",
+                                   {**BASE, **PARTICLE_2_3, "event_number": 0}, None),
+    "event_voxels_base_lab_particle": ("single_client", "/api/event",
+                                       {**BASE, **PARTICLE_2_3, "event_number": 1, "format": "voxels",
+                                        "frame": "lab"}, "event_voxels"),
     # XGBoost (Page 2): the catalogue with model runs, the Admin Settings list, the four
     # views (each task they apply to, requested as the shell does: no selection), and
     # the XGBoost series of E2 and of the prediction density.

@@ -17,6 +17,11 @@ from calosrv.text import signed_hyphens
     ("/api/energy-distribution", {"bins": "many"}, "bins"),
     ("/api/event", {}, "event_number"),
     ("/api/event", {"event_number": "first"}, "event_number"),
+    ("/api/event", {"event_number": 0, "particle_p_min": "five"}, "particle_p_min"),
+    ("/api/event/candidates", {"particle_theta_max": "steep"}, "particle_theta_max"),
+    ("/api/event/candidates", {"event_number": "first"}, "event_number"),
+    ("/api/event/pick", {"draw": "next"}, "draw"),
+    ("/api/event/pick", {"draw": -1}, "draw"),
 ])
 def test_type_and_missing_parameter_errors_are_validation_problems(client, path, params, field):
     reply = client.get(path, params=params)

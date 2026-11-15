@@ -430,6 +430,9 @@ def test_an_empty_selection_has_no_event_to_pick(single_client):
     response = single_client.get("/api/event/pick", params={**HITS, "e1_min": 0.0, "e1_max": 0.5})
     assert response.status_code == 404
     assert "incident direction and an entry point" in response.json()["detail"]
+    # The counts are an answer, never a 404.
+    counts = _get(single_client, "/api/event/candidates", **HITS, e1_min=0.0, e1_max=0.5)
+    assert counts["candidates"]["n_selection"] == counts["candidates"]["n_events"] == 0
 
 
 def test_the_compare_view_serves_all_three_frames(single_client):
@@ -505,6 +508,17 @@ def test_the_event_inspector_draws_the_one_shower(single_client, db):
     assert body["coordinates"]["within_tolerance"] is True
     computed = _get(single_client, "/api/event", **HITS, event_number=number, coordinates="computed")
     assert computed["coordinates"]["source"] == "computed"
+    # One shower: it is the only one a candidate can match, and every event is placeable.
+    candidates = event["candidates"]
+    assert candidates["in_pool"] is True and candidates["n_events"] == 287 and candidates["matched"] == ["a"]
+    (index,) = _event_values(db, "SELECT count(*) FROM {event} WHERE event_number < $ev", {"ev": number})
+    assert candidates["index"] == index
+    # A bound the shower misses: drawn as asked, said so, and no longer a candidate.
+    theta = event["shower"]["theta_deg"]
+    missed = _get(single_client, "/api/event", **HITS, event_number=number,
+                  particle_theta_min=min(theta + 1.0, 180.0))
+    assert missed["event"]["candidates"]["in_pool"] is False and missed["event"]["candidates"]["matched"] == []
+    assert missed["meta"]["warnings"] and "particle filter" in missed["meta"]["warnings"][0]
 
 
 def test_a_single_hit_event_is_drawn(single_client, db):
@@ -549,7 +563,8 @@ def test_shower_b_is_refused_naming_shower(single_client):
     ("/api/window-axis", {"panel": "xz", "t_min": -100.0, "t_max": 100.0}, "window-axis"),
     ("/api/event", {"event_number": 1}, "event-inspector"),
     ("/api/event/pick", {}, "event-inspector"),
-], ids=["lab", "trans", "local", "canonical", "window-axis", "event", "pick"])
+    ("/api/event/candidates", {"particle_theta_min": 10.0}, "event-inspector"),
+], ids=["lab", "trans", "local", "canonical", "window-axis", "event", "pick", "candidates"])
 def test_every_hit_view_of_the_aggregate_is_refused(single_client, url, params, capability):
     problem = _refused(single_client, url, "table_name", capability, "single_shower_events",
                        **EVENTS, **params)
@@ -566,10 +581,14 @@ def test_two_shower_cuts_are_refused_before_any_view(single_client):
 
 def test_no_single_shower_sentence_signs_a_number_with_a_hyphen(single_client):
     picked = _get(single_client, "/api/event/pick", **HITS, seed=7)
+    narrowed = {"particle_theta_min": 20.0, "particle_theta_max": 25.0}
     bodies = [
         _get(single_client, "/api/event", **HITS, event_number=picked["event_number"]),
+        _get(single_client, "/api/event", **HITS, event_number=picked["event_number"], **narrowed),
         _get(single_client, "/api/window-axis", **HITS, panel="xz", t_min=-500.0, t_max=500.0),
         picked,
+        _get(single_client, "/api/event/pick", **HITS, rule="uniform", **narrowed),
+        _get(single_client, "/api/event/candidates", **HITS, event_number=picked["event_number"], **narrowed),
     ]
     for kind in ("lab", "trans", "local"):
         for bounds in ({}, ONE_EVENT):

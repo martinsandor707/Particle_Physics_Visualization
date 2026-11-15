@@ -617,7 +617,8 @@
     "e2",
     "overlap",
     "shower",
-    "showers"
+    "showers",
+    "candidates"
    ],
    "properties": {
     "event_number": {
@@ -736,6 +737,9 @@
      "propertyNames": {
       "$ref": "#/$defs/no_raw_keys"
      }
+    },
+    "candidates": {
+     "$ref": "#/$defs/candidates"
     }
    },
    "propertyNames": {
@@ -2202,6 +2206,19 @@
     },
     "filter": {
      "$ref": "#/$defs/filter"
+    },
+    "matched": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "maxItems": 2
+    },
+    "particle": {
+     "$ref": "#/$defs/particle"
     }
    },
    "propertyNames": {
@@ -2409,6 +2426,142 @@
    },
    "additionalProperties": false,
    "description": "Per-depth-bin sums of every cell/voxel inside the window (grid), before the cap; sum(energy_gev) + energy_outside_gev == energy_total_gev. Signed attention parts are magnitudes: total = positive_total - negative_total and outside = positive_outside - negative_outside; unsigned total = sum(values) + outside."
+  },
+  "particle": {
+   "type": "object",
+   "required": [
+    "active",
+    "p_gev",
+    "theta_deg",
+    "theta_rad"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "active": {
+     "type": "boolean"
+    },
+    "p_gev": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "minimum": 0
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "theta_deg": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "minimum": 0,
+      "maximum": 180
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "theta_rad": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "minimum": 0,
+      "maximum": 3.141592653589794
+     },
+     "minItems": 2,
+     "maxItems": 2
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "candidates": {
+   "description": "GET /api/event's event.candidates (both formats): whether the drawn event is one of the pickers' candidates, its 0-based index among them in event-number order (null outside), their count, and the matching showers of the event and of its previous / next candidates (null where there is no neighbour).",
+   "type": "object",
+   "required": [
+    "particle",
+    "in_pool",
+    "index",
+    "n_events",
+    "matched",
+    "prev_matched",
+    "next_matched"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "particle": {
+     "$ref": "#/$defs/particle"
+    },
+    "in_pool": {
+     "type": "boolean"
+    },
+    "index": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "n_events": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "matched": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "maxItems": 2
+    },
+    "prev_matched": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "type": "array",
+       "items": {
+        "enum": [
+         "a",
+         "b"
+        ]
+       },
+       "maxItems": 2
+      }
+     ]
+    },
+    "next_matched": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "type": "array",
+       "items": {
+        "enum": [
+         "a",
+         "b"
+        ]
+       },
+       "maxItems": 2
+      }
+     ]
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
   }
  }
 }

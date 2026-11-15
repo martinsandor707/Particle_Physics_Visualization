@@ -1,4 +1,4 @@
-"""Shared request dependencies: the database cursor and the kinematic filter."""
+"""Shared request dependencies: the database cursor, the kinematic filter and the particle filter."""
 
 from __future__ import annotations
 
@@ -12,8 +12,9 @@ from ..config import Settings
 from ..db.connection import Database
 from ..db.registry import ExperimentRecord, require_ready
 from ..errors import UnknownTableError
-from ..query import capabilities, filters
+from ..query import capabilities, filters, particle
 from ..query.filters import FilterSpec
+from ..query.particle import ParticleSpec
 
 
 def get_settings(request: Request) -> Settings:
@@ -124,3 +125,37 @@ def resolve_filter(
 
 
 FilterDep = Annotated[FilterSpec, Depends(resolve_filter)]
+
+
+def resolve_particle(
+    record: RecordDep,
+    particle_p_min: float | None = Query(
+        None, description=(
+            "Particle filter (event pickers only): lower bound on the incident momentum of either "
+            "shower, incoming_momentum_A or _B, or the single shower's incoming_momentum (GeV, "
+            "inclusive). Unset is unbounded.")),
+    particle_p_max: float | None = Query(
+        None, description=(
+            "Particle filter (event pickers only): upper bound on the incident momentum of the same "
+            "shower (GeV, inclusive). Unset is unbounded.")),
+    particle_theta_min: float | None = Query(
+        None, description=(
+            "Particle filter (event pickers only): lower bound on the incident polar angle of the same "
+            "shower, incoming_theta_A or _B, in degrees from 0 to 180 (inclusive; compared in "
+            "radians). Unset is unbounded.")),
+    particle_theta_max: float | None = Query(
+        None, description=(
+            "Particle filter (event pickers only): upper bound on the incident polar angle of the same "
+            "shower, in degrees from 0 to 180 (inclusive). Unset is unbounded.")),
+) -> ParticleSpec:
+    """The particle filter of the event pickers: a shower whose p and theta lie in the bounds.
+
+    It narrows only which events Pick for me, Most tilted, Densest and
+    previous / next offer (``query/particle.py``); the ensemble views never
+    read it.
+    """
+    return particle.build(record, p_min=particle_p_min, p_max=particle_p_max,
+                          theta_min=particle_theta_min, theta_max=particle_theta_max)
+
+
+ParticleDep = Annotated[ParticleSpec, Depends(resolve_particle)]

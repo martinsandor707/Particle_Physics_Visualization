@@ -1,0 +1,678 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/event/candidates",
+ "description": "The event pickers' candidates (the pool): the selection AND the frame gate AND, when the particle filter is active, at least one shower that deposited energy with its incident momentum and polar angle inside every set bound. Counts, the dataset's slider bounds over every placeable event's depositing showers, and with event_number one event's place among the candidates. The route reads the event table only; no object at any depth may carry a 'hits' or 'points' key. $defs also hold the particle echo, GET /api/event's event.candidates block (event_block, copied into event_voxels.json $defs/candidates) and the two pick bodies that carry the particle filter.",
+ "type": "object",
+ "required": [
+  "meta",
+  "candidates",
+  "bounds",
+  "event",
+  "filter"
+ ],
+ "additionalProperties": false,
+ "properties": {
+  "meta": {
+   "$ref": "#/$defs/meta"
+  },
+  "candidates": {
+   "$ref": "#/$defs/counts"
+  },
+  "bounds": {
+   "$ref": "#/$defs/bounds"
+  },
+  "event": {
+   "anyOf": [
+    {
+     "type": "null"
+    },
+    {
+     "$ref": "#/$defs/membership"
+    }
+   ]
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  }
+ },
+ "$defs": {
+  "no_raw_keys": {
+   "not": {
+    "enum": [
+     "hits",
+     "points"
+    ]
+   }
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "meta": {
+   "type": "object",
+   "required": [
+    "table_name",
+    "exact",
+    "query_ms",
+    "total_ms",
+    "cached",
+    "warnings",
+    "notes"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "exact": {
+     "const": true
+    },
+    "query_ms": {
+     "type": "number"
+    },
+    "total_ms": {
+     "type": "number"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "notes": {
+     "type": "object"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "particle": {
+   "type": "object",
+   "required": [
+    "active",
+    "p_gev",
+    "theta_deg",
+    "theta_rad"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "active": {
+     "type": "boolean"
+    },
+    "p_gev": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "minimum": 0
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "theta_deg": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "minimum": 0,
+      "maximum": 180
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "theta_rad": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "minimum": 0,
+      "maximum": 3.141592653589794
+     },
+     "minItems": 2,
+     "maxItems": 2
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "counts": {
+   "type": "object",
+   "required": [
+    "particle",
+    "n_selection",
+    "n_unplaceable",
+    "n_events",
+    "n_showers",
+    "by_shower",
+    "n_both",
+    "showers"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "particle": {
+     "$ref": "#/$defs/particle"
+    },
+    "n_selection": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_unplaceable": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_events": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_showers": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "by_shower": {
+     "type": "object",
+     "required": [
+      "a"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "a": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "b": {
+       "type": "integer",
+       "minimum": 0
+      }
+     }
+    },
+    "n_both": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "showers": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "minItems": 1,
+     "maxItems": 2
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "bounds": {
+   "type": "object",
+   "required": [
+    "p_gev",
+    "theta_deg"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "p_gev": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "minimum": 0
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "theta_deg": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "membership": {
+   "description": "One event's place among the candidates; no hit is read.",
+   "type": "object",
+   "required": [
+    "event_number",
+    "in_selection",
+    "in_pool",
+    "index",
+    "n_events",
+    "prev",
+    "next",
+    "matched",
+    "prev_matched",
+    "next_matched"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "event_number": {
+     "type": "integer"
+    },
+    "in_selection": {
+     "type": "boolean"
+    },
+    "in_pool": {
+     "type": "boolean"
+    },
+    "index": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "n_events": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "prev": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "next": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "matched": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "maxItems": 2
+    },
+    "prev_matched": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "type": "array",
+       "items": {
+        "enum": [
+         "a",
+         "b"
+        ]
+       },
+       "maxItems": 2
+      }
+     ]
+    },
+    "next_matched": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "type": "array",
+       "items": {
+        "enum": [
+         "a",
+         "b"
+        ]
+       },
+       "maxItems": 2
+      }
+     ]
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "event_block": {
+   "description": "GET /api/event's event.candidates (both formats): whether the drawn event is one of the pickers' candidates, its 0-based index among them in event-number order (null outside), their count, and the matching showers of the event and of its previous / next candidates (null where there is no neighbour).",
+   "type": "object",
+   "required": [
+    "particle",
+    "in_pool",
+    "index",
+    "n_events",
+    "matched",
+    "prev_matched",
+    "next_matched"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "particle": {
+     "$ref": "#/$defs/particle"
+    },
+    "in_pool": {
+     "type": "boolean"
+    },
+    "index": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "n_events": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "matched": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "maxItems": 2
+    },
+    "prev_matched": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "type": "array",
+       "items": {
+        "enum": [
+         "a",
+         "b"
+        ]
+       },
+       "maxItems": 2
+      }
+     ]
+    },
+    "next_matched": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "type": "array",
+       "items": {
+        "enum": [
+         "a",
+         "b"
+        ]
+       },
+       "maxItems": 2
+      }
+     ]
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "pick_meta": {
+   "type": "object",
+   "required": [
+    "table_name",
+    "exact",
+    "query_ms",
+    "total_ms",
+    "cached",
+    "warnings"
+   ],
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "exact": {
+     "const": true
+    },
+    "query_ms": {
+     "type": "number"
+    },
+    "total_ms": {
+     "type": "number"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "pick_uniform": {
+   "description": "GET /api/event/pick?rule=uniform: entry draw mod N + 1 of a seeded shuffle of the candidates in event-number order.",
+   "type": "object",
+   "required": [
+    "meta",
+    "event_number",
+    "n_events",
+    "seed",
+    "draw",
+    "entry",
+    "rule",
+    "rule_id",
+    "seed_used",
+    "matched",
+    "particle",
+    "filter"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "meta": {
+     "$ref": "#/$defs/pick_meta"
+    },
+    "event_number": {
+     "type": "integer"
+    },
+    "n_events": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "seed": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "draw": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "entry": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "rule": {
+     "type": "string"
+    },
+    "rule_id": {
+     "const": "uniform"
+    },
+    "seed_used": {
+     "const": true
+    },
+    "matched": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "maxItems": 2
+    },
+    "particle": {
+     "$ref": "#/$defs/particle"
+    },
+    "filter": {
+     "$ref": "#/$defs/filter"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "pick_ranked": {
+   "description": "GET /api/event/pick?rule=tilted|densest (or no rule with a particle bound): the notebook rules' body with the chosen event's matching showers and the particle echo. A request naming no rule and no bound is answered without rule_id, seed_used, matched and particle (event_voxels.json $defs/pick holds the rest).",
+   "type": "object",
+   "required": [
+    "meta",
+    "event_number",
+    "pool",
+    "pool_size",
+    "mean_hits",
+    "n_events",
+    "seed",
+    "rule",
+    "rule_id",
+    "seed_used",
+    "matched",
+    "particle",
+    "filter"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "meta": {
+     "$ref": "#/$defs/pick_meta"
+    },
+    "event_number": {
+     "type": "integer"
+    },
+    "pool": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "minItems": 1
+    },
+    "pool_size": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "mean_hits": {
+     "type": "number"
+    },
+    "n_events": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "seed": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "rule": {
+     "type": "string"
+    },
+    "rule_id": {
+     "enum": [
+      "tilted",
+      "densest"
+     ]
+    },
+    "seed_used": {
+     "type": "boolean"
+    },
+    "n_cells": {
+     "type": "integer"
+    },
+    "matched": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "maxItems": 2
+    },
+    "particle": {
+     "$ref": "#/$defs/particle"
+    },
+    "filter": {
+     "$ref": "#/$defs/filter"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  }
+ },
+ "propertyNames": {
+  "$ref": "#/$defs/no_raw_keys"
+ }
+}

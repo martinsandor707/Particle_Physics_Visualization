@@ -94,6 +94,10 @@ DELIBERATE = (
     "edges at 3 decimals (depth_layers.profile.energy_gev and .attention arrays, "
     "depth_layers.edges_mm, frames.<kind>.layer_planes.energy_gev and .edges_mm); the scalar "
     "totals and every other value are unchanged.",
+    "particle-filter, 2026-11-15: /api/event carries event.candidates (the particle filter's pool: "
+    "in_pool, index, n_events and the matched showers of the event and its neighbours); with no "
+    "particle bound set nothing else moves. /api/projections, /api/window-axis and /api/event/pick "
+    "are unchanged.",
 )
 
 #: The demonstration file holds two events (E1 2.71 and 17.88 GeV).

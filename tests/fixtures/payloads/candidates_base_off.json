@@ -1,0 +1,81 @@
+{
+ "meta": {
+  "table_name": "experiment_baseline",
+  "exact": true,
+  "warnings": [],
+  "notes": {}
+ },
+ "candidates": {
+  "particle": {
+   "active": false,
+   "p_gev": [
+    null,
+    null
+   ],
+   "theta_deg": [
+    null,
+    null
+   ],
+   "theta_rad": [
+    null,
+    null
+   ]
+  },
+  "n_selection": 2,
+  "n_unplaceable": 0,
+  "n_events": 2,
+  "n_showers": 4,
+  "by_shower": {
+   "a": 2,
+   "b": 2
+  },
+  "n_both": 2,
+  "showers": [
+   "a",
+   "b"
+  ]
+ },
+ "bounds": {
+  "p_gev": [
+   2.712594747543335,
+   17.876461029052734
+  ],
+  "theta_deg": [
+   16.27368384855325,
+   26.40377475567282
+  ]
+ },
+ "event": {
+  "event_number": 0,
+  "in_selection": true,
+  "in_pool": true,
+  "index": 0,
+  "n_events": 2,
+  "prev": null,
+  "next": 1,
+  "matched": [
+   "a",
+   "b"
+  ],
+  "prev_matched": null,
+  "next_matched": [
+   "a",
+   "b"
+  ]
+ },
+ "filter": {
+  "e1": [
+   2.712594747543335,
+   17.876461029052734
+  ],
+  "e2": [
+   6.385610580444336,
+   12.54078197479248
+  ],
+  "d": [
+   2258.51123046875,
+   3077.028076171875
+  ],
+  "include_undefined_d": false
+ }
+}

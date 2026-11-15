@@ -117,8 +117,9 @@ from ..grid import frame as frame_mod
 from ..grid.frame import KIND_CANONICAL, KIND_LOCAL, KIND_TRANS
 from ..text import typographic
 from . import capabilities, density, event_inspector, frame_sql, planes, shower_frames
+from . import particle as particle_mod
 from . import showers as showers_mod
-from .event_inspector import _event_row, _grid_edges, _lattice_crop, _neighbours, _window
+from .event_inspector import _event_row, _grid_edges, _lattice_crop, _window
 from .filters import FilterSpec
 
 # ------------------------------------------------------------ vocabulary --
@@ -696,6 +697,9 @@ class Builder:
     window_mode: str = event_inspector.WINDOW_PER_AXIS
     halves: dict[str, float] = field(default_factory=dict)
     canonical: dict[str, Any] | None = None
+    #: ``event.candidates``: whether the event is one of the pickers' candidates
+    #: (``query/particle.py``); None writes no key (the selection's cells have no event).
+    candidates: dict[str, Any] | None = None
     dictionaries: dict[str, list[str]] = field(default_factory=dict)
     build_notes: list[str] = field(default_factory=list)
     started: float = field(default_factory=time.perf_counter)
@@ -1386,6 +1390,8 @@ class Builder:
             block["d_frame"] = {key: self.canonical[key] for key in
                                 ("anchor", "entry_a", "entry_b", "d_entry_mm", "psi", "z_front_mm",
                                  "ill_conditioned")}
+        if self.candidates is not None:
+            block["candidates"] = self.candidates
         return block
 
     def _rows_of(self, key: str) -> np.ndarray:
@@ -1492,13 +1498,16 @@ def build(
     source: str = frame_sql.SOURCE_FILE,
     footprint: tuple[float, float] | None = None,
     window: str = event_inspector.WINDOW_PER_AXIS,
+    particle: particle_mod.ParticleSpec | None = None,
 ) -> Builder:
     """Read the event once and prepare its frame; :meth:`Builder.assemble` renders it.
 
     ``window`` is the window rule: ``per_axis`` (the default) or ``shared``
     (``event_inspector.WINDOW_MODES``). ``shower`` is the key :func:`resolve` returned. A missing event, an event
     with no row of the shower asked for, and an event the frame cannot place
-    (no direction or entry point; no D-frame columns) are 404s.
+    (no direction or entry point; no D-frame columns) are 404s. ``particle``
+    is the particle filter: the event block's ``candidates`` say whether the
+    event is one of the pickers' candidates, and ``prev`` / ``next`` walk them.
     """
     assert record.lattice is not None
     event_inspector.check_window(window)
@@ -1510,8 +1519,9 @@ def build(
     two = len(showers_mod.of(record)) == 2
     drawn = showers_mod.of(record, shower)
 
+    particle = particle_mod.INACTIVE if particle is None else particle
     event = _event_row(con, record, event_number)
-    in_selection, prev_event, next_event = _neighbours(con, record, spec, event_number)
+    member = particle_mod.membership(con, record, spec, particle, event_number)
     coord = "lab" if frame in (FRAME_LAB, KIND_CANONICAL) else frame
     species = bool(record.traits is not None and record.traits.has_species)
     shower_sql = "TRUE" if shower == "both" else drawn[0].origin_sql
@@ -1608,7 +1618,8 @@ def build(
     builder = Builder(
         record=record, frame=frame, shower=shower, channel=channel, model=model, source=source,
         footprint=(float(fp[0]), float(fp[1])), pitch_z=pitch_z, event=event,
-        in_selection=in_selection, prev_event=prev_event, next_event=next_event, infos=infos,
+        in_selection=member["in_selection"], prev_event=member["prev"], next_event=member["next"],
+        infos=infos, candidates=particle_mod.event_candidates(particle, member),
         rows=rows, cells=cells, centres=centres, rotation=rotation, half=half, windows=windows,
         outside_cells=outside_cells, window_mode=window, halves=halves,
         floor=floor, residual=residual, canonical=canonical_info, started=started,

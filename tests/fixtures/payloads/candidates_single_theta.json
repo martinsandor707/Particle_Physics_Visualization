@@ -1,0 +1,77 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "notes": {}
+ },
+ "candidates": {
+  "particle": {
+   "active": true,
+   "p_gev": [
+    null,
+    null
+   ],
+   "theta_deg": [
+    20.0,
+    25.0
+   ],
+   "theta_rad": [
+    0.3490658503988659,
+    0.4363323129985824
+   ]
+  },
+  "n_selection": 287,
+  "n_unplaceable": 0,
+  "n_events": 73,
+  "n_showers": 73,
+  "by_shower": {
+   "a": 73
+  },
+  "n_both": null,
+  "showers": [
+   "a"
+  ]
+ },
+ "bounds": {
+  "p_gev": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "theta_deg": [
+   16.27368384855325,
+   26.40377475567282
+  ]
+ },
+ "event": {
+  "event_number": 3,
+  "in_selection": true,
+  "in_pool": false,
+  "index": null,
+  "n_events": 73,
+  "prev": 1,
+  "next": 5,
+  "matched": [],
+  "prev_matched": [
+   "a"
+  ],
+  "next_matched": [
+   "a"
+  ]
+ },
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

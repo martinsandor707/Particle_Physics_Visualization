@@ -35,6 +35,24 @@
  "rule_id": "densest",
  "seed_used": false,
  "n_cells": 66,
+ "matched": [
+  "a"
+ ],
+ "particle": {
+  "active": false,
+  "p_gev": [
+   null,
+   null
+  ],
+  "theta_deg": [
+   null,
+   null
+  ],
+  "theta_rad": [
+   null,
+   null
+  ]
+ },
  "filter": {
   "e1": [
    1.0355231918074073,

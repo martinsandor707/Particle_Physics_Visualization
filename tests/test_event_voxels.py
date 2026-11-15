@@ -1413,9 +1413,34 @@ def test_densest_pick_is_the_argmax_of_cells(single_client):
                 f"SELECT max(n_cells) FROM {quote(naming.event_table(table))} WHERE {gate}").fetchone()
         assert body["pool"] == expected and body["event_number"] == expected[0]
         assert body["rule_id"] == "densest" and body["seed_used"] is False and body["n_cells"] == cells
+        # A named rule names the chosen event's matching showers and echoes the particle filter.
+        assert body["matched"] == (["a", "b"] if table == BASELINE_TABLE else ["a"])
+        assert body["particle"]["active"] is False
         assert "not used" in body["rule"] and "most detector cells" in body["rule"]
         if table == SINGLE_HITS_TABLE:
             assert "separation" not in body["rule"]
+
+
+@pytest.mark.parametrize("params, event, frame, bounds", [
+    (HITS, 3, "lab", {}), (HITS, 3, "local", {"particle_theta_min": 20.0, "particle_theta_max": 25.0}),
+    (BASE, 0, "lab", {"particle_p_min": 2.0, "particle_p_max": 3.0}),
+    (BASE, 1, "canonical", {"particle_p_min": 2.0, "particle_p_max": 3.0}),
+], ids=["hits-lab-off", "hits-local-theta", "base-lab-p", "base-canonical-outside"])
+def test_the_event_block_places_the_event_among_the_candidates(single_client, params, event, frame, bounds):
+    """event.candidates is GET /api/event/candidates' membership of the same event, in every frame;
+    the selection's cells, which draw no one event, carry no event block."""
+    body = _served(single_client, **params, event_number=event, frame=frame, **bounds)
+    placed = single_client.get("/api/event/candidates",
+                               params={**params, "event_number": event, **bounds}).json()["event"]
+    block = body["event"]
+    assert (block["in_selection"], block["prev"], block["next"]) == (
+        placed["in_selection"], placed["prev"], placed["next"])
+    assert block["candidates"] == {
+        "particle": block["candidates"]["particle"],
+        **{k: placed[k] for k in ("in_pool", "index", "n_events", "matched", "prev_matched", "next_matched")}}
+    assert block["candidates"]["particle"]["active"] is bool(bounds)
+    selection = single_client.get("/api/selection-cells", params=params).json()
+    assert "event" not in selection and "candidates" not in json.dumps(selection)
 
 
 def test_tilted_pick_by_name_carries_its_rule_id(single_client):
@@ -1424,6 +1449,7 @@ def test_tilted_pick_by_name_carries_its_rule_id(single_client):
     contract_check.check(named, "event_voxels", at="pick")
     assert named["rule_id"] == "tilted" and named["seed_used"] is True
     assert "rule_id" not in bare and "seed_used" not in bare
+    assert "matched" not in bare and "particle" not in bare and named["matched"] == ["a"]
     assert named["pool"] == bare["pool"] and named["event_number"] == bare["event_number"]
     bad = single_client.get("/api/event/pick", params={**HITS, "rule": "brightest"})
     assert bad.status_code == 422 and bad.json()["field"] == "rule"
