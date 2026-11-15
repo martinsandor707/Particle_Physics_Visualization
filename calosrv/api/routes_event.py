@@ -306,7 +306,8 @@ def pick_event(
     particle: ParticleDep,
     seed: int = Query(event_inspector.DEFAULT_SEED, ge=0,
                       description="Seed of the random draw (tilted) or of the shuffle (uniform)."),
-    pool_size: int = Query(20, ge=1, le=200, description="Size of the pool the tilted and densest rules rank."),
+    pool_size: int = Query(event_inspector.DEFAULT_POOL_SIZE, ge=1, le=200,
+                           description="Size of the pool the tilted and densest rules rank."),
     rule: str | None = Query(
         None,
         description=(

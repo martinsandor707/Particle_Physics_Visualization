@@ -412,7 +412,7 @@ export const CONSTANTS = Object.freeze({
     'Margin by which the proton’s tree R² to the truth must exceed its R² to the network for a segmentation leakage signal (a drawing choice).'),
   PICK_SEED: entry(42, 'py:calosrv.query.event_inspector:DEFAULT_SEED',
     'Seed of the event pickers: the first seed of Pick for me and of Most tilted (the notebook’s own).'),
-  PICK_SHORTLIST: entry(20, "py:calosrv.query.event_inspector:__import__('inspect').signature(pick).parameters['pool_size'].default",
+  PICK_SHORTLIST: entry(20, 'py:calosrv.query.event_inspector:DEFAULT_POOL_SIZE',
     'Events the notebook rule (Most tilted) keeps, the largest angles among those with more hits than the mean, before one is drawn at random.'),
   PARTICLE_THETA_MAX_DEG: entry(180, 'py:calosrv.query.particle:THETA_MAX_DEG',
     'Largest incident polar angle, in degrees, the particle filter accepts (the lower limit is 0; the momentum bound is 0 GeV or more).'),

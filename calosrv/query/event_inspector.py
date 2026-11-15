@@ -243,8 +243,13 @@ RULES: tuple[str, ...] = (RULE_TILTED, RULE_DENSEST, RULE_UNIFORM)
 #: The seed a pick takes when the request names none.
 DEFAULT_SEED = 42
 
+#: How many events the tilted and densest rules rank before one is chosen: the
+#: default of ``pick`` and of ``GET /api/event/pick``'s ``pool_size``, the
+#: Methodology's PICK_SHORTLIST.
+DEFAULT_POOL_SIZE = 20
 
-def pick(con, record, spec: FilterSpec, seed: int = DEFAULT_SEED, pool_size: int = 20,
+
+def pick(con, record, spec: FilterSpec, seed: int = DEFAULT_SEED, pool_size: int = DEFAULT_POOL_SIZE,
          rule: str = RULE_TILTED, particle: particle_mod.ParticleSpec | None = None,
          draw: int = 0) -> dict[str, Any]:
     """One event of the pool by a stated rule; ``rule_id`` names it, ``rule`` says it.
@@ -259,7 +264,9 @@ def pick(con, record, spec: FilterSpec, seed: int = DEFAULT_SEED, pool_size: int
     more hits than the pool's mean, the ``pool_size`` of them with the
     largest incident polar angle (the larger of the two showers' here; of the
     matching showers' when the particle filter is active), and one drawn at
-    random with ``seed``. ``densest`` is the High_energy notebook's
+    random with ``seed``; when no pool event has more hits than the mean (always
+    so at N = 1) the ``pool_size`` with the most hits are taken instead, and the
+    sentence says so. ``densest`` is the High_energy notebook's
     ``groupby('event_number').size().idxmax()``: the event with the most cells,
     ties to the lowest event number - deterministic, so the seed is echoed and
     unused (``seed_used``). ``uniform`` shuffles the pool's event numbers,
@@ -323,21 +330,34 @@ def _pick_tilted(con, record, table: str, where: str, params: dict, gate: str,
         {**params, "mean": float(mean_hits)},
     ).fetchall()
     pool = [int(r[0]) for r in rows]
-    if not pool:
+    fallback = not pool
+    if fallback:
         rows = con.execute(
             f"SELECT event_number FROM {table} WHERE {where} AND {gate} "
             f"ORDER BY n_hits DESC, event_number LIMIT {int(pool_size)}", params).fetchall()
         pool = [int(r[0]) for r in rows]
     rng = np.random.default_rng(int(seed))
     chosen = int(rng.choice(np.asarray(pool)))
-    angle_words = ("the largest incident polar angle of a matching shower" if particle.active else
-                   "the largest incident polar angle (the larger of the two showers')" if two else
-                   "the largest incident polar angle")
-    sentence = typographic(
-        f"Among the {n:,} {_population(record, particle)}, those with more hits than the mean "
-        f"({float(mean_hits):.1f}); of those the {len(pool)} with {angle_words}; one drawn at random "
-        f"with seed {int(seed)} - the reference notebook's selection rule."
-    )
+    population = _population(record, particle)
+    if n == 1:
+        # One candidate: none can have more hits than the mean, and there is nothing to rank.
+        sentence = (f"The only one of the {population}: the reference notebook's selection rule has "
+                    f"one event to choose from (seed {int(seed)}).")
+    elif fallback:
+        sentence = (
+            f"Among the {n:,} {population}, none has more hits than the mean "
+            f"({float(mean_hits):.1f}), so the {len(pool)} with the most hits are taken instead; one "
+            f"drawn at random with seed {int(seed)} - the reference notebook's selection rule, with "
+            "the service's fallback.")
+    else:
+        angle_words = ("the largest incident polar angle of a matching shower" if particle.active else
+                       "the largest incident polar angle (the larger of the two showers')" if two else
+                       "the largest incident polar angle")
+        sentence = (
+            f"Among the {n:,} {population}, those with more hits than the mean "
+            f"({float(mean_hits):.1f}); of those the {len(pool)} with {angle_words}; one drawn at "
+            f"random with seed {int(seed)} - the reference notebook's selection rule.")
+    sentence = typographic(sentence)
     return {
         "event_number": chosen,
         "pool": pool,
@@ -361,14 +381,20 @@ def _pick_densest(con, table: str, where: str, params: dict, gate: str, two: boo
     ).fetchall()
     pool = [int(r[0]) for r in rows]
     cells = int(rows[0][1] or 0)
-    sentence = typographic(
-        f"Among the {n:,} {population}, the one with the most detector cells "
-        f"({cells:,}; ties go to the lowest event number) - the reference notebook's densest event, "
-        "groupby('event_number').size().idxmax()"
-        + (", counted in cells, since a split cell is two rows of the two-shower file" if two
-           else ", where one row is one cell")
-        + f". The choice is deterministic: the seed ({seed}) is echoed and not used."
-    )
+    if n == 1:
+        sentence = typographic(
+            f"The only one of the {population}: the reference notebook's densest event, with one "
+            f"event to choose from. The choice is deterministic: the seed ({seed}) is echoed and not "
+            "used.")
+    else:
+        sentence = typographic(
+            f"Among the {n:,} {population}, the one with the most detector cells "
+            f"({cells:,}; ties go to the lowest event number) - the reference notebook's densest event, "
+            "groupby('event_number').size().idxmax()"
+            + (", counted in cells, since a split cell is two rows of the two-shower file" if two
+               else ", where one row is one cell")
+            + f". The choice is deterministic: the seed ({seed}) is echoed and not used."
+        )
     return {
         "event_number": pool[0],
         "pool": pool,

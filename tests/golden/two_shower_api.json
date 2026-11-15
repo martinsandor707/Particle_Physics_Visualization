@@ -2515,7 +2515,7 @@
     0
    ],
    "pool_size": 20,
-   "rule": "Among the 1 selected events with a defined separation, those with more hits than the mean (921.0); of those the 1 with the largest incident polar angle (the larger of the two showers'); one drawn at random with seed 7 - the reference notebook's selection rule.",
+   "rule": "The only one of the selected events with a defined separation: the reference notebook's selection rule has one event to choose from (seed 7).",
    "seed": 7
   },
   "status": 200

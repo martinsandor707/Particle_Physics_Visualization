@@ -301,7 +301,15 @@ def test_the_uniform_rule_cycles_through_every_candidate(synthetic_client):
     assert whole["particle"]["active"] is False and whole["seed"] == event_inspector.DEFAULT_SEED
 
 
-def _expected_tilted(brute: list[dict], active: bool, size: int = 20) -> list[int]:
+def _tilted_fell_back(brute: list[dict]) -> bool:
+    """Whether no pool event has more hits than the pool's mean (the tilted rule's fallback)."""
+    pool = [b for b in brute if b["pool"]]
+    mean = sum(b["n_hits"] for b in pool) / len(pool)
+    return not any(b["n_hits"] > mean for b in pool)
+
+
+def _expected_tilted(brute: list[dict], active: bool,
+                     size: int = event_inspector.DEFAULT_POOL_SIZE) -> list[int]:
     pool = [b for b in brute if b["pool"]]
     mean = sum(b["n_hits"] for b in pool) / len(pool)
     dense = [b for b in pool if b["n_hits"] > mean]
@@ -329,10 +337,16 @@ def test_the_notebook_rules_draw_from_the_pool(synthetic_client, case):
         assert body["event_number"] in pool and set(body["pool"]) <= pool
         assert body["n_events"] == len(pool)
         assert body["matched"] == next(b["matched"] for b in brute if b["event"] == body["event_number"])
+        # The sentence says which branch was taken: the notebook's rule or the fallback (S3).
+        fell_back = "none has more hits than the mean" in body["rule"]
+        assert fell_back is _tilted_fell_back(brute), case
+        assert ("those with more hits than the mean" in body["rule"]) is not fell_back, case
+        assert body["rule"].endswith("with the service's fallback." if fell_back
+                                     else "the reference notebook's selection rule."), case
     densest = _ok(synthetic_client, PICK, rule="densest", **params)
     contract_check.check(densest, "event_candidates", at="pick_ranked")
     ranked = sorted((b for b in brute if b["pool"]), key=lambda b: (-b["n_cells"], b["event"]))
-    assert densest["pool"] == [b["event"] for b in ranked[:20]]
+    assert densest["pool"] == [b["event"] for b in ranked[:event_inspector.DEFAULT_POOL_SIZE]]
     assert densest["event_number"] == ranked[0]["event"] and densest["n_cells"] == ranked[0]["n_cells"]
     assert densest["particle"] == _particle(record, params).as_dict()
 
@@ -361,15 +375,19 @@ def test_with_no_bound_a_pick_is_todays_body(synthetic_client):
 
 def test_the_pick_sentences_name_the_candidates(synthetic_client):
     params = TWO_CASES["both"]
-    interval = "p in 5.00–9.00 GeV and θ in 20.0–30.0°"
+    interval = "p in 5.00–9.00 GeV and θ in 20.0–30.0° (0.349–0.524 rad)"
     population = (f"selected events with a defined separation holding a shower with {interval} that "
                   "deposited energy")
     tilted = _ok(synthetic_client, PICK, rule="tilted", seed=42, **params)
+    # Every candidate here is a clone of one template, so none has more hits than the mean and the
+    # sentence names the fallback the code took (S3).
+    brute = _brute(_rows(synthetic_client, _record(synthetic_client)), _record(synthetic_client), {}, params)
+    assert tilted["n_events"] > 1 and _tilted_fell_back(brute)
     assert tilted["rule"] == (
-        f"Among the {tilted['n_events']:,} {population}, those with more hits than the mean "
-        f"({tilted['mean_hits']:.1f}); of those the {len(tilted['pool'])} with the largest incident polar "
-        "angle of a matching shower; one drawn at random with seed 42 - the reference notebook's "
-        "selection rule.")
+        f"Among the {tilted['n_events']:,} {population}, none has more hits than the mean "
+        f"({tilted['mean_hits']:.1f}), so the {len(tilted['pool'])} with the most hits are taken "
+        "instead; one drawn at random with seed 42 - the reference notebook's selection rule, with the "
+        "service's fallback.")
     densest = _ok(synthetic_client, PICK, rule="densest", **params)
     assert densest["rule"].startswith(
         f"Among the {densest['n_events']:,} {population}, the one with the most detector cells "
@@ -408,7 +426,7 @@ def test_the_route_walks_the_candidates_and_names_the_matches(synthetic_client):
             if event == outside:
                 assert warnings == [
                     f"Event {event} holds no shower matching the particle filter (p in 5.00–9.00 GeV and "
-                    "θ in 20.0–30.0°); it is drawn as asked, and the previous / next controls walk the "
+                    "θ in 20.0–30.0° (0.349–0.524 rad)); it is drawn as asked, and the previous / next controls walk the "
                     "candidates."]
             else:
                 assert warnings == []
@@ -522,17 +540,25 @@ def test_the_particle_echo_and_interval_text():
     spec = particle.ParticleSpec(p_min=5.0, p_max=6.0, theta_min_deg=10.0, theta_max_deg=15.0)
     assert spec.as_dict() == {"active": True, "p_gev": [5.0, 6.0], "theta_deg": [10.0, 15.0],
                               "theta_rad": [0.17453292519943295, 0.2617993877991494]}
-    assert spec.interval_text() == "p in 5.00–6.00 GeV and θ in 10.0–15.0°"
+    # The angle's bounds in degrees with radians beside them (brief-fix decision 2, S5).
+    assert spec.interval_text() == "p in 5.00–6.00 GeV and θ in 10.0–15.0° (0.175–0.262 rad)"
     cases = [
         (dict(p_min=5.0), "p ≥ 5.00 GeV"), (dict(p_max=6.0), "p ≤ 6.00 GeV"),
-        (dict(theta_min_deg=10.0), "θ ≥ 10.0°"), (dict(theta_max_deg=15.0), "θ ≤ 15.0°"),
-        (dict(p_min=5.0, theta_max_deg=15.0), "p ≥ 5.00 GeV and θ ≤ 15.0°"),
+        (dict(theta_min_deg=10.0), "θ ≥ 10.0° (0.175 rad)"),
+        (dict(theta_max_deg=15.0), "θ ≤ 15.0° (0.262 rad)"),
+        (dict(p_min=5.0, theta_max_deg=15.0), "p ≥ 5.00 GeV and θ ≤ 15.0° (0.262 rad)"),
         (dict(p_min=5.004, p_max=5.996, theta_min_deg=10.04, theta_max_deg=14.96),
-         "p in 5.00–6.00 GeV and θ in 10.0–15.0°"),
+         "p in 5.00–6.00 GeV and θ in 10.0–15.0° (0.175–0.261 rad)"),
+        (dict(theta_min_deg=0.0, theta_max_deg=180.0), "θ in 0.0–180.0° (0.000–3.142 rad)"),
+        (dict(theta_min_deg=20.0, theta_max_deg=25.0), "θ in 20.0–25.0° (0.349–0.436 rad)"),
         ({}, ""),
     ]
     for kwargs, text in cases:
         assert particle.ParticleSpec(**kwargs).interval_text() == text, kwargs
+    # The radians are math.radians(deg) at 3 decimals, Python's own rounding (the client's pyFixed).
+    for deg in (0.05, 7.5, 10.0, 12.34, 15.0, 89.95, 179.9):
+        assert particle.ParticleSpec(theta_min_deg=deg).interval_text() == (
+            f"θ ≥ {deg:.1f}° ({math.radians(deg):.3f} rad)"), deg
     off = particle.ParticleSpec()
     assert off.active is False and off.params() == {}
     assert off.as_dict() == {"active": False, "p_gev": [None, None], "theta_deg": [None, None],
@@ -691,7 +717,7 @@ def test_an_empty_pool_is_a_404_with_its_sentence(single_client):
     assert response.status_code == 404
     assert response.json()["detail"] == (
         "The selection holds no candidate event: none of its events with an incident direction and an "
-        "entry point has its shower at θ in 0.0–5.0°.")
+        "entry point has its shower at θ in 0.0–5.0° (0.000–0.087 rad).")
     response = single_client.get(PICK, params={**HITS, "e1_min": 0.0, "e1_max": 0.5})
     assert response.status_code == 404
     assert response.json()["detail"] == (
@@ -712,7 +738,7 @@ def test_a_missing_event_is_a_404_on_the_counts_route(single_client):
 
 def test_the_single_shower_sentences(single_client):
     params = {**HITS, **SINGLE_CASES["theta"]}
-    interval = "θ in 20.0–25.0°"
+    interval = "θ in 20.0–25.0° (0.349–0.436 rad)"
     population = f"selected events with an incident direction and an entry point whose shower has {interval}"
     uniform = _ok(single_client, PICK, **params, rule="uniform", draw=1)
     n = uniform["n_events"]
@@ -740,6 +766,81 @@ def test_one_candidate_is_the_only_one(single_client):
         "The only one of the selected events with a defined separation holding a shower with p in "
         "2.00–3.00 GeV that deposited energy (seed 11, draw 5).")
     assert body["matched"] == ["a"]
+    # The notebook rules at N = 1 say there was one event to choose from (S3): never "Among the 1
+    # selected events", never a "more hits than the mean" rule that the code could not apply.
+    population = ("selected events with a defined separation holding a shower with p in 2.00–3.00 GeV "
+                  "that deposited energy")
+    for rule in (None, "tilted"):
+        tilted = _ok(single_client, PICK, **BASE, **BASE_CASES["p_2_3"], seed=11,
+                     **({} if rule is None else {"rule": rule}))
+        assert tilted["event_number"] == 0 and tilted["n_events"] == 1 and tilted["pool"] == [0]
+        assert tilted["rule_id"] == "tilted" and tilted["seed_used"] is True
+        assert tilted["rule"] == (
+            f"The only one of the {population}: the reference notebook's selection rule has one event to "
+            "choose from (seed 11).")
+    densest = _ok(single_client, PICK, **BASE, **BASE_CASES["p_2_3"], rule="densest", seed=11)
+    assert densest["event_number"] == 0 and densest["n_events"] == 1 and densest["seed_used"] is False
+    assert densest["rule"] == (
+        f"The only one of the {population}: the reference notebook's densest event, with one event to "
+        "choose from. The choice is deterministic: the seed (11) is echoed and not used.")
+    for body in (densest, tilted):
+        assert "Among the 1 " not in body["rule"]
+        _no_hyphen_signs(body)
+
+
+def test_the_tilted_fallback_is_said_with_no_bound(single_client):
+    """With no bound the fallback is old: all candidates with equal hits take it, and say so (S3)."""
+    record = _record(single_client, BASELINE_TABLE)
+    probe = dataclasses.replace(record, table_name=f"{BASELINE_TABLE}_equal_hits_probe")
+    view = quote(naming.event_table(probe.table_name))
+    with single_client.app.state.database.read_cursor() as con:
+        # A copy of the baseline in which both events hold the same number of hits.
+        con.execute(f"CREATE TEMP VIEW {view} AS SELECT * REPLACE (500 AS n_hits) "
+                    f"FROM {quote(naming.event_table(BASELINE_TABLE))}")
+        try:
+            body = event_inspector.pick(con, probe, filters.build(probe), seed=3)
+        finally:
+            con.execute(f"DROP VIEW {view}")
+    assert body["n_events"] == 2 and body["mean_hits"] == 500.0 and body["pool"] == [0, 1]
+    assert body["rule"] == (
+        "Among the 2 selected events with a defined separation, none has more hits than the mean "
+        "(500.0), so the 2 with the most hits are taken instead; one drawn at random with seed 3 - the "
+        "reference notebook's selection rule, with the service's fallback.")
+
+
+def test_the_pool_size_is_one_constant():
+    """S9: pick()'s default, the route's Query default, the Methodology's PICK_SHORTLIST and the
+    Most tilted button's title all name event_inspector.DEFAULT_POOL_SIZE."""
+    import inspect
+    from pathlib import Path
+
+    from calosrv.api import routes_event
+
+    size = event_inspector.DEFAULT_POOL_SIZE
+    assert inspect.signature(event_inspector.pick).parameters["pool_size"].default == size
+    query = inspect.signature(routes_event.pick_event).parameters["pool_size"].default
+    assert query.default == size
+    static = Path(routes_event.__file__).resolve().parent.parent / "static" / "js"
+    constants = (static / "methodology" / "constants.js").read_text(encoding="utf-8")
+    entry = re.search(r"PICK_SHORTLIST: entry\((\d+), '([^']+)'", constants)
+    assert entry and int(entry.group(1)) == size
+    assert entry.group(2) == "py:calosrv.query.event_inspector:DEFAULT_POOL_SIZE"
+    picker = (static / "event_picker.js").read_text(encoding="utf-8")
+    title = re.search(r"export const TILTED_TITLE = ([^;]+);", picker, re.S).group(1)
+    assert f"the {size} with the largest" in title
+
+
+def test_a_negative_zero_bound_is_zero(single_client):
+    """S11: -0 is a valid bound of 0, echoed and written without a sign."""
+    spec = particle.build(None, p_min=-0.0, theta_min=-0.0)
+    assert math.copysign(1.0, spec.p_min) == 1.0 and math.copysign(1.0, spec.theta_min_deg) == 1.0
+    assert spec.interval_text() == "p ≥ 0.00 GeV and θ ≥ 0.0° (0.000 rad)"
+    body = _ok(single_client, PICK, **BASE, particle_p_min="-0", particle_theta_min="-0.0", rule="uniform")
+    assert body["particle"]["p_gev"][0] == 0.0 and body["particle"]["theta_deg"][0] == 0.0
+    raw = single_client.get(PICK, params={**BASE, "particle_p_min": "-0", "particle_theta_min": "-0.0",
+                                          "rule": "uniform"}).text
+    assert "-0.0" not in raw and "−0" not in raw
+    assert "p ≥ 0.00 GeV and θ ≥ 0.0° (0.000 rad)" in body["rule"]
 
 
 def test_the_warnings_say_what_previous_and_next_walk(single_client):

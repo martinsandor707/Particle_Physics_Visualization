@@ -123,9 +123,11 @@ class ParticleSpec:
         }
 
     def interval_text(self) -> str:
-        """'p in 5.00–6.00 GeV and θ in 10.0–15.0°'; '' when no bound is set.
+        """'p in 5.00–6.00 GeV and θ in 10.0–15.0° (0.175–0.262 rad)'; '' when no bound is set.
 
-        The client's ``event_picker.js`` ``intervalText`` writes the same string.
+        The angle's bounds are written in degrees with radians beside them
+        (``math.radians``, 3 decimals). The client's ``event_picker.js``
+        ``intervalText`` writes the same string.
         """
         parts = []
         p = _interval("p", self.p_min, self.p_max, 2, " GeV")
@@ -133,17 +135,28 @@ class ParticleSpec:
             parts.append(p)
         theta = _interval("θ", self.theta_min_deg, self.theta_max_deg, 1, "°")
         if theta:
-            parts.append(theta)
+            rad = _values(_rad(self.theta_min_deg), _rad(self.theta_max_deg), RAD_DIGITS, " rad")
+            parts.append(f"{theta} ({rad})")
         return typographic(" and ".join(parts))
+
+
+#: Decimals of the radians written beside a degree bound.
+RAD_DIGITS = 3
+
+
+def _values(lo: float | None, hi: float | None, digits: int, unit: str) -> str:
+    """The set ends alone: '0.175–0.262 rad' for two, '0.175 rad' for one, '' for none."""
+    ends = [f"{v:.{digits}f}" for v in (lo, hi) if v is not None]
+    return f"{EN_DASH.join(ends)}{unit}" if ends else ""
 
 
 def _interval(symbol: str, lo: float | None, hi: float | None, digits: int, unit: str) -> str:
     if lo is not None and hi is not None:
-        return f"{symbol} in {lo:.{digits}f}{EN_DASH}{hi:.{digits}f}{unit}"
+        return f"{symbol} in {_values(lo, hi, digits, unit)}"
     if lo is not None:
-        return f"{symbol} ≥ {lo:.{digits}f}{unit}"
+        return f"{symbol} ≥ {_values(lo, None, digits, unit)}"
     if hi is not None:
-        return f"{symbol} ≤ {hi:.{digits}f}{unit}"
+        return f"{symbol} ≤ {_values(None, hi, digits, unit)}"
     return ""
 
 
@@ -157,7 +170,8 @@ def _got(value: float) -> str:
 def _momentum(name: str, value: float | None) -> float | None:
     if value is None:
         return None
-    value = float(value)
+    # + 0.0 turns a -0.0 bound into 0.0, so it is never echoed or written with a sign.
+    value = float(value) + 0.0
     if not math.isfinite(value) or value < 0.0:
         raise ValidationError(
             f"{name} must be a finite momentum of 0 GeV or more; got {_got(value)}.", field=name)
@@ -167,7 +181,7 @@ def _momentum(name: str, value: float | None) -> float | None:
 def _angle(name: str, value: float | None) -> float | None:
     if value is None:
         return None
-    value = float(value)
+    value = float(value) + 0.0
     if not math.isfinite(value) or not 0.0 <= value <= THETA_MAX_DEG:
         raise ValidationError(
             f"{name} must be a finite angle from 0° to {THETA_MAX_DEG:g}°; got {_got(value)}.", field=name)
