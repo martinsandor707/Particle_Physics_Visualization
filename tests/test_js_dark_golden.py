@@ -180,6 +180,24 @@ re-record):
     recording: each holds a window of 2 ≤ N < 20 without a value, so `test_js_models_panels.py` pins it on a
     synthetic copy.
 
+The single-curve round (2026-11-15, single-curve/brief.md: Martin's directive D1–D4 of that day, one fitted curve
+per series on the E view, no band anywhere on it, FX1's envelope and all-free face retired, one pooled scale in
+place of c and c_low; with the lead's fixes of 29c3ae8) re-recorded 348 of the 2,869 cases, in the same two
+families and nothing else; the case-id set and the theme map did not move (measured against a dump of the golden
+commit, 711fcf3, whose run reproduces the golden exactly):
+  - 236 `models/resolution/*` cases. On the E view 112 options on screen and 88 in print (every one but the 3-anchor
+    options of the two robust single-shower recordings, which serve no fit and draw the empty state) and its 24 fit
+    tables: one curve per series (a/√E ⊕ b ⊕ c/E, else a₀/√E from 4 GeV at 1 px), no wash, edges or band caret on
+    either panel, no reference band about 1, the curve's tooltips ending in the no-band sentence, a window of 1–4 GeV
+    printing c, and the Fit cells and caption naming the one curve drawn. On the 1/√E view 12 fit tables, both modes
+    of the six median and robust recordings that serve a noise fit, by the noise row's numbers alone, its weights
+    now one c. No 1/√E chart case moved: not `<name>/anchors` or `/all`, `/showerA`, `/narrow`, nor their `@print`
+    twins, on any recording.
+  - 112 `notes/models_resolution/*` drawers: the 96 E-view drawers (the one-curve and no-band sentences, the
+    fallback and no-curve lines, no envelope, cut-at-0, outlined-band or reference-band line, "fitted curve" counts,
+    the held lines without a band sentence), and the 16 1/√E drawers of the eight median and robust recordings, by
+    the weight label, the one-scale pooled line and the tabled noise fit's S.
+
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
 behaviour, never code, so a refactor that reorders an object literal or
