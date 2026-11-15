@@ -132,12 +132,14 @@ the energy E in GeV on a linear axis (``axis.energy``), so switching views
 sends no request. A window is drawn there at ``E = 1/x²`` of the very
 ``x = ⟨1/√p⟩`` the fits used: one exact bijection, so a window on its fitted
 line in the 1/√E view sits on its fitted curve in E, and its ⟨p⟩, slightly
-larger (Jensen's inequality), travels in ``p_mean``. The E view draws the
-origin-pinned a₀/√E and, where both terms are defined, the quadrature
-a/√E ⊕ b, each from the band ``stats/resolution_fit.band`` gives; the affine
-fit stays on the 1/√E view. A curve is solid over its mode's ``span_gev``, the
-edges of the windows it was fitted to, dashed beyond and never drawn below
-:data:`E_MIN_GEV`. The windows below 4 GeV, off the 1/√E axis, are on this
+larger (Jensen's inequality), travels in ``p_mean``. The E view draws one
+fitted curve per series, with no band round it (Martin's directive,
+2026-11-15): the noise fit a/√E ⊕ b ⊕ c/E (below), or, for a series with
+none, the origin-pinned a₀/√E, solid over its mode's ``span_gev`` (the edges
+of the windows it was fitted to), dashed beyond and never drawn below
+:data:`E_MIN_GEV`. The affine fit stays on the 1/√E view, which draws it and
+a₀/√E with their bands, and the quadrature a/√E ⊕ b is tabled on both. The
+windows below 4 GeV, off the 1/√E axis, are on this
 one, so its σ/E range is its own (``ResolutionScaling.energy_y``): set by the
 windows of N ≥ 20 from :data:`E_VIEW_Y_MIN_GEV`, whiskers included. A window
 below 2 GeV never sets it, provisional or not: measured on eight stored
@@ -159,7 +161,7 @@ their windows peak at 37–44%, whiskers included.
 **A fit that does not describe its windows** (``misfit``: ν ≥ 1 and
 S = √(χ²/ν) > ``stats/resolution_fit.MISFIT_SCALE``, its residuals averaging
 more than five of the windows' own standard errors) is served and drawn like
-any other, faded as a provisional fit is, and its note says why. The size of
+any other, faded as a provisional fit is, and the notes say why. The size of
 the misfit decides, not the χ² p-value, which rejects nearly every fit at
 hundreds of events a window (``stats/resolution_fit.py`` has the measurement).
 
@@ -177,6 +179,48 @@ windows the fit falls back to windows of N ≥ 8 and is labelled provisional
 window to fall back on, and fits nothing through fewer than two). The "all windows" mode fits every eligible window from 4 GeV, the 4–5 GeV
 window included, as asked of it, and its notes say so. Both modes are computed
 here; the card's toggle only repaints.
+
+**The noise fit** (``fits[mode].noise``; Martin's decisions, 2026-11-13).
+σ/E = a/√E ⊕ b ⊕ c/E, fitted as (σ/E)² = A/E + B + C/E² with A, B, C ≥ 0
+(``stats/resolution_fit.fit_noise``: a term the constraint holds at 0 is named).
+It is drawn on the E view only, with no band, and tabled on both views (Martin's directive, 2026-11-15), so
+the envelope band of the fix brief's FX1 and its all-free face are retired,
+and ``params.free`` left the wire. Its windows start at :data:`NOISE_MIN_GEV`,
+not 4 GeV: a noise-eligible window is what ``Window.fittable`` accepts with that
+floor in place of the axis's (:meth:`Window.noise_fittable`). The all-windows
+mode fits every one; the 3-anchor mode fits the windows the mode's other fits
+used, after substitutions, and the **low anchor**, the lowest noise-eligible
+window not among them, since anchors from 5 GeV cannot fix a 1/E term. The
+threshold is the mode's own, ``fit_n``, or the whisker gate where that mode fell
+back, which makes the noise fit provisional too. Fewer than three points, or a
+median or robust series without a pooled scale c, is no noise fit, and
+``noise_reason`` says why. The weights are the other fits' laws, with **one
+pooled scale** (Martin's directive, 2026-11-15, retiring the second scale c_low
+of the fix brief's FX2, 2026-11-13): under median and robust every window takes
+``c/√N`` (:func:`fit_kappa`), those of 1–4 GeV included, with the series'
+pooled scale c, which only windows from 4 GeV enter. One c cancels in the
+fitted parameters, so each window's weight depends on its N and the fitted
+value alone, never on its own bootstrap error. Under sample the delta method.
+The cost, on ``pion_hits_with_model_outputs``, Robust σ (IQR), network A,
+c = 1.39: √N·κ is 5.16 at 1–2 GeV and 3.94 at 2–3 GeV, 3.7 and 2.8 times c
+(the review, 2026-11-13), so the 1–2 GeV window carries about 14 times the
+weight its own bootstrap error supports. The three-anchor curve reads 88.9% at
+1 GeV, against 108.6% under c_low (the lead, 2026-11-13), with S = 4.24,
+against 3.04 under c_low (the lead, 2026-11-15). A 1–4 GeV window's residual
+counts in S and the misfit verdict at c·ŷ/√N, not at its own bootstrap error:
+on that series the three-anchor S is 4.24 at c and 3.23 at the windows' own
+errors (the review, 2026-11-15). Over the 120 noise fits of the eight stored
+experiments (Absolute frame, both modes, three estimators), 17 are misfits
+with one scale and 18 were under c_low (the lead, 2026-11-15).
+Its block is compact (no ``_stat`` fields, no curve, no note, no band): the
+panel draws it from its parameters, from 0 GeV, solid over its own
+``span_gev``.
+
+**Only what the client reads travels** (the fix brief's FX3, 2026-11-13). No fit
+block carries a note, the notes carry no definition of the noise fit, and the
+quadrature params carry no ``rho_a2b2``, ``se_a2_stat`` or ``se_b2_stat``: the
+card read none of them, and they were 10.3 KB (11.5%) of a real two-shower body
+of 89.6 KB (the review's m8). Every number stays in its field.
 
 **Reads.** The event table (one row per event: deposits, momenta, bins, the
 networks' predictions) and, on an aggregate, the XGBoost prediction table. No
@@ -235,6 +279,13 @@ E_VIEW_MAX_GEV = 80.0
 E_VIEW_INTERVAL_GEV = 10.0
 #: A window sets the E view's σ/E range only from this lower edge (GeV): below it never.
 E_VIEW_Y_MIN_GEV = 2.0
+#: The noise fit a/√E ⊕ b ⊕ c/E takes windows from this lower edge (GeV), and none below.
+#: Measured by the lead on 2026-11-13 on ``pion_hits_with_model_outputs``, shower A, the whole
+#: selection: the 0–1 GeV window holds p = 0.006–0.997 GeV, a factor of 166, so its own average of
+#: 1/E² is ⟨1/p²⟩ = 15.8 × ⟨1/√p⟩⁴, 15.8 times what its abscissa x = ⟨1/√p⟩ implies for the noise
+#: term's u² = x⁴ (⟨1/p⟩ = 1.258 × ⟨1/√p⟩²). From 1 GeV the ratio is 1.061 (1–2 GeV), 1.021
+#: (2–3 GeV) and 1.010 (3–4 GeV), so one abscissa carries a window from here.
+NOISE_MIN_GEV = 1.0
 
 UNIT = "%"
 SOURCE_DETECTOR, SOURCE_NETWORK, SOURCE_XGB = "detector", "network", "xgb"
@@ -592,6 +643,15 @@ class Window:
     def fittable(self, threshold: int) -> bool:
         return self.n >= threshold and not self.off_axis and self.usable
 
+    def noise_fittable(self, threshold: int) -> bool:
+        """What :meth:`fittable` accepts, with :data:`NOISE_MIN_GEV` for the axis's 4 GeV floor.
+
+        The noise fit's windows: N ≥ ``threshold`` with a fit weight, from
+        1 GeV, so the 1–4 GeV windows off the 1/√E axis enter it and the
+        0–1 GeV window never does.
+        """
+        return self.n >= threshold and self.p_lo >= NOISE_MIN_GEV and self.usable
+
     @property
     def withheld(self) -> bool:
         """Under the robust estimator, a value whose interval, SE and κ are withheld (F7)."""
@@ -744,6 +804,10 @@ class WeightScale:
     least ``KAPPA_FLOOR``), ``"fallback"`` (none of those) the windows of N ≥
     the whisker gate with a fit weight, which the provisional fits draw on, and
     ``"none"`` (no window from 4 GeV carries a fit weight) no scale and no fit.
+
+    One scale per series (Martin's directive, 2026-11-15, retiring the second
+    scale ``c_low`` of 2026-11-13): the noise fit weights its windows of
+    1–4 GeV by the same ``c``, and they do not enter it.
     """
 
     c: float | None
@@ -758,9 +822,11 @@ class WeightScale:
 def pooled_scale(windows: Sequence[Window]) -> WeightScale | None:
     """The series' pooled weight scale under the median and robust estimators; ``None`` under sample.
 
-    One ``c`` per series, so it cancels in the fitted parameters and sets only
-    χ², S and the errors (the module docstring has why a window's own κ must
-    not weight it).
+    One ``c`` per series, so it cancels in the fitted parameters of every form,
+    the noise fit included, and sets only χ², S and the errors (the module
+    docstring has why a window's own κ must not weight it). Only windows from
+    4 GeV enter it; the noise fit weights its windows of 1–4 GeV by the same
+    ``c`` (Martin's directive, 2026-11-15).
     """
     if not windows or windows[0].estimator == SAMPLE:
         return None
@@ -777,6 +843,8 @@ def pooled_scale(windows: Sequence[Window]) -> WeightScale | None:
             f"No window from {E_MIN_GEV:g} GeV carries a fit weight, so this series has no "
             "pooled scale and no fit."))
     c = float(np.median([math.sqrt(w.n) * w.kappa for w in pool]))
+    noise = (f"The {NOISE_FORM_NAME} fit weights its windows of {NOISE_MIN_GEV:g}–{E_MIN_GEV:g} GeV "
+             "by the same c, which they do not enter.")
     if basis == "fit":
         rule = (f"c is the median of √N·κ over this series' windows of N ≥ {fit_n} from "
                 f"{E_MIN_GEV:g} GeV with a fit weight, κ = SE/value each window's bootstrap "
@@ -786,15 +854,19 @@ def pooled_scale(windows: Sequence[Window]) -> WeightScale | None:
                 f"is the median of √N·κ over its windows of N ≥ {whisker_n} from "
                 f"{E_MIN_GEV:g} GeV with one, the windows its provisional fits draw on; "
                 "the fits weight window k by se = c·ŷ/√N.")
-    return WeightScale(c, len(pool), basis, rule)
+    return WeightScale(c, len(pool), basis, f"{rule} {noise}")
 
 
 @dataclass
 class ModeFits:
-    """One window mode of one series: the points it fits and the three fits.
+    """One window mode of one series: the points it fits and the three fits, and the noise fit.
 
     ``declined`` holds the one fittable window a robust mode fits nothing
     through (F4: no fit through fewer than two); ``points`` is then empty.
+    The noise fit a/√E ⊕ b ⊕ c/E is kept apart from ``fits``, the three forms
+    every other rule of the card iterates: ``noise`` (``None`` without one, and
+    ``noise_reason`` then says why), its ``noise_points`` and, in the 3-anchor
+    mode, its ``noise_low_anchor``.
     """
 
     points: list[int]
@@ -802,6 +874,10 @@ class ModeFits:
     fallback: bool
     fits: dict[str, rfit.Fit | None]
     declined: list[int] = field(default_factory=list)
+    noise: rfit.Fit | None = None
+    noise_points: list[int] = field(default_factory=list)
+    noise_low_anchor: int | None = None
+    noise_reason: str | None = None
 
     @property
     def provisional(self) -> bool:
@@ -896,6 +972,72 @@ def _fits(points: Sequence[Window], c: float | None = None) -> dict[str, rfit.Fi
 #: Under the robust estimator no line is fitted through fewer fittable windows than this (F4).
 ROBUST_MIN_POINTS = 2
 
+#: The noise form as the card names it (the res-noise brief §8).
+NOISE_FORM_NAME = "a/√E ⊕ b ⊕ c/E"
+
+
+def noise_points(mode: str, points: Sequence[int], windows: Sequence[Window],
+                 threshold: int) -> tuple[list[int], int | None]:
+    """The noise fit's windows in one mode, ascending, and its low anchor (``None`` without one).
+
+    All windows: every window noise-eligible at ``threshold``
+    (:meth:`Window.noise_fittable`). 3 anchors: ``points``, the windows the
+    mode's other fits used after substitutions, and the low anchor, the lowest
+    noise-eligible window not among them; with none left, the anchors alone.
+    """
+    eligible = [w for w in windows if w.noise_fittable(threshold)]
+    if mode != "anchors":
+        return [w.bin for w in eligible], None
+    used = set(points)
+    low = next((w for w in eligible if w.bin not in used), None)
+    if low is not None:
+        used.add(low.bin)
+    return sorted(used), (None if low is None else low.bin)
+
+
+def _noise_reason_few(threshold: int) -> str:
+    return (f"No {NOISE_FORM_NAME} fit: fewer than three windows from {NOISE_MIN_GEV:g} GeV hold "
+            f"N ≥ {threshold} with a fit weight.")
+
+
+def _noise_fit(mode: str, points: Sequence[int], fallback: bool, windows: Sequence[Window],
+               c: float | None) -> tuple[rfit.Fit | None, list[int], int | None, str | None]:
+    """The noise fit of one mode: ``(fit, points, low anchor, reason)``, the reason ``None`` with a fit.
+
+    The threshold is the mode's own (``fit_n``, or the whisker gate where the
+    mode fell back). Fewer than three points is no fit, said by the res-noise
+    brief's sentence where fewer than three windows are noise-eligible at all,
+    and in the 3-anchor mode, where its rule picks fewer than exist, by the count
+    it reached. A median or robust series without a pooled scale ``c`` is no fit
+    either. The weights under median and robust: ``c/√N`` for every window,
+    those of 1–4 GeV included (:func:`fit_kappa`, the other fits' law; Martin's
+    directive of 2026-11-15, one pooled scale); the delta method under sample.
+    """
+    estimator = windows[0].estimator if windows else DEFAULT_ESTIMATOR
+    gates = ESTIMATOR_GATES[estimator]
+    threshold = gates["whisker_n"] if fallback else gates["fit_n"]
+    chosen, low = noise_points(mode, points, windows, threshold)
+    least = rfit.MIN_POINTS[rfit.FORM_NOISE]
+    if len(chosen) < least:
+        if sum(1 for w in windows if w.noise_fittable(threshold)) < least:
+            return None, chosen, low, _noise_reason_few(threshold)
+        many = len(chosen) != 1
+        return None, chosen, low, (
+            f"No {NOISE_FORM_NAME} fit: in the 3-anchor mode it would run through "
+            f"{len(chosen)} window{'s' if many else ''} of N ≥ {threshold} with a fit weight, "
+            "fewer than three.")
+    if estimator != SAMPLE and c is None:
+        return None, chosen, low, f"No {NOISE_FORM_NAME} fit: this series has no pooled scale c."
+    by_bin = {w.bin: w for w in windows}
+    fitted = [by_bin[k] for k in chosen]
+    kappa = None if estimator == SAMPLE else fit_kappa(fitted, c)
+    fit = rfit.fit_noise([w.x for w in fitted], [w.r for w in fitted], [w.n for w in fitted],
+                         kappa)
+    if fit is None:
+        # Unreachable: three windows with a positive value and weight always admit a one-term face.
+        return None, chosen, low, f"No {NOISE_FORM_NAME} fit: no face of the constrained fit solves."
+    return fit, chosen, low, None
+
 
 def mode_fits(mode: str, nominal: Sequence[int], windows: Sequence[Window],
               axis: performance_bins.BinAxis | None = None,
@@ -906,7 +1048,10 @@ def mode_fits(mode: str, nominal: Sequence[int], windows: Sequence[Window],
     the median and sample estimators; under the robust width both are N = 20,
     so it never falls back, and it fits nothing through fewer than two windows
     (the one it declines is in ``declined``). ``scale`` is the series' pooled
-    scale (:func:`pooled_scale` of ``windows`` when not given).
+    scale (:func:`pooled_scale` of ``windows`` when not given). The noise fit
+    (:func:`_noise_fit`) takes the mode's points and threshold, and the series'
+    ``c``, never a scale of its own (one pooled scale; Martin's directive,
+    2026-11-15).
     """
     by_bin = {w.bin: w for w in windows}
     gates = windows[0].gates if windows else ESTIMATOR_GATES[DEFAULT_ESTIMATOR]
@@ -929,8 +1074,10 @@ def mode_fits(mode: str, nominal: Sequence[int], windows: Sequence[Window],
     if estimator == ROBUST and 0 < len(points) < ROBUST_MIN_POINTS:
         points, declined = [], list(points)
     c = None if scale is None else scale.c
+    noise, chosen, low, reason = _noise_fit(mode, points, fallback, windows, c)
     return ModeFits(points, substitutions, fallback, _fits([by_bin[k] for k in points], c),
-                    declined)
+                    declined, noise=noise, noise_points=chosen, noise_low_anchor=low,
+                    noise_reason=reason)
 
 
 # ---------------------------------------------------------------- series --
@@ -1147,65 +1294,20 @@ def _curve(fit: rfit.Fit, points: int) -> list[list[float]]:
             for a, b, c, d in zip(xs, y, lo, hi)]
 
 
-#: How a fit's note names its weights, per law (``WEIGHT_METHODS``).
-_WEIGHT_WORDS: dict[str, str] = {
-    "delta": "weights 1/se² with se recomputed at the fitted value",
-    "kappa": ("weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the "
-              "fitted value"),
-}
-
-
-def _fit_note(fit: rfit.Fit, provisional: bool, estimator: str = SAMPLE) -> str:
-    symbol = ESTIMATOR_SYMBOLS[estimator]
-    equation = {
-        rfit.FORM_AFFINE: f"{symbol} = a/√E + b",
-        rfit.FORM_PINNED: f"{symbol} = a₀/√E, through the origin",
-        rfit.FORM_QUADRATURE: f"{symbol} = √(a²/E + b²), fitted as ({symbol})² = A/E + B",
-    }[fit.form]
-    parts = [f"{equation}: weighted least squares over {fit.n_points} window"
-             f"{'s' if fit.n_points != 1 else ''}, {_WEIGHT_WORDS[WEIGHT_METHODS[estimator]]} "
-             f"({fit.iterations} refit{'s' if fit.iterations != 1 else ''}"
-             f"{'' if fit.converged else ', not converged'})."]
-    if fit.ndf == 0:
-        parts.append("ν = 0: the fit passes through its points exactly, so there is no χ² test.")
-    else:
-        parts.append(f"χ²/ν = {fit.chi2:.3g}/{fit.ndf}, p = {fit.p_value:.3g}.")
-    if fit.scale_factor > 1.0 and fit.form == rfit.FORM_QUADRATURE:
-        parts.append(f"χ²/ν > 1, so the standard errors are scaled by S = {fit.scale_factor:.3g} "
-                     "(PDG); the unscaled ones are the _stat fields.")
-    elif fit.scale_factor > 1.0:
-        parts.append(f"χ²/ν > 1, so the standard errors and the band are scaled by "
-                     f"S = {fit.scale_factor:.3g} (PDG), and the band takes Student's "
-                     f"t₀.₉₇₅,{fit.ndf} = {fit.band_quantile:.4g} for the variance scale S² "
-                     f"estimated from ν = {fit.ndf}; the unscaled errors are the _stat fields.")
-    if fit.form == rfit.FORM_AFFINE and fit.theta[1] < 0:
-        parts.append("b < 0: the points fall faster than a/√E; the line is drawn down to zero.")
-    if fit.form == rfit.FORM_QUADRATURE and fit.theta[0] <= 0:
-        parts.append("A ≤ 0, so a = √A is undefined; A is reported with its standard error.")
-    if fit.form == rfit.FORM_QUADRATURE and fit.theta[1] <= 0:
-        parts.append("B ≤ 0, so b = √B is undefined; B is reported with its standard error.")
-    if provisional:
-        gates = ESTIMATOR_GATES[estimator]
-        parts.append(f"Provisional: fewer than two windows reach N = {gates['fit_n']}, so it runs "
-                     f"through windows of N ≥ {gates['whisker_n']}.")
-    if fit.misfit:
-        parts.append(f"S = {fit.scale_factor:.3g} > {rfit.MISFIT_SCALE:g}: its residuals average "
-                     "S times the windows' own standard errors, so its form does not describe "
-                     "these windows; it is drawn faded and never sets a range.")
-    return " ".join(parts)
-
-
-def fit_block(fit: rfit.Fit | None, provisional: bool, band_points: int = BAND_POINTS,
-              estimator: str = SAMPLE) -> dict[str, Any] | None:
-    """One fit for the wire: parameters in percent (a in %·√GeV, b in %), its curve and note.
+def fit_block(fit: rfit.Fit | None, provisional: bool,
+              band_points: int = BAND_POINTS) -> dict[str, Any] | None:
+    """One fit for the wire: parameters in percent (a in %·√GeV, b in %) and its curve.
 
     Every form carries its ``band_quantile`` and ``misfit`` (:attr:`rfit.Fit.misfit`:
     its form does not describe its windows, so the card draws it faded). The
-    quadrature fit's ``curve`` is ``None`` (the 1/√E view tables it); its params
-    carry ``rho_a2b2``, the correlation of A and B, so the E view can rebuild its
-    band from ``a2``, ``b2``, their SEs and ``band_quantile`` alone. ``estimator``
-    names the fitted quantity and the weight law in the note; it defaults to the
-    sample estimator, whose delta-method law is ``stats/resolution_fit``'s default.
+    affine and pinned curves carry their 95% band for the 1/√E view, which
+    draws both fits with their bands. The E view draws no band (Martin's
+    directive, 2026-11-15): it takes a₀/√E's line alone, and only for a series
+    with no noise fit. The quadrature fit's ``curve`` is ``None``: both views
+    table it, and neither draws it. No block carries a note: the card never
+    printed one, and its facts are the block's own fields (the res-noise fix
+    brief's FX3, 2026-11-13: the 24 notes of a two-shower body were 8.6 KB of
+    the 100 KB contract).
     """
     if fit is None:
         return None
@@ -1232,9 +1334,6 @@ def fit_block(fit: rfit.Fit | None, provisional: bool, band_points: int = BAND_P
             # A ≤ 0 leaves a undefined too (a falling σ/E): A is reported as B is.
             "a2": 1e4 * t.a2, "se_a2": 1e4 * t.se_a2, "a_defined": t.a_defined,
             "se_a_stat": pct(t.se_a_stat), "se_b_stat": pct(t.se_b_stat),
-            "se_a2_stat": 1e4 * t.se_a2_stat, "se_b2_stat": 1e4 * t.se_b2_stat,
-            # The correlation of A and B (S cancels in it): the E view's band needs it.
-            "rho_a2b2": fit.rho,
         }
     out.update({
         "chi2": fit.chi2, "p_value": fit.p_value, "scale_factor": fit.scale_factor,
@@ -1246,8 +1345,50 @@ def fit_block(fit: rfit.Fit | None, provisional: bool, band_points: int = BAND_P
     out["curve"] = None if fit.form == rfit.FORM_QUADRATURE else _curve(fit, band_points)
     out["provisional"] = provisional
     out["misfit"] = fit.misfit
-    out["note"] = _fit_note(fit, provisional, estimator)
     return out
+
+
+def noise_block(mode: ModeFits, windows: Sequence[Window]) -> dict[str, Any] | None:
+    """The noise fit for the wire, compact: no ``_stat`` fields, no curve, no note and no band.
+
+    Squares in %²·GeV, %² and %²·GeV², roots in %·√GeV, % and %·GeV; a held
+    term is exactly 0 with null SEs and null correlations. The SEs are scaled
+    by S where S > 1 (the client divides by S for the unscaled ones), and the
+    panel rebuilds the curve from ``a2``, ``b2`` and ``c2``. No band is drawn
+    for this form on either view (Martin's directive, 2026-11-15): the E view
+    draws the curve alone, and its errors are the terms' SEs, χ²/ν, S and
+    ``rho`` in the curve's tooltip and the fit table. So the block carries no
+    all-free face (``params.free``) and no ``band_quantile``: nothing reads them
+    (the fix brief's FX3, only what the client reads travels).
+    """
+    fit = mode.noise
+    if fit is None:
+        return None
+    t = rfit.noise_terms(fit)
+    span = fitted_span(mode.noise_points, windows)
+
+    def pct(v: float | None) -> float | None:
+        return None if v is None else 100.0 * v
+
+    def pct2(v: float | None) -> float | None:
+        return None if v is None else 1e4 * v
+
+    return {
+        "form": fit.form, "n_points": fit.n_points, "ndf": fit.ndf,
+        "points": list(mode.noise_points), "span_gev": span,
+        "low_anchor": mode.noise_low_anchor,
+        "params": {
+            "a2": pct2(t.a2), "b2": pct2(t.b2), "c2": pct2(t.c2),
+            "se_a2": pct2(t.se_a2), "se_b2": pct2(t.se_b2), "se_c2": pct2(t.se_c2),
+            "a": pct(t.a), "b": pct(t.b), "c": pct(t.c),
+            "se_a": pct(t.se_a), "se_b": pct(t.se_b), "se_c": pct(t.se_c),
+            "held": list(t.held),
+            "rho": dict(t.rho),
+        },
+        "chi2": fit.chi2, "p_value": fit.p_value, "scale_factor": fit.scale_factor,
+        "iterations": fit.iterations, "converged": fit.converged,
+        "provisional": mode.provisional, "misfit": fit.misfit,
+    }
 
 
 # ----------------------------------------------------------- calibration --
@@ -1302,12 +1443,17 @@ INTERVAL_LABELS: dict[str, str] = {
              "neglected, the delta-method se includes it."),
 }
 WEIGHT_LABELS: dict[str, str] = {
-    # Verbatim from the fix brief (F1, 2026-11-12).
+    # Verbatim: the res-robust label (F1 of the fix brief, 2026-11-12) plus the fallback
+    # parenthetical "(where a series has none, over the windows its provisional fits draw on)"
+    # (SC-backend-check F1). The clause on the noise fit's 1–4 GeV windows, weighted by the
+    # same c, is not here: it lives in weight_scale.rule and in the drawer's pooled-scale line
+    # (models_notes.js pooledScaleLine), so the drawer states it once (the brief's §5, D3).
     "kappa": ("Fit weights 1/se², se = c·ŷ/√N recomputed at the fitted value ŷ and iterated, with "
               "c the series' pooled scale: the median of √N·κ over its windows of N ≥ 20 from "
-              "4 GeV, κ = SE/value each window's bootstrap relative SE. One c per series cancels "
-              "in the fitted parameters and sets only χ², S and the errors; a per-window κ would "
-              "put each window's own value back into its weight."),
+              "4 GeV (where a series has none, over the windows its provisional fits draw on), "
+              "κ = SE/value each window's bootstrap relative SE. One c per series "
+              "cancels in the fitted parameters and sets only χ², S and the errors; a per-window "
+              "κ would put each window's own value back into its weight."),
     "delta": ("Fit weights 1/se², se = |r|·√(1/(2(N − 1)) + r²/N), the delta-method standard "
               "error of σ/μ, recomputed at the fitted value and iterated."),
 }
@@ -1379,7 +1525,8 @@ _POOLED_WORDS = (
     "1/se², se = c·ŷ/√N taken at the fitted value ŷ and iterated (half steps once the refits "
     "oscillate; the first fit takes c·value/√N), with c the series' pooled scale "
     "(weight_scale): the median of √N·κ over its windows of N ≥ 20 from 4 GeV with a fit "
-    "weight, κ = SE/value each window's bootstrap relative SE. One c per series cancels in the "
+    "weight (where a series has none, over the windows its provisional fits draw on), "
+    "κ = SE/value each window's bootstrap relative SE. One c per series cancels in the "
     "fitted parameters and sets only χ², S and the errors; a window's own κ would put its "
     "measured value back into its weight, and bias the fits upward.")
 
@@ -1402,8 +1549,8 @@ _FITS_NOTES: dict[str, str] = {
         "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights "
         + _POOLED_WORDS + " "
         + _FIT_TAIL + " The quadrature form √(a²/E + b²) is fitted as (median rel.)² = A/E + B "
-        "and tabled, not drawn. The three forms describe the median relative error: their "
-        "parameters are not the stochastic and constant terms of a resolution."),
+        "and tabled, not drawn. The forms describe the median relative error: their "
+        "parameters are not the stochastic, constant and noise terms of a resolution."),
 }
 
 
@@ -1745,13 +1892,16 @@ class ResolutionScaling:
             basis = (f"The E view's y range follows the windows alone, from zero: those with "
                      f"N ≥ {fit_n} from {floor}, whiskers included; a window below {floor} "
                      "never sets it.")
-        fits = ("No fitted curve, band or extrapolation sets it: one that leaves the top is "
-                "clipped there with a caret.")
+        fits = ("No fitted curve or extrapolation sets it: one that leaves the top is clipped "
+                "there with a caret.")
         notes = [
             f"{basis} {fits}",
-            f"Fitted curves are drawn from {E_MIN_GEV:g} GeV, the lowest window edge any fit can "
-            f"use, to {x_max:g} GeV: solid over the windows each fit ran through, dashed beyond, "
-            "where the curve extrapolates its form.",
+            # Verbatim: one curve per series, no band (Martin's directive, 2026-11-15).
+            f"Each series draws one fitted curve with no band round it: its {NOISE_FORM_NAME} "
+            f"from 0 GeV, fitted to windows from {NOISE_MIN_GEV:g} GeV, or, where the series has "
+            f"none, its a₀/√E from {E_MIN_GEV:g} GeV, the lowest window edge that fit can use. The "
+            "curve is solid over the windows it ran through and dashed beyond, where it "
+            "extrapolates its form, and a curve that leaves the top is clipped there with a caret.",
             "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a "
             "window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, "
             "slightly larger (Jensen's inequality), is in its tooltip.",
@@ -1761,6 +1911,7 @@ class ResolutionScaling:
                   "unit": "GeV", "name": "Energy E [GeV]"},
             "y": {**y, "unit": UNIT, "name": AXIS_NAMES[self.estimator]},
             "curve_min_gev": E_MIN_GEV,
+            "noise_min_gev": NOISE_MIN_GEV,
             "y_min_gev": E_VIEW_Y_MIN_GEV,
             "data_max_gev": data_max,
             "rule": typographic(
@@ -1833,10 +1984,11 @@ class ResolutionScaling:
                     "points": list(mode.points),
                     "substitutions": list(mode.substitutions),
                     "fallback": mode.fallback, "provisional": mode.provisional,
-                    **{form: fit_block(mode.fits.get(form), mode.provisional, band_points,
-                                       self.estimator)
+                    **{form: fit_block(mode.fits.get(form), mode.provisional, band_points)
                        for form in (rfit.FORM_AFFINE, rfit.FORM_PINNED, rfit.FORM_QUADRATURE)},
                     "span_gev": fitted_span(mode.points, s.windows),
+                    "noise": noise_block(mode, s.windows),
+                    "noise_reason": mode.noise_reason,
                 }
                 for name, mode in s.modes.items()
             },
@@ -1856,7 +2008,7 @@ class ResolutionScaling:
             "gates": {**ESTIMATOR_GATES[self.estimator],
                       "e_min_gev": E_MIN_GEV, "anchor_low_gev": ANCHOR_LOW_GEV,
                       "n_anchors": N_ANCHORS, "misfit_scale": rfit.MISFIT_SCALE,
-                      "tail_min_n": rw.TAIL_MIN_N},
+                      "tail_min_n": rw.TAIL_MIN_N, "noise_min_gev": NOISE_MIN_GEV},
             "anchors": self._anchors(),
             "model": self.model,
             "series": [self._series_dict(s, band_points) for s in self.series],

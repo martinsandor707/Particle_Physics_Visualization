@@ -508,6 +508,9 @@ out.resScaling = {
       refControl: 'resReference' in ctl,
       windows: [ctl.resWindows.choices({ controls: lin }).map((c) => c.label),
                 ctl.resWindows.choices({ controls: en }).map((c) => c.label)],
+      windowTitles: [ctl.resWindows.choices({ controls: lin }).map((c) => c.title),
+                     ctl.resWindows.choices({ controls: en }).map((c) => c.title)],
+      viewTitles: ctl.resView.choices({}).map((c) => c.title),
       viewChoices: ctl.resView.choices({}).map((c) => c.value),
       sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resLiterature: 'e' })),
       opts: cards.cardOptions('res-scaling', { plan: plans.two_shower_hits, view: view(),
@@ -739,6 +742,20 @@ def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
     assert v["refControl"] is False, "one set of literature buttons (Martin, 2026-11-11): no separate reference control"
     assert v["windows"][0] == ["3 anchors", "All \u2265 4 GeV"]
     assert v["windows"][1] == ["3 anchors", "All windows"]
+    # The E view's windows titles (Martin's decisions of 2026-11-13): a/√E ⊕ b ⊕ c/E runs through windows from 1 GeV,
+    # the 3-anchor mode adding the low anchor; the 1/√E view's titles are untouched.
+    anchors_e, all_e = v["windowTitles"][1]
+    assert anchors_e.endswith("; a/√E ⊕ b ⊕ c/E also runs through the lowest fittable window from 1 GeV, the low anchor")
+    assert all_e == ("Draw every window; fit a₀/√E through every window from 4 GeV and a/√E ⊕ b ⊕ c/E through every window "
+                     "from 1 GeV, each with N ≥ 20; a window below 1 GeV is a point only")
+    assert not [x for x in v["windowTitles"][0] if "c/E" in x or "from 1 GeV" in x]
+    assert "below 4 GeV as points only" not in all_e
+    energy_title = v["viewTitles"][1]
+    # One fitted curve per series and no band (Martin's directive of 2026-11-15; review-ui F1, 19f6ab2), verbatim.
+    assert energy_title == ("The error scale against the energy in GeV: one fitted curve per series, its a/√E ⊕ b ⊕ c/E "
+                            "from 0 GeV (a₀/√E from 4 GeV where a series has none), solid over its windows and dashed "
+                            "beyond, with no band; and a ratio panel")
+    assert "a/√E ⊕ b and" not in energy_title and "the a₀/√E fit from 4 GeV and" not in energy_title
     assert v["sameRequest"] is True
     assert v["opts"]["view"] == "energy" and v["opts"]["literature"] == ["e"] and "reference" not in v["opts"]
     assert v["inState"] == [False, False], "the view and the toggles are never in a link"
@@ -805,6 +822,12 @@ def test_the_literature_curves_are_one_pair_of_toggles_both_on_by_default(reques
     for t in lit["titles"]:
         assert t.startswith("Draw or hide σ/E = ") and "no interval reported" in t
         assert "by the one the windows lie farther from when both are, and by each shower's deposit fit when neither is" in t
+    # The equation as the figure's legend prints it, no % sign by the values, with its units said in the title
+    # (Martin's request, 2026-11-15, c406217: REFERENCE_UNITS).
+    assert [t.split(";")[0] for t in lit["titles"]] == [
+        "Draw or hide σ/E = 27.2/√E ⊕ 1.0 (σ/E in percent, E in GeV)",
+        "Draw or hide σ/E = 14.0/√E ⊕ 0.4 (σ/E in percent, E in GeV)"]
+    assert not [t for t in lit["titles"] if "%" in t]
     assert lit["defaults"] == "pi,e" and lit["opts"]["literature"] == ["pi", "e"]
     assert lit["pressed"] == [[True, True], [False, True], [True, False], [False, False]]
     assert lit["shut"] is False

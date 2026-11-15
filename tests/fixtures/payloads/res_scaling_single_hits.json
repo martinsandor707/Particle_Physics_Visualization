@@ -132,12 +132,13 @@
     "name": "σ/E [%]"
    },
    "curve_min_gev": 4.0,
+   "noise_min_gev": 1.0,
    "y_min_gev": 2.0,
    "data_max_gev": 20.0,
    "rule": "E = 1/x² of the 1/√E view's x = ⟨1/√p⟩: one exact bijection, so both views draw the same measurements.",
    "notes": [
-    "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve, band or extrapolation sets it: one that leaves the top is clipped there with a caret.",
-    "Fitted curves are drawn from 4 GeV, the lowest window edge any fit can use, to 80 GeV: solid over the windows each fit ran through, dashed beyond, where the curve extrapolates its form.",
+    "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve or extrapolation sets it: one that leaves the top is clipped there with a caret.",
+    "Each series draws one fitted curve with no band round it: its a/√E ⊕ b ⊕ c/E from 0 GeV, fitted to windows from 1 GeV, or, where the series has none, its a₀/√E from 4 GeV, the lowest window edge that fit can use. The curve is solid over the windows it ran through and dashed beyond, where it extrapolates its form, and a curve that leaves the top is clipped there with a caret.",
     "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, slightly larger (Jensen's inequality), is in its tooltip."
    ]
   }
@@ -150,7 +151,8 @@
   "anchor_low_gev": 5.0,
   "n_anchors": 3,
   "misfit_scale": 5.0,
-  "tail_min_n": 300
+  "tail_min_n": 300,
+  "noise_min_gev": 1.0
  },
  "anchors": {
   "nominal_bins": [
@@ -681,8 +683,7 @@
        ]
       ],
       "provisional": true,
-      "misfit": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 0.0104/1, p = 0.919. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "pinned": {
       "form": "pinned",
@@ -828,8 +829,7 @@
        ]
       ],
       "provisional": true,
-      "misfit": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 2.92/2, p = 0.233. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.21 (PDG), and the band takes Student's t₀.₉₇₅,2 = 4.303 for the variance scale S² estimated from ν = 2; the unscaled errors are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "quadrature": {
       "form": "quadrature",
@@ -847,10 +847,7 @@
        "se_a2": 42112.2,
        "a_defined": false,
        "se_a_stat": null,
-       "se_b_stat": 24.0229,
-       "se_a2_stat": 42112.2,
-       "se_b2_stat": 4279.1,
-       "rho_a2b2": -0.967291
+       "se_b_stat": 24.0229
       },
       "chi2": 0.00736372,
       "p_value": 0.931616,
@@ -860,13 +857,58 @@
       "band_quantile": 1.95996,
       "curve": null,
       "provisional": true,
-      "misfit": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 0.00736/1, p = 0.932. A ≤ 0, so a = √A is undefined; A is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "span_gev": [
       5.0,
       20.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 4,
+      "ndf": 2,
+      "points": [
+       1,
+       5,
+       10,
+       19
+      ],
+      "span_gev": [
+       1.0,
+       20.0
+      ],
+      "low_anchor": 1,
+      "params": {
+       "a2": 0.0,
+       "b2": 7411.5,
+       "c2": 2257.09,
+       "se_a2": null,
+       "se_b2": 1123.16,
+       "se_c2": 16378.6,
+       "a": 0.0,
+       "b": 86.09,
+       "c": 47.5088,
+       "se_a": null,
+       "se_b": 6.52314,
+       "se_c": 172.374,
+       "held": [
+        "a"
+       ],
+       "rho": {
+        "a2b2": null,
+        "a2c2": null,
+        "b2c2": -0.292308
+       }
+      },
+      "chi2": 0.0225461,
+      "p_value": 0.98879,
+      "scale_factor": 1.0,
+      "iterations": 17,
+      "converged": true,
+      "provisional": true,
+      "misfit": false
+     },
+     "noise_reason": null
     },
     "all": {
      "points": [
@@ -1027,8 +1069,7 @@
        ]
       ],
       "provisional": true,
-      "misfit": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 4 windows, weights 1/se² with se recomputed at the fitted value (26 refits). χ²/ν = 0.217/2, p = 0.897. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "pinned": {
       "form": "pinned",
@@ -1174,8 +1215,7 @@
        ]
       ],
       "provisional": true,
-      "misfit": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 4 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 4.35/3, p = 0.226. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.2 (PDG), and the band takes Student's t₀.₉₇₅,3 = 3.182 for the variance scale S² estimated from ν = 3; the unscaled errors are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "quadrature": {
       "form": "quadrature",
@@ -1193,10 +1233,7 @@
        "se_a2": 39067.5,
        "a_defined": false,
        "se_a_stat": null,
-       "se_b_stat": 21.4144,
-       "se_a2_stat": 39067.5,
-       "se_b2_stat": 3979.12,
-       "rho_a2b2": -0.962459
+       "se_b_stat": 21.4144
       },
       "chi2": 0.248287,
       "p_value": 0.883253,
@@ -1206,13 +1243,60 @@
       "band_quantile": 1.95996,
       "curve": null,
       "provisional": true,
-      "misfit": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 4 windows, weights 1/se² with se recomputed at the fitted value (27 refits). χ²/ν = 0.248/2, p = 0.883. A ≤ 0, so a = √A is undefined; A is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "span_gev": [
       5.0,
       20.0
-     ]
+     ],
+     "noise": {
+      "form": "noise",
+      "n_points": 6,
+      "ndf": 4,
+      "points": [
+       1,
+       2,
+       5,
+       10,
+       15,
+       19
+      ],
+      "span_gev": [
+       1.0,
+       20.0
+      ],
+      "low_anchor": null,
+      "params": {
+       "a2": 0.0,
+       "b2": 7570.1,
+       "c2": 1696.8,
+       "se_a2": null,
+       "se_b2": 1116.06,
+       "se_c2": 14074.0,
+       "a": 0.0,
+       "b": 87.0063,
+       "c": 41.1922,
+       "se_a": null,
+       "se_b": 6.41369,
+       "se_c": 170.833,
+       "held": [
+        "a"
+       ],
+       "rho": {
+        "a2b2": null,
+        "a2c2": null,
+        "b2c2": -0.373061
+       }
+      },
+      "chi2": 0.357618,
+      "p_value": 0.985797,
+      "scale_factor": 1.0,
+      "iterations": 25,
+      "converged": true,
+      "provisional": true,
+      "misfit": false
+     },
+     "noise_reason": null
     }
    },
    "median_response_range": {

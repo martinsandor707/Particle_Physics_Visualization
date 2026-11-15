@@ -5,8 +5,9 @@
  * experiment has one the energy network of the selected frame or the XGBoost
  * momentum regressor on its validation split. Each series carries σ/E per
  * 1 GeV momentum window - s(R)/R̄ of the per-event ratio R = E_est / p, in
- * percent - and, for both window modes, three weighted least-squares fits: the
- * affine a/√E + b, the origin-pinned a₀/√E and the quadrature √(a²/E + b²).
+ * percent - and, for both window modes, four weighted least-squares fits: the
+ * affine a/√E + b, the origin-pinned a₀/√E, the quadrature √(a²/E + b²) and
+ * a/√E ⊕ b ⊕ c/E with its three squares held non-negative (`noise`).
  * Everything here is drawn from those fields; nothing is refitted or rescaled
  * in the browser, and the window mode and the shower choice only repaint.
  *
@@ -50,15 +51,14 @@
  * the spread of the events, and the band's tooltip says so. The affine band is
  * a wash at `bandAlpha`, the pinned one at half of it. A band whose part inside
  * the axis covers `OUTLINE_SHARE` of it or more at some x of its fitted span is
- * drawn as its two thin edges instead, never as a wash, as on the E view: once
+ * drawn as its two thin edges instead, never as a wash: once
  * the windows alone set the range (Martin's decision of 2026-11-11), the three
  * anchors' ν = 1 affine bands, at t₀.₉₇₅,₁ = 12.71, washed over the whole
  * plot. Here the edges are solid along their whole length: this view marks no
  * extrapolation on its lines, and its dash is shower B's affine line, so a dash
  * beyond the span would give it a third meaning. The span only decides the
- * outline. It is the E view's own, the fitted windows' momentum edges
- * (`span_gev`) mapped by x = 1/√E (`xSpanOf`), so both views judge a band over
- * one stretch of momentum. A line and its band are
+ * outline. It is the fitted windows' momentum edges (`span_gev`, the stretch
+ * the E view draws solid) mapped by x = 1/√E (`xSpanOf`). A line and its band are
  * clipped to the plot: an affine fit with a negative intercept runs down to the
  * axis and stops there. The σ/E range is the server's and follows the windows
  * alone (Martin's decision of 2026-11-11): a fit summarises its windows and is
@@ -72,8 +72,9 @@
  * `gates.misfit_scale`, 5: its residuals average more than five of the windows'
  * own errors). Each says why in its tooltip and the table's Status cell, and the
  * drawer names it. A fit whose iterated weights did not settle says so in its
- * tooltip, the table and the drawer. On this view the quadrature fit is never
- * drawn; it is tabled. The E view draws it (below).
+ * tooltip, the table and the drawer. On this view the quadrature fit and
+ * a/√E ⊕ b ⊕ c/E are never drawn; they are tabled (the latter's windows reach
+ * below this view's 4 GeV edge). The E view draws a/√E ⊕ b ⊕ c/E (below).
  *
  * ## Colour is the series, fill and dash are the shower
  *
@@ -90,8 +91,9 @@
  *
  * Under the plot, on screen only, the panel keeps a table of the fits of the
  * mode in force: one row group per series drawn, one row per fit (affine,
- * origin-pinned, quadrature), each with its a and b (or the undefined
- * quadrature term with its standard error), χ²/ν with its p, the scale factor
+ * origin-pinned, quadrature, a/√E ⊕ b ⊕ c/E), each with its a, b and c (or the
+ * undefined quadrature term with its standard error, or "0 (held)" for a term
+ * the constraint holds at 0), χ²/ν with its p, the scale factor
  * S and its status; the series and the windows it fitted, with their
  * substitutions, span the group. Its text columns wrap, so it keeps to the
  * card's width. It is built with `createElement` and `textContent` only, from
@@ -106,37 +108,50 @@
  * one exact bijection, so a window on its line in one view is on its curve in
  * the other (its ⟨p⟩, larger by Jensen's inequality, is in its tooltip). The
  * axis is linear from 0 to `axis.energy.x.max`; the windows below 4 GeV, off
- * the 1/√E axis, are on it as points no fit uses. σ/E runs from zero to the
+ * the 1/√E axis, are on it, those from 1 GeV fitted by a/√E ⊕ b ⊕ c/E alone
+ * and the 0–1 GeV window as a point no fit uses. σ/E runs from zero to the
  * server's E-view top, which the windows alone set (from 2 GeV, never below);
- * a curve or band that leaves it is clipped, as on the 1/√E view.
+ * a curve that leaves it is clipped, as on the 1/√E view.
  *
- * Two fits are drawn, evaluated from their blocks' params alone
- * (`fitCurveE`, held to the server's `curve` rows and `rfit.band` by the
- * tests): the origin-pinned a₀/√E ⊕ 0 always, and the quadrature a/√E ⊕ b
- * only where both of its terms are defined (`quadratureDrawable`; otherwise
- * the model and the table say why). Its band is √ of the z = A/E + B band,
- * exact because z is linear in (A, B) and √ is monotone, its lower edge cut at
- * 0 where ẑ − h < 0. The affine fit, whose negative b would run below zero
- * when extrapolated, stays on the 1/√E view. The width is the form (1.6 px
- * quadrature, 1 px pinned) and the dash is extrapolation: a curve is solid
- * over its mode's `span_gev`, the edges of the windows it was fitted to,
- * dashed [6, 4] beyond, from 4 GeV to the axis end, with its band at a third
- * of its strength there, and never drawn below 4 GeV. So shower B, hollow as
- * ever, gives up its long dash here and draws its lines at 70% strength,
- * raised to 3:1 where the card needs it (E2's network hue reaches 91% on the
- * light card, where A and B would read alike); with both showers drawn, a
- * letter "A" or "B" at each curve's right end, in a column beside the plot,
- * names the shower instead. A curve or band leaving the top gets one caret at
- * its first exit scanning up in E, its true values in the caret's tooltip,
- * and a curve that leaves before the axis end gets no end label.
+ * One fitted curve per series, with no band (Martin's directive of
+ * 2026-11-15, replacing the two drawn fits of 2026-11-13 and every band of
+ * this view), evaluated from its block's params alone (`fitCurveE`, held to
+ * the server's `curve` rows by the tests): a/√E ⊕ b ⊕ c/E from 0 GeV wherever
+ * the mode has a drawable one (`fits[mode].noise`, `noiseDrawable`); else the
+ * origin-pinned a₀/√E ⊕ 0 from 4 GeV, its tooltip giving the server's
+ * `noise_reason`; else no curve. Never a second fitted line beside the noise
+ * curve: a₀/√E is then tabled only. The noise fit is fitted as (σ/E)² = A/E +
+ * B + C/E² with A, B, C ≥ 0, a held term exactly 0, and the curve is √ of
+ * that z. It rises without bound as E → 0 when A > 0 or C > 0: it is drawn
+ * from where its line comes down through the top (C·u² + A·u + B = y.hi²,
+ * u = 1/E), with one caret there (`noiseEntryTip`); a flat curve (A = C = 0)
+ * is drawn from 0. The quadrature a/√E ⊕ b is tabled only, and the affine fit,
+ * whose negative b would run below zero when extrapolated, stays on the 1/√E
+ * view. The width is the form (1.6 px a/√E ⊕ b ⊕ c/E, 1 px the a₀/√E
+ * fallback) and the dash is extrapolation: a curve is solid over its own
+ * `span_gev`, the edges of the windows it was fitted to, dashed [6, 4] beyond
+ * (a₀/√E from 4 GeV, a/√E ⊕ b ⊕ c/E from 0), to the axis end. So shower B,
+ * hollow as ever, gives up its long dash here and draws its lines at 70%
+ * strength, raised to 3:1 where the card needs it (E2's network hue reaches
+ * 91% on the light card, where A and B would read alike); with both showers
+ * drawn, a letter "A" or "B" at each curve's right end, in a column beside the
+ * plot, names the shower instead: the shower's letter in ink (THEME.text),
+ * led by a short key stroke in the curve's own colour, dash, width and
+ * strength. A curve leaving the top gets one caret at
+ * its first exit scanning up in E, its true value in the caret's tooltip, and
+ * a curve that leaves before the axis end gets no end label. The a₀/√E
+ * fallback falls with E, so where it starts above the top it comes down into
+ * the plot at E = (a₀/y.hi)², with one caret there (`pinnedEntryTip`), and
+ * never leaves later.
  *
- * A band is the fit's parameter uncertainty, and with three anchors a
- * quadrature fit has ν = 1, so once S > 1 its band takes t₀.₉₇₅,₁ = 12.7: it
- * can run from the floor to the top of the axis over the very windows it was
- * fitted to. Such a band (`bandSpansShare`, on either panel) is drawn as its
- * two edges, thin lines solid over the span and dashed beyond, not as a wash
- * that would flood the panel and answer every hover; the model counts them
- * (`bandsOutlined`) and the drawer lists them.
+ * No band round a fitted curve is drawn on either panel: no wash, no outline
+ * edges, no band caret (CLAUDE.md section 2, "the E view's fitted curves carry
+ * no band"). Two curves per series, each with its band and, where a band was
+ * wide, its two edges, read as several competing lines. The fit's uncertainty
+ * stays on the card: every window keeps its whisker, and the curve's tooltip
+ * and the fit table give each term with its SE (scaled by S), χ²/ν, S and ρ.
+ * A provisional fit, or one whose form does not describe its windows, is
+ * drawn faded.
  *
  * Windows are not dodged on this view: a curve is steep at low E, so a few
  * pixels of offset would move a window visibly off its own curve, and flip a
@@ -153,23 +168,28 @@
  * `LITERATURE_COLOURS`, picked by the card's `THEME.qualitativePalette`): a
  * ColorBrewer qualitative hue of its own, π± a brown and e± a purple on every
  * card, measured apart from the deposit ink and E2's four hues, so it is never
- * a series hue and reads as the particle's without a hover. Its legend swatch,
- * its end labels (its particle, in the end column) and its carets take the
- * same colour, and it never sets a range on either panel. A note band between the legend and the
+ * a series hue and reads as the particle's without a hover. Its legend swatch
+ * and its carets take the same colour; its end labels (its particle, in the
+ * end column) are ink text (THEME.text), led by a key stroke in its own
+ * colour, dotted at its own width. It never sets a range on either panel. A note band between the legend and the
  * plot, part of the canvas and the export, lists the windows above the top
  * and states the extrapolation rule; where the two would not fit side by side
  * they are stacked, so neither overprints the other and the rule's span is
  * never cut.
  *
  * The ratio panel underneath shares the E axis and a linked crosshair (no
- * zoom, no axis tooltip). It divides every window and drawn fit by the
- * reference in force: each shower's deposit a/√E ⊕ b fit, or its a₀/√E where
- * that is undefined, evaluated only where curves are drawn; or a literature
- * curve over the whole axis. A ratio's interval is conditional on the
- * reference, which is held exact; the deposit reference's own band is a
- * neutral wash about 1 (its edges where it spans half the axis or more, a muted
- * caret where it is clamped), and a literature curve has none: every ratio
- * mark against it says so. The axis is logarithmic and symmetric about 1 over
+ * zoom, no axis tooltip). It divides every window and each series' one curve
+ * by the reference in force: each shower's deposit a/√E ⊕ b ⊕ c/E fit, defined
+ * from 0 GeV, whose ratio marks start at the fit's own 1 GeV floor (a window
+ * below it is counted in `belowNotDrawn`: no window below 1 GeV enters that
+ * fit); or its a₀/√E where it has none, from 4 GeV, the server's
+ * `noise_reason` said; or a literature curve over the whole axis. The
+ * reference's own curve, 1 by construction, is not drawn, and no band is drawn
+ * about 1 (Martin's directive of 2026-11-15). A noise fit's ratio is drawn
+ * from 0 GeV and may come into the axis from beyond it as E rises, with a
+ * caret there (`ratioEntry`); so may the a₀/√E fallback's, from 4 GeV. A ratio's interval is conditional on the
+ * reference, which is held exact, and a literature curve has no interval
+ * reported: every ratio mark against it says so. The axis is logarithmic and symmetric about 1 over
  * [1/k, k], so ×2 and ÷2 lie at equal distances and a linear axis's impossible
  * negative ratios never arise; its ticks below 1 read 1/x. k is the first
  * `RATIO_STEPS` value covering the robust ratio marks (`ratioRange`): the
@@ -177,7 +197,7 @@
  * neither provisional nor a misfit (Martin's decisions of 2026-11-11); no fit
  * sets k. It is provisional without them, capped at the ladder's end and said
  * so, and marks beyond it, fits included, get carets. The faded fits are drawn
- * on both panels as on the 1/√E view, their dashed extrapolations faded with
+ * faded on both panels, as on the 1/√E view, their dashed extrapolations with
  * them. The panel's plot is
  * `ENERGY_VIEW_PX` tall where the view draws its two panels (`syncHeight`),
  * and its export keeps the two panels' proportions (`energyExportMetrics`).
@@ -212,7 +232,7 @@ import { THEME, axisPadding, formatNumber, formatInt, typographic } from '../sca
 import { literatureColour } from '../palette.js';
 import { measureText } from '../textfit.js';
 import {
-  REFERENCE_KEYS, referenceOf, referenceValue, referenceEquation, referenceLabel,
+  REFERENCE_KEYS, referenceOf, referenceValue, referenceEquation, referenceLabel, REFERENCE_UNITS,
 } from '../catalog/resolution_refs.js';
 import { customWhiskers, customPolyline, customBand } from './marks.js';
 import { tooltipOption } from './tooltip.js';
@@ -336,6 +356,27 @@ export function declinedText(w) {
   return `Robust σ (IQR) fits no line through fewer than two fittable windows, and only ${w.label ?? `bin ${w.bin}`} (N = ${formatInt(w.n)}) is fittable here`;
 }
 
+/** The reason `fitMissingReason` gives where neither a robust decline nor a missing pooled scale is the cause. */
+const TOO_FEW_WINDOWS = 'too few windows';
+
+/**
+ * Why a series has no fit from 4 GeV (the affine, origin-pinned and
+ * quadrature fits of a mode), from the payload alone (review-ui F2,
+ * review-docs M3), in this order: Robust σ (IQR) declines its one fittable
+ * window (`declinedWindow`); its `weight_scale` exists with c null, so no
+ * window from 4 GeV carries a fit weight; otherwise too few windows. A window
+ * of N ≥ 20 without a fit weight is never blamed on N (CLAUDE.md, the κ floor).
+ * `raw` is the payload's series, `mf` its mode block.
+ */
+export function fitMissingReason(est, raw, mf, mode, gates = DEFAULT_GATES) {
+  if (declinedWindow(est, raw, mf, mode, gates)) return 'Robust σ (IQR) fits no line through fewer than two fittable windows';
+  const ws = raw?.weight_scale;
+  if (ws && typeof ws === 'object' && !Number.isFinite(ws.c)) {
+    return `no window from ${formatNumber(gates.e_min_gev)} GeV carries a fit weight, so this series has no pooled scale`;
+  }
+  return TOO_FEW_WINDOWS;
+}
+
 /** Why a nominal anchor was replaced or dropped, by the substitution's `cause`: never "too few events" unless N was the cause. */
 function substitutionWhy(sub, symbol) {
   switch (sub?.cause) {
@@ -379,6 +420,17 @@ const DASH_RING = [2, 2];
 
 const X_UNIT = 'GeV⁻¹ᐟ²';
 const A_UNIT = '%·√GeV';
+/** The unit of c in a/√E ⊕ b ⊕ c/E. */
+const C_UNIT = '%·GeV';
+
+/**
+ * The E view's second curve (Martin's decisions of 2026-11-13): σ/E = a/√E ⊕
+ * b ⊕ c/E, fitted as (σ/E)² = A/E + B + C/E² with A, B, C ≥ 0
+ * (`stats/resolution_fit.FORM_NOISE`), its name as every string writes it.
+ */
+export const NOISE_FORM_NAME = 'a/√E ⊕ b ⊕ c/E';
+/** The noise fit's window floor (GeV) where a payload does not state it (`query/resolution_scaling.NOISE_MIN_GEV`). */
+const NOISE_MIN_GEV = 1;
 
 const pct = (v) => (Number.isFinite(v) ? `${sigFigs(v, 3)}%` : '—');
 /** "−12.3%" or "+4.5%": a signed percent, its minus the sign U+2212 (as the drawer writes a median response). */
@@ -518,8 +570,8 @@ function cutAbove(curve, hi) {
 /**
  * A fit's span on the 1/√E view: its fitted windows' momentum edges `[lo, hi]`
  * (GeV, `span_gev`, the stretch the E view draws solid) mapped by x = 1/√E, so
- * `[1/√hi, 1/√lo]`; null without a span. Both views judge a band over one
- * stretch of momentum.
+ * `[1/√hi, 1/√lo]`; null without a span. The 1/√E view judges its bands
+ * over it (`bandSpansShare`); the E view draws no band.
  */
 export function xSpanOf(span) {
   if (!Array.isArray(span) || !(span[0] > 0) || !(span[1] > 0)) return null;
@@ -698,7 +750,7 @@ function pointTipLines(model, s, p) {
   lines.push(`⟨p⟩ = ${formatNumber(w.p_mean, 2)} GeV · x = ⟨1/√p⟩ = ${formatNumber(w.x, 4)} ${X_UNIT}`);
   const est = model.estimator ?? estimatorOf(null);
   lines.push(valueLine(est, w, p));
-  const se = seLine(est, s, w);
+  const se = seLine(est, s, w, gates);
   if (se) lines.push(mutedLine(se));
   if (Number.isFinite(w.c4)) lines.push(mutedLine(`bias factor c₄(N) = ${formatNumber(w.c4, 4)}: below N = 15 the sample SD runs low by this factor`));
   if (est.name === 'sample') {
@@ -740,20 +792,31 @@ function valueLine(est, w, p) {
 /**
  * The fit weight's line, by `estimator.weight.method`: under median and robust
  * the bootstrap SE with its relative SE κ and the series' pooled scale c of
- * the weight se = c·ŷ/√N (brief-fix F1), or a tied window's SE, which carries
- * no fit weight (F3); the delta-method SE under sample, as ever. A withheld
- * robust window has no SE and no line: its `dof_note` says why (F7).
+ * the weight se = c·ŷ/√N (brief-fix F1); a window below 4 GeV, which only
+ * a/√E ⊕ b ⊕ c/E can fit, takes the same c without entering it (one pooled
+ * scale, Martin's directive of 2026-11-15; any `c_low` an older payload
+ * carries is never read); a tied window's SE, which carries no fit weight
+ * (F3); the delta-method SE under sample, as ever. A withheld robust window
+ * has no SE and no line: its `dof_note` says why (F7).
  */
-function seLine(est, s, w) {
+function seLine(est, s, w, gates = DEFAULT_GATES) {
   if (est.weight === 'kappa') {
     if (!Number.isFinite(w.se)) return null;
     if (!(Number.isFinite(w.se_rel) && w.se_rel > 0)) {
       return `bootstrap SE ${pct(w.se)}: below 10⁻⁶ of the value (tied replicates), so no fit weight`;
     }
-    const c = s?.raw?.weight_scale?.c;
-    return Number.isFinite(c)
-      ? `bootstrap SE ${pct(w.se)} (κ = ${sig(100 * w.se_rel)}%); fit weight se = c·ŷ/√N, c = ${sig(c)} for this series`
-      : `bootstrap SE ${pct(w.se)} (κ = ${sig(100 * w.se_rel)}%); no fit weight: no window of this series from ${formatNumber(DEFAULT_GATES.e_min_gev)} GeV carries one, so it has no pooled scale c`;
+    const ws = s?.raw?.weight_scale ?? null;
+    const c = ws?.c;
+    const floor = Number.isFinite(gates?.e_min_gev) ? gates.e_min_gev : DEFAULT_GATES.e_min_gev;
+    const pLo = Number.isFinite(w.p_lo) ? w.p_lo : (Number.isFinite(w.x) && w.x > 0 ? 1 / (w.x * w.x) : Infinity);
+    const head = `bootstrap SE ${pct(w.se)} (κ = ${sig(100 * w.se_rel)}%)`;
+    if (!Number.isFinite(c)) {
+      return `${head}; no fit weight: no window of this series from ${formatNumber(floor)} GeV carries one, so it has no pooled scale c`;
+    }
+    if (pLo < floor) {
+      return `${head}; fit weight se = c·ŷ/√N, c = ${sig(c)} for this series, pooled over its windows from ${formatNumber(floor)} GeV`;
+    }
+    return `${head}; fit weight se = c·ŷ/√N, c = ${sig(c)} for this series`;
   }
   return Number.isFinite(w.se_delta)
     ? `delta-method SE ${pct(w.se_delta)} (R̄'s error included): the fit weight 1/se², recomputed at the fitted value`
@@ -929,9 +992,10 @@ export function fitCutTip(model, s, f) {
 function rangeRuleText(model, floor = null) {
   const n = formatInt(model.gates.fit_n);
   const from = floor ? ` from ${floor}` : '';
+  // The E view (a `floor`) draws no band (Martin's directive of 2026-11-15), so its sentence names the curve alone.
   return model.y.provisional
     ? `Clipped, not rescaled: the provisional range follows the windows' markers, no window${from} reaching N = ${n}; no fit sets it.`
-    : `Clipped, not rescaled: the range follows the windows of N ≥ ${n}${from} alone; a fit summarises its windows, so no line, curve or band sets it.`;
+    : `Clipped, not rescaled: the range follows the windows of N ≥ ${n}${from} alone; a fit summarises its windows, so no ${floor ? 'fitted curve' : 'line, curve or band'} sets it.`;
 }
 
 /* --------------------------------------------------------------- marks -- */
@@ -1034,7 +1098,7 @@ function seriesMarks(model, s, payload) {
         id: `${s.key}|${form}|line|${i}`,
       }));
     });
-    // A band that spans half the axis or more over its fitted windows: its two edges, never a wash (as on the E view).
+    // A band that spans half the axis or more over its fitted windows: its two edges, never a wash.
     if (f.outlined) {
       out.push(...bandEdges(f.edges, s.colour, `${s.key}|${form}`, () => bandTip(s, f, model.estimator)).map(named));
       continue;
@@ -1155,17 +1219,22 @@ export function resolutionScalingOption(payload, opts = {}, metrics = {}) {
 
 /** The column heads of the fit table: one row per fit, the series and its windows spanning its rows. */
 export const FIT_TABLE_COLUMNS = Object.freeze([
-  'Series', 'Fit', `a ± SE [${A_UNIT}]`, 'b ± SE [%]', 'χ²/ν (p)', 'S', 'Windows fitted', 'Status',
+  'Series', 'Fit', `a ± SE [${A_UNIT}]`, 'b ± SE [%]', `c ± SE [${C_UNIT}]`, 'χ²/ν (p)', 'S', 'Windows fitted', 'Status',
 ]);
 
 /** The left-aligned text columns; the rest are right-aligned numbers, each value kept whole by `NBSP`. */
-export const FIT_TABLE_TEXT_COLUMNS = Object.freeze([0, 1, 6, 7]);
+export const FIT_TABLE_TEXT_COLUMNS = Object.freeze([0, 1, 7, 8]);
 
-/** The fits of one series, in the table's order, with the name its Fit cell gives each. */
+/**
+ * The fits of one series, in the table's order, with the name its Fit cell
+ * gives each in the 1/√E view. a/√E ⊕ b ⊕ c/E is tabled there: its windows
+ * reach below that view's 4 GeV edge (Martin's decisions of 2026-11-13).
+ */
 const TABLE_FORMS = Object.freeze([
   ['affine', 'Affine a/√E + b'],
   ['pinned', 'Origin-pinned a₀/√E'],
   ['quadrature', 'Quadrature √(a²/E + b²), tabled only'],
+  ['noise', `${NOISE_FORM_NAME}, tabled only: fitted to windows from 1 GeV, below this view's edge`],
 ]);
 
 /** No-break space: a value and its SE, or p and its value, never split across lines as the table wraps. */
@@ -1187,26 +1256,62 @@ function scaleCell(fit) {
   return Number.isFinite(fit.scale_factor) && fit.scale_factor > 1 ? sig(fit.scale_factor) : '1';
 }
 
-/** The a and b cells of one fit: the pinned b is zero by construction; an undefined quadrature term is its square. */
-function termCells(fit) {
-  if (!fit) return ['—', '—'];
-  const p = fit.params ?? {};
-  if (fit.form === 'affine') return [pm(p.a, p.se_a), pm(p.b, p.se_b)];
-  if (fit.form === 'pinned') return [pm(p.a0, p.se_a0), '0 (through the origin)'];
-  const a = p.a_defined === false || !Number.isFinite(p.a)
-    ? `A${NBSP}=${NBSP}${pm(p.a2, p.se_a2)}${NBSP}%²·GeV: a undefined`
-    : pm(p.a, p.se_a);
-  const b = p.b_defined === false || !Number.isFinite(p.b)
-    ? `B${NBSP}=${NBSP}${pm(p.b2, p.se_b2)}${NBSP}%²: b undefined`
-    : pm(p.b, p.se_b);
-  return [a, b];
+/** The units of the squares a², b² and c² of the quadrature and noise forms. */
+const SQUARE_UNITS = Object.freeze({ a: '%²·GeV', b: '%²', c: '%²·GeV²' });
+
+/**
+ * Whether a term of the quadrature or noise form is printed as its square
+ * (brief-fix m4): its delta-method SE, se(t²)/(2t), exceeds its value, so a
+ * symmetric error would reach below 0 for a term that cannot; the square and
+ * its own SE are printed instead ("b² = 0.04 ± 8.1 %²").
+ */
+export function termAsSquare(p, t) {
+  const v = p?.[t];
+  const se = p?.[`se_${t}`];
+  return Number.isFinite(v) && Number.isFinite(se) && se > v && Number.isFinite(p?.[`${t}2`]);
 }
 
-/** The status of one fit: provisional, a form that does not describe its windows, not converged, a negative intercept, or N ≥ 20 throughout. */
-function statusCell(fit, mf, gates) {
-  if (!fit) return 'too few windows';
+/** A term's square with its SE and unit, as `termAsSquare` prints it; `space` between the parts. */
+function squareText(p, t, space = ' ') {
+  return `${t}²${space}=${space}${sig(p[`${t}2`])}${space}±${space}${sig(p[`se_${t}2`])}${space}${SQUARE_UNITS[t]}`;
+}
+
+/**
+ * The a, b and c cells of one fit: the pinned b is zero by construction; an
+ * undefined quadrature term is its square; a/√E ⊕ b ⊕ c/E writes a term the
+ * constraint holds at 0 as "0 (held)"; a quadrature or noise term whose SE
+ * exceeds its value is written as its square with its SE (`termAsSquare`,
+ * brief-fix m4). c, the noise term c/E, belongs to that form alone, so the
+ * other rows leave its cell empty.
+ */
+function termCells(fit) {
+  if (!fit) return ['—', '—', '—'];
+  const p = fit.params ?? {};
+  const term = (t) => (termAsSquare(p, t) ? squareText(p, t, NBSP) : pm(p[t], p[`se_${t}`]));
+  if (fit.form === 'noise') {
+    const held = new Set(p.held ?? []);
+    return ['a', 'b', 'c'].map((t) => (held.has(t) ? `0${NBSP}(held)` : term(t)));
+  }
+  if (fit.form === 'affine') return [pm(p.a, p.se_a), pm(p.b, p.se_b), '—'];
+  if (fit.form === 'pinned') return [pm(p.a0, p.se_a0), '0 (through the origin)', '—'];
+  const a = p.a_defined === false || !Number.isFinite(p.a)
+    ? `A${NBSP}=${NBSP}${pm(p.a2, p.se_a2)}${NBSP}%²·GeV: a undefined`
+    : term('a');
+  const b = p.b_defined === false || !Number.isFinite(p.b)
+    ? `B${NBSP}=${NBSP}${pm(p.b2, p.se_b2)}${NBSP}%²: b undefined`
+    : term('b');
+  return [a, b, '—'];
+}
+
+/**
+ * The status of one fit: provisional, a form that does not describe its windows, not converged, a negative intercept, or N ≥ 20 throughout.
+ * Without a fit, why (`missing`, `fitMissingReason`): "too few windows", or "no fit: <reason>" for any other cause.
+ */
+function statusCell(fit, mf, gates, missing = TOO_FEW_WINDOWS) {
+  if (!fit) return missing === TOO_FEW_WINDOWS ? TOO_FEW_WINDOWS : `no fit: ${missing}`;
   const status = [];
-  if (mf?.provisional) status.push(`provisional (windows of N ≥ ${formatInt(gates.whisker_n)})`);
+  // The noise fit carries its own flag (the mode's, as its threshold is the mode's own).
+  if (fit.form === 'noise' ? fit.provisional : mf?.provisional) status.push(`provisional (windows of N ≥ ${formatInt(gates.whisker_n)})`);
   if (isMisfit(fit)) status.push(`form does not describe its windows (S = ${sig(fit.scale_factor)} > ${formatNumber(gates.misfit_scale)})`);
   if (fit.converged === false) status.push(`not converged in ${formatInt(fit.iterations)} refits`);
   if (fit.form === 'affine' && fit.negative_intercept) status.push('b < 0');
@@ -1220,11 +1325,19 @@ function statusCell(fit, mf, gates) {
  * column onwards except the windows, which span the group (`windows`). Every
  * cell is a string with U+2212 for a minus. Null without a payload.
  *
- * `opts.view === 'energy'` names the fits as the E view draws them (the
- * origin-pinned a₀/√E ⊕ 0 drawn; the quadrature a/√E ⊕ b drawn, or not drawn
- * with its reason; the affine fit drawn in the 1/√E view), with a caption
- * saying so, and adds `view: 'energy'`. The rows, their order and every other
- * cell are the 1/√E view's; without it the output is that view's, unchanged.
+ * Four rows per series: affine, origin-pinned, quadrature and a/√E ⊕ b ⊕ c/E
+ * (Martin's decisions of 2026-11-13), whose c column the others leave empty;
+ * the windows cell adds a/√E ⊕ b ⊕ c/E's own windows, the low anchor named,
+ * where they differ from the mode's.
+ *
+ * `opts.view === 'energy'` names the fits as the E view draws them, one curve
+ * per series with no band (Martin's directive of 2026-11-15): a/√E ⊕ b ⊕ c/E
+ * drawn, or not drawn with the server's reason; the origin-pinned a₀/√E ⊕ 0
+ * drawn as the fallback where the series has no a/√E ⊕ b ⊕ c/E fit, else
+ * table only (or not drawn without a fit); the quadrature a/√E ⊕ b table only;
+ * the affine fit drawn in the 1/√E view. A caption says so, and the result
+ * adds `view: 'energy'`. The rows, their order and every other cell are the
+ * 1/√E view's.
  */
 export function fitTableRows(payload, opts = {}) {
   if (!payload || !Array.isArray(payload.series)) return null;
@@ -1237,28 +1350,40 @@ export function fitTableRows(payload, opts = {}) {
   const text = (c) => typographic(String(c));
   const rows = shownSeries(payload, opts?.shower).map((s) => {
     const mf = s.fits?.[mode] ?? null;
+    // Why a fit from 4 GeV is missing, from the payload (review-ui F2, review-docs M3).
+    const missing = fitMissingReason(est, s, mf, mode, gates);
     return {
       key: s.key,
       label: s.label ?? s.key,
-      windows: text(windowsText(payload, s, mf)),
+      windows: text(tableWindowsText(payload, s, mf, mode)),
       fits: TABLE_FORMS.map(([form, name]) => {
         const fit = mf?.[form] ?? null;
-        const [a, b] = termCells(fit);
-        const cellName = energy ? energyTableName(form, fit, est.symbol) : name;
-        return { form, cells: [cellName, a, b, chi2Cell(fit), scaleCell(fit), statusCell(fit, mf, gates)].map(text) };
+        const [a, b, c] = termCells(fit);
+        const cellName = energy ? energyTableName(form, fit, est.symbol, mf, missing) : name;
+        const status = form === 'noise' && !fit ? noiseStatusCell(mf) : statusCell(fit, mf, gates, missing);
+        return { form, cells: [cellName, a, b, c, chi2Cell(fit), scaleCell(fit), status].map(text) };
       }),
     };
   });
   // Above the gate S is the RMS of a fit's residuals in the windows' own errors, too large for its form.
   const misfitRule = `Above S = ${formatNumber(gates.misfit_scale)} a fit's form does not describe its windows, and a drawn one is faded.`;
+  const noiseFloor = formatNumber(payload.gates?.noise_min_gev ?? NOISE_MIN_GEV);
+  // One sentence in both views: the E view draws no band (Martin's directive of 2026-11-15).
+  const noiseRule = `${NOISE_FORM_NAME} is fitted with a², b² and c² held non-negative, through ${mode === 'all'
+    ? `every fittable window from ${noiseFloor} GeV` : `the anchors and the lowest fittable window from ${noiseFloor} GeV, the low anchor`}; `
+    + 'a term the constraint holds at 0 is written "0 (held)". '
+    + 'c, the noise term c/E, belongs to that form alone. '
+    + `Where a term's SE exceeds its value, ${NOISE_FORM_NAME} and the quadrature form print its square with the square's SE `
+    + '(b² = 0.04 ± 8.1 %²), never a symmetric error larger than a term that cannot be negative.';
   if (energy) {
     return {
       mode,
       view: 'energy',
-      caption: typographic(`Fits${of} through ${modeLabel(mode, gates)}. This view draws the origin-pinned a₀/√E ⊕ 0 and, where both `
-        + 'of its terms are defined, the quadrature a/√E ⊕ b, each solid over the windows it was fitted to and dashed beyond; '
-        + 'the affine a/√E + b is drawn in the 1/√E view. '
-        + 'S = √(χ²/ν) scales a fit\'s standard errors where χ²/ν > 1 (PDG), and its band then takes Student\'s t of its ν; '
+      caption: typographic(`Fits${of} through ${modeLabel(mode, gates)}. This view draws one curve per series with no band: `
+        + `${NOISE_FORM_NAME} from 0 GeV, or, where a series has none, the origin-pinned a₀/√E ⊕ 0 from ${formatNumber(gates.e_min_gev)} GeV, `
+        + 'solid over the windows it was fitted to and dashed beyond; the other fits are tabled only, the affine a/√E + b drawn in the 1/√E view. '
+        + `${noiseRule} `
+        + 'S = √(χ²/ν) scales a fit\'s standard errors where χ²/ν > 1 (PDG); '
         + `S = 1 where the windows' own errors stand. ${misfitRule}`),
       columns: [...FIT_TABLE_COLUMNS],
       rows,
@@ -1266,7 +1391,8 @@ export function fitTableRows(payload, opts = {}) {
   }
   return {
     mode,
-    caption: typographic(`Fits${of} through ${modeLabel(mode, gates)}; the quadrature form is tabled, not drawn. `
+    caption: typographic(`Fits${of} through ${modeLabel(mode, gates)}; the quadrature form is tabled, not drawn, and so is `
+      + `${NOISE_FORM_NAME}, whose windows reach below this view's ${formatNumber(gates.e_min_gev)} GeV edge. ${noiseRule} `
       + 'S = √(χ²/ν) scales a fit\'s standard errors where χ²/ν > 1 (PDG), and its band then takes Student\'s t of its ν; '
       + `S = 1 where the windows' own errors stand. ${misfitRule}`),
     columns: [...FIT_TABLE_COLUMNS],
@@ -1274,14 +1400,232 @@ export function fitTableRows(payload, opts = {}) {
   };
 }
 
-/** The Fit cell of one form in the E view: what the view draws of it, and why not where it does not. */
-function energyTableName(form, fit, sym = 'σ/E') {
-  if (form === 'affine') return 'Affine a/√E + b — drawn in the 1/√E view';
+/**
+ * The Fit cell of one form in the E view: what the view draws of it, and why
+ * not where it does not. One curve per series (Martin's directive of
+ * 2026-11-15): a/√E ⊕ b ⊕ c/E where drawable, else a₀/√E as the fallback, so
+ * a₀/√E beside a drawn a/√E ⊕ b ⊕ c/E is table only. a/√E ⊕ b is table only
+ * (Martin's decisions of 2026-11-13). An a₀/√E with nothing to draw says
+ * why first, `missing` (`fitMissingReason`; review-ui F2), so a fit that was
+ * never made is never called "table only".
+ */
+function energyTableName(form, fit, sym = 'σ/E', mf = null, missing = TOO_FEW_WINDOWS) {
+  // A series with no fit from 4 GeV (robust declines, no pooled scale, too few windows) has no affine or quadrature
+  // fit either: the cell gives the same cause as the pinned one, never "drawn in the 1/√E view" for a fit that is not.
+  if (form === 'affine') return fit ? 'Affine a/√E + b — drawn in the 1/√E view' : `Affine a/√E + b — not fitted: ${missing}`;
   if (form === 'pinned') {
-    return pinnedDrawable(fit) ? 'Origin-pinned a₀/√E ⊕ 0 — drawn' : 'Origin-pinned a₀/√E ⊕ 0 — not drawn: too few windows';
+    if (!pinnedDrawable(fit)) return `Origin-pinned a₀/√E ⊕ 0 — not drawn: ${missing}`;
+    if (noiseDrawable(mf?.noise)) return 'Origin-pinned a₀/√E ⊕ 0 — table only on this view';
+    return `Origin-pinned a₀/√E ⊕ 0 — drawn: no ${NOISE_FORM_NAME} fit`;
   }
+  if (form === 'noise') {
+    if (noiseDrawable(fit)) return `${NOISE_FORM_NAME} — drawn`;
+    return `${NOISE_FORM_NAME} — not drawn: ${noiseReasonClause(mf)}`;
+  }
+  if (!fit) return `Quadrature a/√E ⊕ b — not fitted: ${missing}`;
   const reason = quadratureReason(fit, sym);
-  return reason ? `Quadrature a/√E ⊕ b — not drawn: ${reason}` : 'Quadrature a/√E ⊕ b — drawn';
+  return `Quadrature a/√E ⊕ b — table only${reason ? `: ${reason}` : ''}`;
+}
+
+/** The Status cell of a mode with no noise fit: the server's reason, as a clause. */
+function noiseStatusCell(mf) {
+  return `no fit: ${noiseReasonClause(mf)}`;
+}
+
+/**
+ * The windows cell of one series: the mode's windows (the affine, pinned and
+ * quadrature fits), and, where a/√E ⊕ b ⊕ c/E ran through other windows (the
+ * 1–4 GeV windows, the low anchor), its own list with the low anchor named.
+ */
+function tableWindowsText(payload, s, mf, mode) {
+  const base = windowsText(payload, s, mf);
+  const noise = mf?.noise ?? null;
+  if (!noise) return base;
+  const same = (noise.points ?? []).length === (mf.points ?? []).length
+    && (noise.points ?? []).every((b) => (mf.points ?? []).includes(b));
+  if (same && noise.low_anchor === null) return base;
+  return `${base}. ${NOISE_FORM_NAME}: ${noiseWindowsText(payload, s, mf, mode)}`;
+}
+
+/* ======================================================= the noise fit == */
+
+/*
+ * The words of a/√E ⊕ b ⊕ c/E (brief section 8 and 11 of res-noise, verbatim
+ * where the brief quotes them), exported for the drawer (models_notes.js).
+ * "the noise term c/E" is written wherever c could be read as the calibration
+ * constant c·E_dep or the pooled scale c of the fit weights.
+ */
+
+/** The constraint sentence: how the form is fitted, in the plotted quantity's symbol. */
+export function noiseConstraintText(sym = 'σ/E') {
+  return `Fitted as (${sym})² = A/E + B + C/E² by weighted least squares with A = a², B = b² and C = c² held non-negative, so every term is real.`;
+}
+
+/** The held phrase: "b = 0, held there by the constraint b² ≥ 0", its plural for two terms; '' with none. */
+export function noiseHeldPhrase(held) {
+  const h = [...(held ?? [])];
+  if (!h.length) return '';
+  if (h.length === 1) return `${h[0]} = 0, held there by the constraint ${h[0]}² ≥ 0`;
+  const and = (xs) => (xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+  return `${and(h.map((t) => `${t} = 0`))}, held there by the constraints ${and(h.map((t) => `${t}² ≥ 0`))}`;
+}
+
+/**
+ * The sentence every fitted curve's tooltip on the E view carries, verbatim
+ * (Martin's directive of 2026-11-15): no band is drawn there, and where the
+ * fit's uncertainty is instead.
+ */
+export const ENERGY_NO_BAND_TEXT = 'No band is drawn on this view: the standard errors above and the fit table carry the fit\'s uncertainty.';
+
+/**
+ * The share of the x axis from E = 0 below which an entry reads as the axis
+ * line (brief-fix m7): a fixed fraction, so the output is deterministic.
+ */
+export const NOISE_AXIS_SHARE = 1e-3;
+
+/** What the entry caret and the drawer add where a curve enters below `NOISE_AXIS_SHARE` of the axis (brief-fix m7, verbatim). */
+export const NOISE_AXIS_LINE_TEXT = 'less than 0.1% of the axis from E = 0: the curve runs up along the axis line there.';
+
+/** The floor sentence: why the noise fit uses windows from `floor` GeV (1). */
+export function noiseFloorText(floor = NOISE_MIN_GEV) {
+  return `It uses windows from ${formatNumber(floor)} GeV: below that a 1 GeV window reaches momenta near zero, so its average of 1/E² is far `
+    + 'from what its plotted energy implies, and no single abscissa can carry the noise term c/E.';
+}
+
+/** The naming caveat: c is a fitted coefficient, not a measured noise level. */
+export const NOISE_NAMING_CAVEAT = 'c/E is the calorimeter\'s conventional noise term. Here it takes up whatever grows like 1/E at low momentum '
+  + '(for a network, its pull toward mid-range; under Median |rel. err.|, the response\'s bias as well), so c is a fitted coefficient, '
+  + 'not a measured noise level.';
+
+/**
+ * The low-anchor sentence of the 3-anchor mode, the low anchor by its label.
+ * `nAnchors` is the anchors it runs through besides the low anchor: three as a
+ * rule, two on a table whose anchors coincide (the XGBoost recordings), so the
+ * count is said as it is, as the drawer says it (N-notes).
+ */
+export function noiseLowAnchorText(label, floor = NOISE_MIN_GEV, nAnchors = 3) {
+  const count = { 1: 'the one anchor', 2: 'the two anchors', 3: 'the three anchors' }[nAnchors] ?? `the ${formatInt(nAnchors)} anchors`;
+  return `In the 3-anchor mode it runs through ${count} and the lowest fittable window from ${formatNumber(floor)} GeV (${label}), `
+    + 'since anchors from 5 GeV cannot fix a 1/E term.';
+}
+
+/** The least |ρ| between two fitted squares that the card calls strong (the drawer's `STRONG_RHO`, N-notes). */
+export const NOISE_STRONG_RHO = 0.7;
+
+/**
+ * The correlation line (brief section 11): the non-null correlations of the
+ * fitted squares from `params.rho`, or null where none is (two terms held, so
+ * no free pair). §11's sentence where the largest |ρ| reaches
+ * `NOISE_STRONG_RHO` and every ρ is negative (the terms trade off); "strongly
+ * correlated" without the trade-off where a strong ρ is positive; below it,
+ * the largest |ρ|, never "strongly" (the single-shower recordings: |ρ| ≈ 0.3).
+ */
+export function noiseCorrelationText(rho) {
+  const pairs = [['a2b2', 'ρ(a², b²)'], ['a2c2', 'ρ(a², c²)'], ['b2c2', 'ρ(b², c²)']].filter(([key]) => Number.isFinite(rho?.[key]));
+  if (!pairs.length) return null;
+  const list = pairs.map(([key, name]) => `${name} = ${sig(rho[key])}`).join(', ');
+  const largest = Math.max(...pairs.map(([key]) => Math.abs(rho[key])));
+  if (largest < NOISE_STRONG_RHO) {
+    // Rounded as the list is, except where rounding would read as the threshold it lies below: 0.69999 is
+    // truncated to 0.699, never shown as "0.7, below 0.7".
+    const rounded = sig(largest);
+    const shown = Number(rounded) >= NOISE_STRONG_RHO ? sig(Math.floor(largest * 1000) / 1000) : rounded;
+    return `${list}: no pair of the fitted squares is strongly correlated here (largest |ρ| = ${shown}, below ${formatNumber(NOISE_STRONG_RHO)}).`;
+  }
+  if (pairs.every(([key]) => rho[key] < 0)) {
+    return `${list}: the terms trade off against each other over the fitted windows, so the curve is better determined than its terms.`;
+  }
+  return `${list}: the fitted squares are strongly correlated over the fitted windows, so the curve is better determined than its terms.`;
+}
+
+/**
+ * The entry caret's sentence: where the curve comes down into the plot, and
+ * the term that makes it rise without bound as E → 0 (the noise term c/E when
+ * C > 0, else the stochastic term a/√E).
+ */
+export function noiseEntryText(energy, term) {
+  const through = term === 'c' ? 'noise term c/E' : 'stochastic term a/√E';
+  return `It comes down into the plot at E = ${sig(energy)} GeV: ${NOISE_FORM_NAME} rises without bound as E → 0, through its ${through}.`;
+}
+
+/** The ratio panel's count of windows below the noise floor, under a deposit a/√E ⊕ b ⊕ c/E reference. */
+export function noiseBelowText(n, floor = NOISE_MIN_GEV) {
+  const f = formatNumber(floor);
+  return `${plural(n, 'window')} below ${f} GeV ${n === 1 ? 'is' : 'are'} not drawn on the ratio panel: `
+    + `no window below ${f} GeV enters the deposit's ${NOISE_FORM_NAME} fit.`;
+}
+
+/** A mode's noise_reason as a clause ("fewer than three windows …"), for the table and the reference's why. */
+function noiseReasonClause(mf) {
+  const reason = typeof mf?.noise_reason === 'string' && mf.noise_reason ? mf.noise_reason : 'no fit in this response';
+  return reason.replace(/^No a\/√E ⊕ b ⊕ c\/E fit:\s*/u, '').replace(/\.$/u, '');
+}
+
+/** The windows a noise fit ran through, by label, the low anchor named, with the mode's substitutions. */
+function noiseWindowsText(payload, s, mf, mode) {
+  const noise = mf?.noise;
+  if (!noise) return '—';
+  const subs = mf.substitutions ?? [];
+  const parts = (noise.points ?? []).map((bin) => {
+    const sub = subs.find((x) => x.used === bin);
+    const label = binLabel(payload, s, bin);
+    if (bin === noise.low_anchor) return `${label} (the low anchor)`;
+    return sub ? `${label} (for ${binLabel(payload, s, sub.nominal)})` : label;
+  });
+  const out = parts.length ? parts.join(', ') : 'none';
+  return mode === 'anchors' && (noise.low_anchor === null || noise.low_anchor === undefined)
+    ? `${out}; no low anchor: no other window from ${formatNumber(payload?.gates?.noise_min_gev ?? NOISE_MIN_GEV)} GeV is fittable` : out;
+}
+
+/** Whether a noise fit block can be drawn: its three squares finite and non-negative, one of them positive. */
+export function noiseDrawable(fit) {
+  const p = fit?.params ?? {};
+  return fit?.form === 'noise' && [p.a2, p.b2, p.c2].every((v) => Number.isFinite(v) && v >= 0) && p.a2 + p.b2 + p.c2 > 0;
+}
+
+/** The term that dominates a noise curve as E → 0: 'c' when C > 0, 'a' when A > 0, else null (flat). */
+function noiseTermAtZero(fit) {
+  const p = fit?.params ?? {};
+  if (p.c2 > 0) return 'c';
+  if (p.a2 > 0) return 'a';
+  return null;
+}
+
+/** The noise curve's lowest energy where it is not flat (GeV): its grid runs log-spaced from here to 4 GeV. */
+const NOISE_E_MIN_GEV = 0.01;
+/** The log-spaced steps of that grid below 4 GeV. */
+const NOISE_LOG_STEPS = 96;
+
+/**
+ * The energies a noise curve is evaluated at: log-spaced from
+ * `NOISE_E_MIN_GEV` to 4 GeV (the curve is steep there), the uniform
+ * `E_GRID_STEP_GEV` steps to `max`, and `extra` (span edges, entries) inside
+ * (0, max]; from exactly 0 for a flat curve (A = C = 0), which has a value there.
+ */
+function noiseGrid(fit, max, extra = []) {
+  const flat = noiseTermAtZero(fit) === null;
+  const out = flat ? [0] : [];
+  const top = Math.min(4, max);
+  for (let i = 0; i <= NOISE_LOG_STEPS; i += 1) out.push(NOISE_E_MIN_GEV * (top / NOISE_E_MIN_GEV) ** (i / NOISE_LOG_STEPS));
+  out.push(...energyGrid(E_GRID_STEP_GEV, max));
+  for (const e of extra) if (Number.isFinite(e) && e > 0 && e <= max) out.push(e);
+  out.sort((a, b) => a - b);
+  return out.filter((e, i) => i === 0 || e - out[i - 1] > 1e-9);
+}
+
+/**
+ * Where a noise curve's line comes down through `hi` (%), from C·u² + A·u +
+ * (B − hi²) = 0 with u = 1/E (the stable root 2(hi² − B)/(A + √(A² + 4C(hi² −
+ * B)))): {E}, or {above: true} where it stays above the top over the whole
+ * axis (B ≥ hi²), or null where it never rises above it (flat, B < hi²).
+ */
+function noiseLineEntry(fit, hi) {
+  const p = fit.params;
+  const H = hi * hi;
+  if (!(p.a2 > 0) && !(p.c2 > 0)) return p.b2 > H ? { above: true } : null;
+  if (p.b2 >= H) return { above: true };
+  const u = (2 * (H - p.b2)) / (p.a2 + Math.sqrt(p.a2 * p.a2 + 4 * p.c2 * (H - p.b2)));
+  return u > 0 ? { E: 1 / u } : { above: true };
 }
 
 /* ========================================================== the E view == */
@@ -1345,9 +1689,14 @@ export function ratioReferenceChoice(keys, windows, gates = DEFAULT_GATES, yMinG
   return { key: best.key, rule: 'farther', basis: robust.length ? 'robust' : (usable.length ? 'markers' : null), n: set.length, scores };
 }
 
-/** The windows a series draws on the E view in `mode`: every one on [0, x.max] that reports σ/E; anchors: its fitted ones. */
+/**
+ * The windows a series draws on the E view in `mode`: every one on [0, x.max]
+ * that reports σ/E; anchors: its fitted ones, the noise fit's low anchor among
+ * them (a/√E ⊕ b ⊕ c/E runs through it, so it is drawn).
+ */
 function windowsOnShow(s, mode, gates, xMax) {
-  const fitted = new Set(s.fits?.[mode]?.points ?? []);
+  const mf = s.fits?.[mode];
+  const fitted = new Set([...(mf?.points ?? []), ...(mf?.noise?.points ?? [])]);
   const eligible = (s.windows ?? []).filter((w) => Number.isFinite(w.value) && Number.isFinite(w.x) && w.x > 0
     && (w.n ?? 0) >= gates.report_n && 1 / (w.x * w.x) <= xMax + 1e-9);
   return mode === 'anchors' ? eligible.filter((w) => fitted.has(w.bin)) : eligible;
@@ -1367,8 +1716,16 @@ export const E_GRID_STEP_GEV = 0.25;
 export const LINEAR_VIEW_PX = 420;
 export const ENERGY_VIEW_PX = 600;
 
-/** The fits the E view draws, the wider line first; the affine fit stays on the 1/√E view. */
-export const ENERGY_FORMS = Object.freeze(['quadrature', 'pinned']);
+/**
+ * The fits the E view can draw, in order of preference: one curve per series
+ * (Martin's directive of 2026-11-15), a/√E ⊕ b ⊕ c/E from 0 GeV where the
+ * series has a drawable one, else a₀/√E from 4 GeV. The affine fit stays on
+ * the 1/√E view, and the quadrature a/√E ⊕ b is tabled in both.
+ */
+export const ENERGY_FORMS = Object.freeze(['noise', 'pinned']);
+
+/** Why a₀/√E is not drawn beside a drawn a/√E ⊕ b ⊕ c/E: never two fitted lines for one series. */
+const PINNED_TABLE_ONLY = `table only on this view: the ${NOISE_FORM_NAME} curve is drawn`;
 
 /** The ratio panel's share of the two grids' height. */
 const RATIO_SHARE = 0.26;
@@ -1380,12 +1737,10 @@ const RATIO_SHARE = 0.26;
 function gridGapPx() {
   return Math.round(1.4 * THEME.fontLabel);
 }
-/** A band's alpha beyond its fitted windows, as a share of its alpha over them. */
-const OUT_ALPHA = 1 / 3;
-/** Shower B's line and band strength on this view, where the dash means extrapolation. */
+/** Shower B's line strength on this view, where the dash means extrapolation. */
 const B_STRENGTH = 0.7;
 /**
- * A band that spans half its axis or more is drawn as its two edges: this width (× `lineAxis`)
+ * A 1/√E-view band that spans half its axis or more is drawn as its two edges: this width (× `lineAxis`)
  * and this asked opacity, raised to 3:1 where the card needs it.
  */
 const EDGE_WIDTH = 0.8;
@@ -1407,41 +1762,48 @@ const LITERATURE_WIDTH = 1.6;
 /** An extrapolated part, and a literature curve. */
 const DASH_EXTRAPOLATED = [6, 4];
 const DASH_LITERATURE = [1.5, 3];
-/** The band quantile of a fit block that carries none. */
+/** The band quantile of a fit block that carries none (the 1/√E view's affine and pinned bands). */
 const DEFAULT_QUANTILE = 1.96;
-/** A ratio band's alpha as a share of its band on the main panel: faint, since it is conditional. */
-const RATIO_BAND_SHARE = 0.5;
-/** The deposit reference's own band about 1, as a share of `bandAlpha`: a neutral background wash. */
-const REFERENCE_BAND_SHARE = 0.7;
 /** A literature curve's legend swatch: three dots, as the curve is drawn. */
 const LITERATURE_ICON = 'path://M0,4h2.4v2.4h-2.4zM5,4h2.4v2.4h-2.4zM10,4h2.4v2.4h-2.4z';
 /** What the literature curves' tooltips and the drawer say of their provenance. */
 export const LITERATURE_PROVENANCE = 'as printed in the legend of the supplied figure (ECCE G4 simulation, dual-readout '
-  + 'inlay, 2.55 < η < 3.98); no interval reported; the figure does not state the energy range the curve was fitted over; '
+  + `inlay, 2.55 < η < 3.98), ${REFERENCE_UNITS}; no interval reported; the figure does not state the energy range the curve was fitted over; `
   + 'it is drawn over the whole axis; it describes that simulation\'s particles, not this detector';
 
 /* --------------------------------------------------------- evaluators -- */
 
 /**
- * One fit block at one energy, in %, from its params alone: {y, lo, hi,
- * cutLo}, or null where the fit has no value there. x = 1/√E and q the
- * block's `band_quantile` (1.96 when absent).
+ * One fit block at one energy, in %, from its params alone, or null where the
+ * fit has no value there. x = 1/√E and q the block's `band_quantile` (1.96
+ * when absent).
  *
- * - pinned: y = a₀·x, half-width q·SE(a₀)·x;
- * - affine: y = a·x + b, half-width q·√((x·SE(a))² + 2ρ·x·SE(a)·SE(b) + SE(b)²);
- * - quadrature: z = A·u + B with u = 1/E, half-width h = q·√max((u·SE(A))² +
- *   2ρ·u·SE(A)·SE(B) + SE(B)², 0), returned through √ as (√max(z, 0),
- *   √max(z − h, 0), √max(z + h, 0)): the exact 95% band of √(A/E + B), since z
- *   is linear in (A, B) and √ is monotone; `cutLo` where z − h < 0.
+ * - pinned: {y, lo, hi, cutLo}, y = a₀·x, half-width q·SE(a₀)·x;
+ * - affine: {y, lo, hi, cutLo}, y = a·x + b, half-width
+ *   q·√((x·SE(a))² + 2ρ·x·SE(a)·SE(b) + SE(b)²);
+ * - noise: {y} alone, y = √max(z, 0) with z = A·u + B + C·u², u = 1/E, the
+ *   constrained fit's line. No band is computed for this form, conditional or
+ *   otherwise (Martin's directive of 2026-11-15: the E view draws none, and
+ *   `rfit.band` refuses the form). At E = 0 only a flat curve (A = C = 0) has
+ *   a value.
  *
+ * The affine and pinned half-widths are the 1/√E view's bands
+ * (`withSpanEdges`); on the E view the a₀/√E fallback draws its line alone.
  * The SEs are the block's scaled ones and ρ its correlation (S cancels in it),
  * so the covariance is the server's (`stats/resolution_fit.band`).
  */
 function evalFitAt(fit, energy) {
-  if (!fit || !Number.isFinite(energy) || !(energy > 0)) return null;
+  if (!fit || !Number.isFinite(energy)) return null;
   const p = fit.params ?? {};
   const q = Number.isFinite(fit.band_quantile) ? fit.band_quantile : DEFAULT_QUANTILE;
   const num = (v) => (Number.isFinite(v) ? v : 0);
+  if (fit.form === 'noise') {
+    if (![p.a2, p.b2, p.c2].every(Number.isFinite)) return null;
+    if (!(energy > 0) && (energy !== 0 || p.a2 > 0 || p.c2 > 0)) return null;
+    const u = energy > 0 ? 1 / energy : 0;
+    return { y: Math.sqrt(Math.max(p.a2 * u + p.b2 + p.c2 * u * u, 0)) };
+  }
+  if (!(energy > 0)) return null;
   const x = 1 / Math.sqrt(energy);
   if (fit.form === 'pinned') {
     if (!Number.isFinite(p.a0)) return null;
@@ -1457,48 +1819,33 @@ function evalFitAt(fit, energy) {
     const half = q * Math.sqrt(Math.max((x * sa) ** 2 + 2 * num(p.rho_ab) * x * sa * sb + sb * sb, 0));
     return { y, lo: y - half, hi: y + half, cutLo: y - half < 0 };
   }
-  if (fit.form === 'quadrature') {
-    if (!Number.isFinite(p.a2) || !Number.isFinite(p.b2)) return null;
-    const sa = num(p.se_a2);
-    const sb = num(p.se_b2);
-    const u = 1 / energy;
-    const z = p.a2 * u + p.b2;
-    const half = q * Math.sqrt(Math.max((u * sa) ** 2 + 2 * num(p.rho_a2b2) * u * sa * sb + sb * sb, 0));
-    return {
-      y: Math.sqrt(Math.max(z, 0)), lo: Math.sqrt(Math.max(z - half, 0)), hi: Math.sqrt(Math.max(z + half, 0)),
-      cutLo: z - half < 0,
-    };
-  }
   return null;
 }
 
-/** `[[E, y, lo, hi], …]` in % at `energies` (GeV), from the fit block alone (`evalFitAt`). */
+/**
+ * A fit's rows in % at `energies` (GeV), from the fit block alone
+ * (`evalFitAt`): `[[E, y, lo, hi], …]` for the pinned and affine forms, and
+ * `[[E, y], …]` for a/√E ⊕ b ⊕ c/E, its line alone, since no band is computed
+ * for that form.
+ */
 export function fitCurveE(fit, energies) {
   const out = [];
   for (const e of energies ?? []) {
     const v = evalFitAt(fit, e);
-    if (v && Number.isFinite(v.y)) out.push([e, v.y, v.lo, v.hi]);
+    if (!v || !Number.isFinite(v.y)) continue;
+    out.push(fit.form === 'noise' ? [e, v.y] : [e, v.y, v.lo, v.hi]);
   }
   return out;
 }
 
-/** Why the E view does not draw a quadrature fit block, or null where it does. */
+/** Why a quadrature fit block has no curve (the fit table's E-view name): a term undefined, or no fit at all; null where both are defined. */
 function quadratureReason(fit, sym = 'σ/E') {
   if (!fit) return 'too few windows';
   const p = fit.params ?? {};
   const reasons = [];
   if (p.a_defined !== true) reasons.push(`A ≤ 0: ${sym} rises with E`);
   if (p.b_defined !== true) reasons.push(`B ≤ 0: ${sym} falls faster than 1/√E, so there is no real constant term`);
-  if (reasons.length) return reasons.join('; ');
-  if (!Number.isFinite(p.rho_a2b2) || !Number.isFinite(p.a2) || !Number.isFinite(p.b2)) {
-    return 'the correlation of A and B is not in the response, so its band cannot be built';
-  }
-  return null;
-}
-
-/** Whether the E view draws a quadrature fit: both terms defined, and its band buildable (a finite ρ(A, B)). */
-export function quadratureDrawable(fit) {
-  return quadratureReason(fit) === null;
+  return reasons.length ? reasons.join('; ') : null;
 }
 
 /** Whether an origin-pinned fit block has a slope to draw. */
@@ -1554,22 +1901,25 @@ export function ratioRange(marks) {
 }
 
 /**
- * The share of its axis a band must cover, at one E of its fitted span, to be
- * drawn as its edges. Half: measured on the stored experiments (2026-11-10),
- * the three-anchor quadrature bands (ν = 1, Student's t₀.₉₇₅,₁ = 12.71 once S
- * scales them) covered up to 96% of the σ/E axis without reaching both ends,
- * and as washes they fogged every mark under them. A band that spans half the
- * axis says the fit is barely constrained there; its two edges say as much,
- * and leave the windows legible.
+ * The share of its axis a band of the 1/√E view must cover, at one x of its
+ * fitted span (x = 1/√E, `xSpanOf`), to be drawn as its edges. Half: once the
+ * windows alone set the range (Martin's decision of 2026-11-11), the three
+ * anchors' ν = 1 affine bands (Student's t₀.₉₇₅,₁ = 12.71 once S scales them)
+ * washed over the whole plot and fogged every mark under them (CLAUDE.md
+ * section 5, the 1/√E view's wide bands). A band that spans half the axis says
+ * the fit is barely constrained there; its two edges say as much, and leave
+ * the windows legible. The E view draws no band (Martin's directive of
+ * 2026-11-15).
  */
 export const OUTLINE_SHARE = 0.5;
 
 /**
- * Whether a band `[[E, lo, hi], …]` spans `OUTLINE_SHARE` of its axis
- * [floor, top] or more over its fitted span: at some E in the span, the part
+ * Whether a band `[[x, lo, hi], …]` spans `OUTLINE_SHARE` of its axis
+ * [floor, top] or more over its fitted span: at some x in the span, the part
  * of it inside the axis covers that share of the axis, on the scale the panel
- * draws (`log` for the ratio panel). Such a band is drawn as its two edges,
- * never as a wash that floods the panel.
+ * draws (`log` for a log axis). Such a band is drawn as its two edges, never
+ * as a wash that floods the panel. The 1/√E view's alone: the E view draws no
+ * band (Martin's directive of 2026-11-15).
  */
 export function bandSpansShare(rows, span, floor, top, log = false) {
   if (!span) return false;
@@ -1669,21 +2019,130 @@ function clipLog(points, k) {
 }
 
 /**
- * Where ratio rows `[E, r, lo, hi]` first leave [1/k, k], scanning up in E, or
- * null: {at, dir, lineAt, bandAt, peak}, `peak` the row that deviates most
- * (its true values).
+ * Where a ratio line, rows `[E, r]`, first leaves [1/k, k], scanning up in E,
+ * or null: {at, dir, peak}, `peak` the row that deviates most (its true
+ * values). A line alone: every caller passes one, since the E view draws no
+ * band (Martin's directive of 2026-11-15).
  */
 function ratioCut(rows, k) {
   const lk = Math.log(k);
   const dev = (v) => (Number.isFinite(v) && v > 0 ? Math.abs(Math.log(v)) : Infinity);
-  const devRows = rows.map(([e, r, lo, up]) => [e, dev(r), 0, Math.max(dev(r), dev(lo), dev(up))]);
+  const devRows = rows.map(([e, r]) => {
+    const d = dev(r);
+    return [e, d, d, d];
+  });
   const cut = cutAbove(devRows, lk);
   if (!cut) return null;
-  // The first row beyond the axis, by the mark the caret follows (the line where it leaves, else the band).
-  const line = cut.lineAt !== null;
-  const row = rows[Math.max(0, devRows.findIndex((d) => (line ? d[1] : d[3]) > lk))];
-  const up = line ? row[1] > 1 : row[3] > k;
-  return { at: cut.at, dir: up ? 'up' : 'down', lineAt: cut.lineAt, bandAt: cut.bandAt, peak: rows[devRows.indexOf(cut.peak)] ?? row };
+  // The first row beyond the axis, where the caret's direction is read.
+  const row = rows[Math.max(0, devRows.findIndex((d) => d[1] > lk))];
+  return { at: cut.at, dir: row[1] > 1 ? 'up' : 'down', peak: rows[devRows.indexOf(cut.peak)] ?? row };
+}
+
+/**
+ * Where a fitted curve's ratio line, rows `[E, r]`, comes into [1/k, k] from
+ * outside as E rises from its first row (a noise fit's ratio is defined from
+ * 0 GeV and often starts beyond the axis; the a₀/√E fallback's starts at
+ * curveMin, review-ui F5): {entry, rest}. `entry` {at, dir, whole, peak} | null:
+ * where the line comes in; `whole` where it stays outside over every row (its
+ * caret then sits at the last row); `peak` the first row, its true values.
+ * `rest` the rows from the entry on, `[E, r]`, which `ratioCut` then scans
+ * for a later exit. The line alone: no band is drawn on this view (Martin's
+ * directive of 2026-11-15).
+ */
+function ratioEntry(rows, k) {
+  const lk = Math.log(k) * (1 + 1e-9);
+  const lr = (v) => (Number.isFinite(v) && v > 0 ? Math.abs(Math.log(v)) : Infinity);
+  const lineIn = (r) => lr(r[1]) <= lk;
+  if (!rows.length) return { entry: null, rest: rows };
+  const dirOf = (v) => (Number.isFinite(v) && v > 1 ? 'up' : 'down');
+  const iLine = rows.findIndex(lineIn);
+  if (iLine < 0) return { entry: { at: rows[rows.length - 1][0], dir: dirOf(rows[0][1]), whole: true, peak: rows[0] }, rest: [] };
+  const rest = rows.slice(iLine);
+  if (iLine > 0) {
+    const [e0, r0] = rows[iLine - 1];
+    const [e1, r1] = rows[iLine];
+    const dir = dirOf(r0);
+    const l0 = Math.log(r0);
+    const edge = dir === 'up' ? Math.log(k) : -Math.log(k);
+    const t = Number.isFinite(l0) ? (edge - l0) / (Math.log(r1) - l0) : 1;
+    return { entry: { at: e0 + Math.min(1, Math.max(0, t)) * (e1 - e0), dir, whole: false, peak: rows[0] }, rest };
+  }
+  return { entry: null, rest };
+}
+
+/** Where a fitted curve's rows `[E, y]` first leave the top `hi`, scanning up in E, or null: {at, peak [E, y] (where it reaches highest)}. */
+function lineCut(rows, hi) {
+  const cut = cutAbove(rows.map(([e, yv]) => [e, yv, yv, yv]), hi);
+  return cut ? { at: cut.at, peak: [cut.peak[0], cut.peak[1]] } : null;
+}
+
+/** Where a fitted curve's ratio rows `[E, r]` first leave [1/k, k], scanning up in E, or null: {at, dir, peak [E, r] (where it deviates most)}. */
+function ratioLineCut(rows, k) {
+  const cut = ratioCut(rows, k);
+  return cut ? { at: cut.at, dir: cut.dir, peak: [cut.peak[0], cut.peak[1]] } : null;
+}
+
+/**
+ * The E view's model of one a/√E ⊕ b ⊕ c/E fit block, drawn from 0 GeV, its
+ * line alone (Martin's directive of 2026-11-15: no band on this view): the
+ * shape of a drawn fit (`solid` over its `span_gev`, `dashed` below it to 0
+ * and above it to x.max, `cut`, …) plus
+ *
+ * - `full`: rows `[E, y]` over the whole domain, from `NOISE_E_MIN_GEV` (0 for
+ *   a flat curve), the ratio's source; `curve` the rows the main panel draws,
+ *   from where the line comes down through the top;
+ * - `entry` {at (the caret's E), lineAt, above (the line stays above the top
+ *   over the whole axis), term ('c' | 'a' | null, the term that rises as
+ *   E → 0), atAxis (`at` lies below `NOISE_AXIS_SHARE` of the axis from E = 0,
+ *   brief-fix m7)} | null: where the line comes down into the plot
+ *   (`noiseLineEntry`); `cut` any later exit, scanning up (`lineCut`);
+ * - `held`, `points`, `lowAnchor`: its held terms, windows and low anchor.
+ *
+ * Without a drawable block: {form, fit, drawable: false, reason (the server's
+ * noise_reason, as a clause), span: null, ratio: null, entry: null, cut: null}.
+ */
+function noiseFitModel(fit, mf, s, ref, x, hi) {
+  if (!noiseDrawable(fit)) {
+    return { form: 'noise', fit, drawable: false, reason: noiseReasonClause(mf), span: null, ratio: null, entry: null, cut: null };
+  }
+  const span = Array.isArray(fit.span_gev) && fit.span_gev.every(Number.isFinite) ? [fit.span_gev[0], fit.span_gev[1]] : null;
+  const top = Number.isFinite(hi) ? hi : Infinity;
+  const root = Number.isFinite(hi) ? noiseLineEntry(fit, hi) : null;
+  // A line that comes down through the top beyond the axis end stays above it over the whole axis.
+  const line = root?.E > x.max ? { above: true } : root;
+  const grid = noiseGrid(fit, x.max, [...(span ?? []), line?.E]);
+  const full = fitCurveE(fit, grid);
+  // The main panel draws from where the line comes down through the top; above it nothing shows.
+  const enteredAt = line?.E ?? 0;
+  const curve = line?.above ? [] : full.filter((r) => r[0] >= enteredAt - 1e-9);
+  const term = noiseTermAtZero(fit);
+  let entry = null;
+  if (line?.above) entry = { at: x.max, lineAt: null, above: true, term };
+  else if (line?.E) entry = { at: line.E, lineAt: line.E, above: false, term };
+  // An entry below NOISE_AXIS_SHARE of the axis from E = 0 reads as the axis line (brief-fix m7).
+  if (entry) entry.atAxis = entry.at < x.max * NOISE_AXIS_SHARE;
+  // Any exit above the entry, scanning up in E.
+  const cut = line?.above ? null : lineCut(full.filter((r) => r[0] > enteredAt + 1e-9), hi);
+  const parts = splitAtSpan(curve, span);
+  const lineRuns = (rows) => clipPolyline(rows, 0, top);
+  const isReference = Boolean(ref && !ref.reason && ref.series === s.key && ref.form === 'noise');
+  let ratio = null;
+  if (ref && !ref.reason && !isReference) {
+    const rows = full.map(([e, yv]) => {
+      const r = ref.valueAt(e);
+      return r > 0 ? [e, yv / r] : null;
+    }).filter(Boolean);
+    ratio = rows.length ? { rows } : null;
+  }
+  const provisional = Boolean(fit.provisional);
+  const misfit = isMisfit(fit);
+  return {
+    form: 'noise', fit, drawable: true, reason: null, span, domain: [curve[0]?.[0] ?? 0, x.max], curve, full,
+    solid: lineRuns(parts.inside), dashed: [...lineRuns(parts.below), ...lineRuns(parts.above)],
+    entry, cut, provisional, misfit, faded: provisional || misfit,
+    converged: fit.converged !== false, isReference, ratio,
+    held: [...(fit.params?.held ?? [])], points: [...(fit.points ?? [])], lowAnchor: fit.low_anchor ?? null,
+  };
 }
 
 /** A series' short name on the canvas note: the shower letter (two showers only) and the estimator. */
@@ -1693,39 +2152,62 @@ function shortName(s, nShowers) {
   return nShowers > 1 && s.shower ? `${String(s.shower).toUpperCase()} ${source}` : source;
 }
 
-/** The ratio's reference for one shower under 'deposit': its detector series' a/√E ⊕ b fit, else its a₀/√E. */
-function depositReference(all, shower, mode, nShowers, curveMin, xMax, sym = 'σ/E') {
+/**
+ * The ratio's reference for one shower under 'deposit' (Martin's decisions of
+ * 2026-11-13): its detector series' a/√E ⊕ b ⊕ c/E fit, defined from 0 GeV,
+ * whose ratio marks start at the noise fit's floor (`noiseMin`, 1 GeV: no
+ * window below it enters that fit); else its a₀/√E from `curveMin`, as before,
+ * its `why` giving the server's `noise_reason`. `floorGev` is the lowest
+ * window edge that takes a ratio mark against it, and `floorBy` how a window is
+ * held to it ('p_lo' for the noise fit, 'E' for a₀/√E, whose curve starts there).
+ */
+function depositReference(all, shower, mode, nShowers, curveMin, xMax, sym = 'σ/E', noiseMin = NOISE_MIN_GEV) {
   const owner = nShowers > 1 ? `shower ${String(shower).toUpperCase()}'s deposit` : 'the deposit';
   const det = all.find((s) => s.source === 'detector' && (s.shower ?? 'a') === shower) ?? null;
+  // `interval` null: the reference is held exact and no band about 1 is drawn (Martin's directive of 2026-11-15).
   const base = {
-    key: 'deposit', shower, literature: null, interval: 'band', series: det?.key ?? null, seriesLabel: det?.label ?? null,
-    form: null, fit: null, span: null, provisional: false, misfit: false, band: null, bandClipped: false, why: null, valueAt: () => null,
+    key: 'deposit', shower, literature: null, interval: null, series: det?.key ?? null, seriesLabel: det?.label ?? null,
+    form: null, fit: null, span: null, provisional: false, misfit: false, why: null, valueAt: () => null,
+    floorGev: null, floorBy: null, noiseReason: null,
   };
   if (!det) return { ...base, label: `${owner} fit`, reason: 'this shower has no calibrated-deposit series' };
   const mf = det.fits?.[mode] ?? null;
-  const quad = mf?.quadrature ?? null;
+  const noise = noiseDrawable(mf?.noise) ? mf.noise : null;
   const pinned = mf?.pinned ?? null;
-  const fit = quadratureDrawable(quad) ? quad : (pinnedDrawable(pinned) ? pinned : null);
-  if (!fit) {
-    return { ...base, label: `${owner} fit`, reason: `${owner} series has no a/√E ⊕ b or a₀/√E fit in this mode, so this shower has no ratio marks` };
+  const noiseReason = noise ? null : (mf?.noise_reason ?? null);
+  if (noise) {
+    const span = Array.isArray(noise.span_gev) ? [noise.span_gev[0], noise.span_gev[1]] : null;
+    const valueAt = (e) => {
+      if (!(e >= 0 && e <= xMax + 1e-9)) return null;
+      const v = evalFitAt(noise, e);
+      return v && v.y > 0 ? v.y : null;
+    };
+    return {
+      ...base,
+      label: `${owner} ${NOISE_FORM_NAME} fit`,
+      why: `its ${NOISE_FORM_NAME} fit, drawn from 0 GeV; its ratio marks start at ${formatNumber(noiseMin)} GeV, the lowest window edge the fit uses`,
+      form: 'noise', fit: noise, span, provisional: Boolean(noise.provisional), misfit: isMisfit(noise), valueAt,
+      reason: null, floorGev: noiseMin, floorBy: 'p_lo', held: [...(noise.params?.held ?? [])],
+    };
   }
-  const form = fit.form;
+  if (!pinnedDrawable(pinned)) {
+    return {
+      ...base, label: `${owner} fit`, noiseReason,
+      reason: `${owner} series has no ${NOISE_FORM_NAME} or a₀/√E fit in this mode, so this shower has no ratio marks`,
+    };
+  }
   const span = spanOf(mf, det);
   const valueAt = (e) => {
     if (!(e >= curveMin - 1e-9 && e <= xMax + 1e-9)) return null;
-    const v = evalFitAt(fit, e);
+    const v = evalFitAt(pinned, e);
     return v && v.y > 0 ? v.y : null;
   };
-  const rel = fitCurveE(fit, energyGrid(curveMin, xMax, span ?? []))
-    .filter((r) => r[1] > 0).map(([e, yv, lo, up]) => [e, 1, lo / yv, up / yv]);
   return {
     ...base,
-    label: form === 'quadrature' ? `${owner} a/√E ⊕ b fit` : `${owner} a₀/√E fit`,
-    why: form === 'quadrature'
-      ? `its a/√E ⊕ b fit, both of whose terms are defined`
-      : `its a₀/√E fit, since its a/√E ⊕ b fit is not drawn (${quadratureReason(quad, sym)})`,
-    form, fit, span, provisional: Boolean(fit.provisional ?? mf?.provisional), misfit: isMisfit(fit), valueAt,
-    band: splitAtSpan(rel, span), reason: null,
+    label: `${owner} a₀/√E fit`,
+    why: `its a₀/√E fit, since it has no ${NOISE_FORM_NAME} fit (${noiseReasonClause(mf)})`,
+    form: 'pinned', fit: pinned, span, provisional: Boolean(pinned.provisional ?? mf?.provisional), misfit: isMisfit(pinned), valueAt,
+    reason: null, floorGev: curveMin, floorBy: 'E', noiseReason,
   };
 }
 
@@ -1733,18 +2215,88 @@ function depositReference(all, shower, mode, nShowers, curveMin, xMax, sym = 'σ
 function literatureReference(entry, shower) {
   return {
     key: entry.key, shower, literature: entry, interval: null, series: null, seriesLabel: null, form: 'literature', fit: null,
-    span: null, provisional: false, misfit: false, band: null, bandClipped: false, label: referenceLabel(entry), equation: referenceEquation(entry),
+    span: null, provisional: false, misfit: false, label: referenceLabel(entry), equation: referenceEquation(entry),
     why: `${referenceEquation(entry)}, ${LITERATURE_PROVENANCE}`, reason: null,
     valueAt: (e) => referenceValue(entry, e),
   };
 }
 
-/** The roles of a window below the curves' floor: drawn as a point, never fitted. */
-function belowRoles(w, gates, curveMin) {
-  const roles = [`below ${formatNumber(curveMin)} GeV: no fit uses it; drawn as a point only`];
+/**
+ * The 1/√E view's provisional role in the E view's words (brief-fix m2): on
+ * this view windows of N ≥ 20 below 4 GeV can be drawn, so the fallback's
+ * count is said of the windows from 4 GeV, where it is taken.
+ */
+function energyProvisionalRole(gates) {
+  const from = `fewer than two windows from ${formatNumber(gates.e_min_gev)} GeV reach N = `;
+  return (role) => role.replace(/^part of a provisional fit: fewer than two windows reach N = /u, `part of a provisional fit: ${from}`);
+}
+
+/** The roles of a window below the noise fit's floor (1 GeV): drawn as a point, never fitted. */
+function belowRoles(w, gates, floor) {
+  const roles = [`below ${formatNumber(floor)} GeV: no fit uses it; drawn as a point only`];
   if ((w.n ?? 0) < gates.whisker_n) roles.push(`below the whisker floor N = ${formatInt(gates.whisker_n)}: drawn as a faded ring`);
   else if ((w.n ?? 0) < gates.fit_n) roles.push(`N < ${formatInt(gates.fit_n)}: drawn faded`);
   return roles;
+}
+
+/**
+ * The role lines of one window on the E view (Martin's decisions of
+ * 2026-11-13: a/√E ⊕ b ⊕ c/E runs through windows from 1 GeV, so a window of
+ * 1–4 GeV can be fitted): the 1/√E view's for a window the mode's other fits
+ * use; "fitted by a/√E ⊕ b ⊕ c/E only" for one only the noise fit uses (the
+ * low anchor named); for a window of 1–4 GeV the noise fit leaves out, why;
+ * below 1 GeV, no fit.
+ */
+function energyRoles(payload, s, mf, mode, w, gates, curveMin, noiseMin) {
+  const pLo = Number.isFinite(w.p_lo) ? w.p_lo : 1 / (w.x * w.x);
+  if (pLo < noiseMin) return belowRoles(w, gates, noiseMin);
+  const noise = mf?.noise ?? null;
+  const inNoise = (noise?.points ?? []).includes(w.bin);
+  const inMode = (mf?.points ?? []).includes(w.bin);
+  const est = estimatorOf(payload);
+  const lowOfAnchors = s.fits?.anchors?.noise?.low_anchor ?? null;
+  const allNote = mode === 'all' && lowOfAnchors === w.bin && !inMode
+    ? [`the low anchor of the 3-anchor mode's ${NOISE_FORM_NAME} fit (the larger marker)`] : [];
+  if (inMode) {
+    const roles = roleOf(payload, s, mf, mode, w, gates).map(energyProvisionalRole(gates));
+    return inNoise ? roles : [...roles, `not in the ${NOISE_FORM_NAME} fit`];
+  }
+  if (inNoise) {
+    // From 4 GeV a window the noise fit uses but a₀/√E does not is one Robust σ (IQR) declines there (brief-fix nit 1).
+    const declined = pLo >= curveMin && declinedWindow(est, s, mf, mode, gates)?.bin === w.bin;
+    let lead;
+    if (noise.low_anchor === w.bin) {
+      lead = `the low anchor of the ${NOISE_FORM_NAME} fit: the lowest fittable window from ${formatNumber(noiseMin)} GeV, `
+        + 'since anchors from 5 GeV cannot fix a 1/E term; a₀/√E does not use it';
+    } else if (declined) {
+      lead = `fitted by ${NOISE_FORM_NAME} only; declined by a₀/√E: ${declinedText(w)}`;
+    } else if (pLo >= curveMin) {
+      lead = `fitted by ${NOISE_FORM_NAME} only: a₀/√E does not use it in this mode`;
+    } else {
+      lead = `fitted by ${NOISE_FORM_NAME} only: a₀/√E uses windows from ${formatNumber(curveMin)} GeV`;
+    }
+    const roles = [lead];
+    if (noise.provisional) {
+      roles.push(`part of a provisional fit: fewer than two windows from ${formatNumber(gates.e_min_gev)} GeV reach N = ${formatInt(gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(gates.whisker_n)}`);
+    }
+    return [...roles, ...allNote];
+  }
+  // Not fitted by any form in this mode. From 4 GeV the noise fit's eligibility is the other fits', so the 1/√E
+  // view's role says why (N, the fit weight, robust's decline); below it, say why by its cause.
+  const below4 = pLo < curveMin;
+  if (!below4) return [...roleOf(payload, s, mf, mode, w, gates).map(energyProvisionalRole(gates)), ...allNote];
+  const where = `below ${formatNumber(curveMin)} GeV, the floor of a₀/√E; `;
+  const weight = weightState(est, w);
+  let why;
+  if (w.n < gates.whisker_n) why = `below the whisker floor N = ${formatInt(gates.whisker_n)}: drawn as a faded ring, not fitted`;
+  else if (w.n < gates.fit_n) why = `not fitted because N < ${formatInt(gates.fit_n)}, the fit and range floor: drawn faded`;
+  else if (weight === 'tied') why = 'not fitted: its bootstrap SE is below 10⁻⁶ of its value (tied replicates), so it carries no fit weight; drawn in the all-windows mode only';
+  else if (weight === 'withheld') why = 'not fitted: its robust interval is withheld, so it carries no fit weight';
+  else if (!noise) why = `not fitted: ${mf?.noise_reason ? `no ${NOISE_FORM_NAME} fit (${noiseReasonClause(mf)})` : 'no fit runs through it in this mode'}`;
+  else why = 'not fitted in this mode';
+  const roles = [`${where}${why}`];
+  if (mode === 'all' && (s.fits?.anchors?.points ?? []).includes(w.bin)) roles.push('an anchor of the 3-anchor mode (the larger marker)');
+  return [...roles, ...allNote];
 }
 
 /**
@@ -1759,48 +2311,74 @@ function belowRoles(w, gates, curveMin) {
  * - `view` 'energy', `mode`, `gates`, `estimator` (`estimatorOf`), `nShowers`, `payload`;
  * - `x` {min, max, interval, name} and `y` {lo, hi, interval, provisional,
  *   name, n_clipped}: `axis.energy`'s, the y range the server's 2 GeV rule;
- *   `curveMinGev` (no curve below it), `yMinGev`, `dataMaxGev`, `rule` and
+ *   `curveMinGev` (no a₀/√E below it), `noiseMinGev` (the noise fit's window
+ *   floor, 1 GeV), `yMinGev`, `dataMaxGev`, `rule` and
  *   `notes` (the server's sentences);
+ * One fitted curve per series and panel, with no band anywhere on the view
+ * (Martin's directive of 2026-11-15): a series' a/√E ⊕ b ⊕ c/E where it has a
+ * drawable one, else its origin-pinned a₀/√E, else none.
+ *
  * - `reference` {key: 'deposit' | 'pi' | 'e', choice (`ratioReferenceChoice`:
  *   why this one), label (the ratio axis's
- *   wording), literature: the catalogue entry or null, interval: 'band' for
- *   the deposit, null for literature, flag: 'no interval reported' under a
- *   literature reference (else null), byShower: {a, b}}. Each shower's entry is {key, shower, label, form ('quadrature' |
- *   'pinned' | 'literature' | null), fit, series (the deposit series' key),
+ *   wording), literature: the catalogue entry or null, interval: null (the
+ *   deposit's too: the reference is held exact and no band about 1 is drawn),
+ *   flag: 'no interval reported' under a
+ *   literature reference (else null), byShower: {a, b}}. Each shower's entry is {key, shower, label, form (
+ *   'noise' | 'pinned' | 'literature' | null), fit, series (the deposit series' key),
  *   seriesLabel, span, provisional, misfit (its form does not describe the
  *   deposit's windows, said in the drawer), why (which fit and why), reason (null, or
- *   why that shower has no ratio marks), band ({below, inside, above} rows
- *   [E, 1, lo/ŷ, hi/ŷ], deposit only), outlined (that band spans half the
- *   ratio axis over its span, so drawn as its two edges), edges ({solid,
- *   dashed} runs, when outlined), bandCut (a band not outlined but clamped at
- *   the axis: where it first leaves it, `ratioCut`'s {at, dir, peak}),
- *   bandClipped (`bandCut` is set), valueAt(E) (the reference in %, null
- *   outside its domain); a literature entry adds `equation`};
+ *   why that shower has no ratio marks), interval (null), valueAt(E) (the
+ *   reference in %, null outside its domain), floorGev and floorBy (the lowest
+ *   window edge that takes a ratio mark against it: 1 GeV by p_lo for 'noise',
+ *   4 GeV by E for 'pinned'), noiseReason (the server's `noise_reason` where
+ *   the deposit has no noise fit), held (a noise reference's held terms); a
+ *   literature entry adds `equation`}. The reference's own curve is the curve
+ *   its deposit series draws on the main panel; on the ratio panel it is 1 by
+ *   construction and not drawn;
  * - `series`: [{key, label, short (the canvas note's name), raw, colour, isB,
  *   offsetPx (0: no dodge on this view), lineOpacity (the strength its lines
  *   take: shower B 70%, raised to 3:1 where the card needs it), mf,
- *   provisional, span, points, fits: {quadrature, pinned}, unreported,
- *   reference (its shower's entry)}];
+ *   provisional, span, points, fits: {noise, pinned, quadrature (table only:
+ *   never drawable, kept so a reader of the model can name it; the E view has
+ *   no quadrature evaluator)}, drawnForm ('noise' | 'pinned' | null: the one
+ *   curve the series draws), drawn (that fit's model, `fits[drawnForm]`, or
+ *   null), unreported, reference (its shower's entry), noise {points,
+ *   lowAnchor, span, held, reason (the server's noise_reason, or null)}}].
+ *   Without an a₀/√E to draw, `fits.pinned` is {drawable: false, reason:
+ *   `fitMissingReason`'s}, whatever the noise fit does; with one beside a
+ *   drawable noise fit, {drawable: false, reason: "table only on this view:
+ *   the a/√E ⊕ b ⊕ c/E curve is drawn"}; drawn as
+ *   the fallback it adds `fallback: true`, `full` (its rows from curveMin, the
+ *   ratio's source), `entry` (where it starts above the top: {at, lineAt,
+ *   above, term 'a', atAxis false}, review-ui F5) and `noiseReason` (the server's
+ *   noise_reason as a clause);
  * - a point: {w, E (= 1/x², x = ⟨1/√p⟩), x, value, ci, lo, hi, n, whisker,
- *   weak, subFloor, below4, anchor, fitted, robust, opacity, clip, over,
- *   roles, ratio}; `ratio` {drawn, reason, ref (the reference in % at E),
+ *   weak, subFloor, below4, belowNoise (p_lo below the noise floor), anchor
+ *   (the 3-anchor mode's anchors and its noise low anchor: the larger
+ *   marker), fitted (by the mode's other fits), noiseFitted, lowAnchor (this
+ *   mode's), robust, opacity, clip, over, roles (`energyRoles`), ratio}; `ratio` {drawn, reason, ref (the reference in % at E),
  *   value, lo, hi (the whisker divided, null without one), robust (the
  *   window's, against a reference neither provisional nor a misfit: only
  *   these set k), clip, over};
- * - a fit: {form, fit, drawable, reason (why not drawn, else null), span,
- *   domain [curveMinGev, x.max], curve [[E, y, lo, hi]], solid (the runs over
- *   the span, clipped to [0, y.hi]), dashed (the runs beyond it), band
- *   {below, inside, above} (rows [E, lo, hi], clamped), outlined (its band is
- *   spans OUTLINE_SHARE of the axis or more at some E of its span,
- *   so it is drawn as its edges), edges ({solid, dashed} runs of both edges,
- *   when outlined), cut (where its curve or band leaves the top, which no fit
- *   sets, scanning up in E: {at, lineAt, bandAt, peak}), floorCut,
- *   provisional, misfit (`isMisfit`), faded (provisional or misfit: its lines,
- *   dashed parts and bands drawn faded on both panels), converged,
- *   isReference (the deposit reference itself: its ratio ≡ 1 is not drawn),
- *   ratio {rows, solid, dashed, band, outlined (lo ≤ 1/k and hi ≥ k at some
- *   E of the span), edges, cut (where it leaves [1/k, k], which no fit sets)}
- *   (null for the reference or without one)};
+ * - a drawn fit: {form, fit, drawable: true, reason: null, span, domain
+ *   [from, x.max] (from curveMinGev for a₀/√E; for a/√E ⊕ b ⊕ c/E where its
+ *   line comes into the plot, 0 for a flat one), curve [[E, y]] (its line, no
+ *   band), solid (the runs over the span, clipped to [0, y.hi]), dashed (the
+ *   runs beyond it), cut (where its curve leaves the top, which no fit sets,
+ *   scanning up in E: {at, peak [E, y] where it reaches highest}),
+ *   provisional, misfit (`isMisfit`), faded (provisional or misfit: its solid
+ *   and dashed parts drawn faded on both panels), converged, isReference (the
+ *   deposit reference itself: its ratio ≡ 1 is not drawn), ratio {rows
+ *   [[E, ratio]], solid, dashed, cut (where it leaves [1/k, k], which no fit
+ *   sets: {at, dir, peak [E, ratio] where it deviates most}), entry (where it
+ *   comes into [1/k, k] as E rises from its first row, `ratioEntry`'s
+ *   {at, dir, whole, peak}; null where it starts inside)} (null for the reference or
+ *   without one); a noise fit adds `full` ([[E, y]] over its whole domain),
+ *   `entry` ({at, lineAt, above, term, atAxis}), `held`, `points` and
+ *   `lowAnchor` (`noiseFitModel`), and without a block it is {form, fit,
+ *   drawable: false, reason (the server's noise_reason as a clause)}; a fit
+ *   not drawn is {form, fit, drawable: false, reason, span, ratio: null,
+ *   entry: null, cut: null};
  * - `literature`: the curves drawn (`literatureDrawn`), in the catalogue's
  *   order, [{key, entry, isReference (the ratio panel divides by it), label
  *   ("π±", its end label), legend, colour (its identity colour on the card in
@@ -1810,32 +2388,33 @@ function belowRoles(w, gates, curveMin) {
  *   null)}];
  * - `ratio` {k, provisional, capped (the robust marks beyond the last
  *   `RATIO_STEPS` value, 0 when none), reference (key), clipped {markers,
- *   whiskers, fits, bands (deposit reference bands clamped at the axis but
- *   not outlined), literature (literature ratio lines that leave the axis),
- *   each with a caret}, belowNotDrawn (windows below the curve
- *   floor left off the ratio panel under the deposit reference), noReference
- *   ([{shower, reason}])};
- * - `bandsOutlined` {main, ratio (counts per panel, the deposit reference's
- *   band included), entries [{panel, key, label, short, form, reference,
- *   fit}]}: the bands drawn as their edges;
+ *   whiskers, fits (the curves' ratios that leave or come into the axis),
+ *   literature (literature ratio lines that leave the axis), each with a
+ *   caret}, belowNotDrawn (windows below the curve
+ *   floor left off the ratio panel under the deposit reference), below
+ *   ([{shower, form, floorGev, n}], those windows by shower and reference
+ *   form: 'noise' at 1 GeV, `noiseBelowText`), noReference ([{shower, reason}])};
  * - `twoOnShow` (two showers drawn) and `endLabels` {main, ratio}: [{key,
  *   form, name (the legend entry that hides it), text ("A", "B", "π±"),
  *   colour (the series', or the literature curve's identity colour),
- *   literature, value (at x.max)}], the curves whose right end lies on the
- *   panel;
- * - `clipped` {markers, whiskers, fits, literature, ratio}: the marks
- *   clipped at the main axis, each with a caret (`literature`: the drawn
+ *   literature, stroke, value (at x.max)}], one per drawn curve whose right
+ *   end lies on the panel;
+ * - `clipped` {markers, whiskers, fits, entries, literature, ratio}: the marks
+ *   clipped at the main axis, each with a caret (`fits` the fits that
+ *   leave the top as E rises, `entries` the curves that come down into the
+ *   plot from the top as E rises, a/√E ⊕ b ⊕ c/E's from 0 and the a₀/√E
+ *   fallback's from curveMin, or lie above it over the whole axis; `literature`: the drawn
  *   literature curves that cross its top), and the ratio panel's carets in
- *   total (markers + whiskers + fits + bands + literature);
+ *   total (markers + whiskers + fits + literature);
  * - `offScale`: [{label, E, entries: [{key, short, value, n}]}], the drawn
  *   windows above y.hi grouped by window, in E order;
- * - `spans` {shared, span, bySeries: [{key, label, form, span}]}: the drawn
- *   fits' fitted spans, `shared` when they are one;
+ * - `spans` {shared, span, bySeries: [{key, label, form, span}]}: one entry
+ *   per series with a curve, its fitted span, `shared` when they are one;
  * - `noteText` {offScale, extrapolation, warning}: the canvas note's strings
  *   before they are fitted to its width ('' where there is nothing to say);
  *   `warning` the literature disclosure, under the median estimator with a
  *   literature curve on;
- * - `nPoints`, `nLines`.
+ * - `nPoints`, `nLines` (the series with a curve).
  */
 export function energyModel(payload, opts = {}) {
   if (!payload || !Array.isArray(payload.series) || !payload.axis?.energy) return null;
@@ -1855,6 +2434,8 @@ export function energyModel(payload, opts = {}) {
   };
   const hi = Number.isFinite(y.hi) ? y.hi : Infinity;
   const curveMin = Number.isFinite(ea.curve_min_gev) ? ea.curve_min_gev : gates.e_min_gev;
+  // The noise fit's floor: no window below it enters a/√E ⊕ b ⊕ c/E, or takes a ratio mark against the deposit's.
+  const noiseMin = Number.isFinite(ea.noise_min_gev) ? ea.noise_min_gev : (Number.isFinite(gates.noise_min_gev) ? gates.noise_min_gev : NOISE_MIN_GEV);
   const yMinGev = Number.isFinite(ea.y_min_gev) ? ea.y_min_gev : 2;
   const all = payload.series;
   const nShowers = new Set(all.map((s) => s.shower).filter(Boolean)).size;
@@ -1869,15 +2450,18 @@ export function energyModel(payload, opts = {}) {
   const choice = ratioReferenceChoice(drawnKeys, onShow, gates, yMinGev);
   const referenceKey = choice.key;
   const entry = referenceKey === 'deposit' ? null : referenceOf(referenceKey);
-  const clipped = { markers: 0, whiskers: 0, fits: 0, literature: 0, ratio: 0 };
-  const clampY = (v) => Math.min(Math.max(v, 0), hi);
+  // `fits` counts the fits that leave the top as E rises (a caret each); `entries` the curves that come down into the
+  // plot from the top as E rises (a/√E ⊕ b ⊕ c/E from 0, the a₀/√E fallback from curveMin; one caret each).
+  const clipped = { markers: 0, whiskers: 0, fits: 0, entries: 0, literature: 0, ratio: 0 };
   const energyOf = (w) => (Number.isFinite(w.x) && w.x > 0 ? 1 / (w.x * w.x) : (w.p_mean ?? w.p_lo ?? null));
 
   const byShower = {};
   for (const sh of new Set(shown.map((s) => s.shower ?? 'a'))) {
-    byShower[sh] = entry ? literatureReference(entry, sh) : depositReference(all, sh, mode, nShowers, curveMin, x.max, estimator.symbol);
+    byShower[sh] = entry ? literatureReference(entry, sh) : depositReference(all, sh, mode, nShowers, curveMin, x.max, estimator.symbol, noiseMin);
   }
   let belowNotDrawn = 0;
+  // The windows left off the ratio panel below a deposit reference's floor, by shower and reference form.
+  const below = new Map();
 
   const series = shown.map((s) => {
     const colour = colours[s.key];
@@ -1885,7 +2469,10 @@ export function energyModel(payload, opts = {}) {
     const mf = s.fits?.[mode] ?? null;
     const ref = byShower[s.shower ?? 'a'] ?? null;
     const fittedBins = new Set(mf?.points ?? []);
-    const anchorBins = new Set(s.fits?.anchors?.points ?? []);
+    const noiseBins = new Set(mf?.noise?.points ?? []);
+    const lowAnchor = s.fits?.anchors?.noise?.low_anchor ?? null;
+    // The larger marker: an anchor of the 3-anchor mode, its noise fit's low anchor included.
+    const anchorBins = new Set([...(s.fits?.anchors?.points ?? []), ...(lowAnchor === null ? [] : [lowAnchor])]);
     // Every window on [0, x.max] that reports a value; the anchors mode draws its fitted ones only.
     const points = windowsOnShow(s, mode, gates, x.max).map((w) => {
       const E = 1 / (w.x * w.x);
@@ -1908,12 +2495,21 @@ export function energyModel(payload, opts = {}) {
       if (!ref || ref.reason) {
         ratio = { drawn: false, reason: ref?.reason ?? 'no reference for this shower', ref: null, value: null, lo: null, hi: null, robust: ratioRobust };
       } else {
-        const r = ref.valueAt(E);
+        // A deposit a/√E ⊕ b ⊕ c/E reference has a value from 0 GeV, but no window below its floor enters it.
+        const belowFloor = ref.floorBy === 'p_lo' && pLo < ref.floorGev - 1e-9;
+        const r = belowFloor ? null : ref.valueAt(E);
         if (!(r > 0)) {
           belowNotDrawn += 1;
+          const floor = belowFloor ? ref.floorGev : curveMin;
+          const group = `${ref.shower}|${ref.form}`;
+          const g = below.get(group) ?? { shower: ref.shower, form: ref.form, floorGev: floor, n: 0 };
+          g.n += 1;
+          below.set(group, g);
           ratio = {
             drawn: false, ref: null, value: null, lo: null, hi: null, robust: ratioRobust,
-            reason: `below ${formatNumber(curveMin)} GeV, where no fit is drawn, so ${ref.label} has no value there`,
+            reason: belowFloor
+              ? `below ${formatNumber(floor)} GeV: no window below ${formatNumber(floor)} GeV enters ${ref.label}`
+              : `below ${formatNumber(curveMin)} GeV, where no fit is drawn, so ${ref.label} has no value there`,
           };
         } else {
           ratio = {
@@ -1924,8 +2520,9 @@ export function energyModel(payload, opts = {}) {
       }
       return {
         w, E, x: w.x, value: w.value, ci, lo: ci?.[0] ?? null, hi: ci?.[1] ?? null, n: w.n, whisker, weak, subFloor, below4,
-        anchor: anchorBins.has(w.bin), fitted: fittedBins.has(w.bin), robust, opacity, clip, over,
-        roles: below4 ? belowRoles(w, gates, curveMin) : roleOf(payload, s, mf, mode, w, gates),
+        belowNoise: pLo < noiseMin, anchor: anchorBins.has(w.bin), fitted: fittedBins.has(w.bin),
+        noiseFitted: noiseBins.has(w.bin), lowAnchor: mf?.noise?.low_anchor === w.bin, robust, opacity, clip, over,
+        roles: energyRoles(payload, s, mf, mode, w, gates, curveMin, noiseMin),
         ratio,
       };
     });
@@ -1934,50 +2531,78 @@ export function energyModel(payload, opts = {}) {
       return Number.isFinite(e) && e <= x.max && !((w.n ?? 0) >= gates.report_n && Number.isFinite(w.value));
     });
     const span = spanOf(mf, s);
-    const grid = energyGrid(curveMin, x.max, span ?? []);
-    const lineRuns = (rows) => clipPolyline(rows.map(([e, yv]) => [e, yv]), 0, hi);
-    const bandRows = (rows) => rows.map(([e, , lo, up]) => [e, clampY(lo), clampY(up)]);
     const fits = {};
-    for (const form of ENERGY_FORMS) {
-      const fit = mf?.[form] ?? null;
-      const reason = form === 'quadrature' ? quadratureReason(fit, estimator.symbol) : (pinnedDrawable(fit) ? null : 'too few windows');
-      if (reason) {
-        fits[form] = { form, fit, drawable: false, reason, span, ratio: null };
-        continue;
-      }
-      const curve = fitCurveE(fit, grid);
+    // One curve per series (Martin's directive of 2026-11-15): a/√E ⊕ b ⊕ c/E where drawable, else a₀/√E, else none.
+    fits.noise = noiseFitModel(mf?.noise ?? null, mf, s, ref, x, hi);
+    const pinned = mf?.pinned ?? null;
+    if (!pinnedDrawable(pinned)) {
+      // No a₀/√E to draw: why, from the payload (review-ui F2, review-docs M3), whatever the noise fit does.
+      fits.pinned = {
+        form: 'pinned', fit: pinned, drawable: false, reason: fitMissingReason(estimator, s, mf, mode, gates),
+        span, ratio: null, entry: null, cut: null,
+      };
+    } else if (fits.noise.drawable) {
+      // Never a second fitted line beside the noise curve: a₀/√E stays in the model and the table only.
+      fits.pinned = { form: 'pinned', fit: pinned, drawable: false, reason: PINNED_TABLE_ONLY, span, ratio: null, entry: null, cut: null };
+    } else {
+      // The fallback: the origin-pinned a₀/√E from curveMin, its line alone, the server's noise_reason said.
+      // a₀/√E falls with E, so where it starts above the top it comes down into the plot at E = (a₀/y.hi)², and can
+      // never leave the top later (review-ui F5): an entry, as the noise curve has, never a cut. Where that E lies
+      // beyond the axis end it is above the top over the whole axis: one caret at x.max says so.
+      const a0 = pinned.params.a0;
+      const startsAbove = Number.isFinite(hi) && hi > 0 && a0 > 0 && a0 / Math.sqrt(curveMin) > hi;
+      const enterE = startsAbove ? (a0 / hi) ** 2 : null;
+      const above = startsAbove && enterE > x.max;
+      const extra = [...(span ?? []), ...(startsAbove && !above ? [enterE] : [])];
+      const full = fitCurveE(pinned, energyGrid(curveMin, x.max, extra)).map(([e, yv]) => [e, yv]);
+      // The main panel draws from where the line comes down through the top; the ratio takes every row.
+      const curve = above ? [] : (startsAbove ? full.filter((r) => r[0] >= enterE - 1e-9) : full);
+      let entry = null;
+      if (above) entry = { at: x.max, lineAt: null, above: true, term: 'a', atAxis: false };
+      else if (startsAbove) entry = { at: enterE, lineAt: enterE, above: false, term: 'a', atAxis: false };
       const parts = splitAtSpan(curve, span);
-      const cut = cutAbove(curve, hi);
-      if (cut) clipped.fits += 1;
-      // A band from the floor to the top over its fitted windows would flood the panel: drawn as its two edges.
-      const outlined = bandSpansShare(curve.map(([e, , lo, up]) => [e, lo, up]), span, 0, hi);
-      const isReference = Boolean(ref && !ref.reason && ref.series === s.key && ref.form === form);
+      const lineRuns = (rows) => clipPolyline(rows, 0, hi);
+      const isReference = Boolean(ref && !ref.reason && ref.series === s.key && ref.form === 'pinned');
       let ratio = null;
       if (ref && !ref.reason && !isReference) {
-        const rows = curve.map(([e, yv, lo, up]) => {
+        const rows = full.map(([e, yv]) => {
           const r = ref.valueAt(e);
-          return r > 0 ? [e, yv / r, lo / r, up / r] : null;
+          return r > 0 ? [e, yv / r] : null;
         }).filter(Boolean);
         ratio = rows.length ? { rows } : null;
       }
-      const provisional = Boolean(fit.provisional ?? mf?.provisional);
-      const misfit = isMisfit(fit);
-      fits[form] = {
-        form, fit, drawable: true, reason: null, span, domain: [curveMin, x.max], curve,
+      const provisional = Boolean(pinned.provisional ?? mf?.provisional);
+      const misfit = isMisfit(pinned);
+      fits.pinned = {
+        form: 'pinned', fit: pinned, drawable: true, reason: null, fallback: true, noiseReason: noiseReasonClause(mf),
+        span, domain: [curve[0]?.[0] ?? curveMin, x.max], curve, full,
         solid: lineRuns(parts.inside), dashed: [...lineRuns(parts.below), ...lineRuns(parts.above)],
-        band: { below: bandRows(parts.below), inside: bandRows(parts.inside), above: bandRows(parts.above) },
-        outlined, edges: outlined ? edgeRuns(parts, (pts) => clipPolyline(pts, hi * 1e-9, hi)) : null,
-        cut, floorCut: grid.some((e) => evalFitAt(fit, e)?.cutLo), provisional, misfit, faded: provisional || misfit,
-        converged: fit.converged !== false, isReference, ratio,
+        entry, cut: entry ? null : lineCut(curve, hi), provisional, misfit, faded: provisional || misfit,
+        converged: pinned.converged !== false, isReference, ratio,
       };
     }
+    const drawnForm = ENERGY_FORMS.find((form) => fits[form].drawable) ?? null;
+    const drawn = drawnForm ? fits[drawnForm] : null;
+    if (drawn?.cut) clipped.fits += 1;
+    if (drawn?.entry) clipped.entries += 1;
+    // a/√E ⊕ b is table only on this view now (Martin's decisions of 2026-11-13): kept in the model, never drawn.
+    fits.quadrature = {
+      form: 'quadrature', fit: mf?.quadrature ?? null, drawable: false, span,
+      reason: `table only: ${NOISE_FORM_NAME} takes its place on this view`, ratio: null, entry: null, cut: null,
+    };
     return {
       key: s.key, label: s.label ?? s.key, short: shortName(s, nShowers), raw: s, colour, isB,
       // No dodge on this view: a window sits at its exact E, on its own curve (the curves cannot be dodged with it).
       offsetPx: 0,
       // `faded`: a provisional fit, or one whose form does not describe its windows (a fit's `faded`).
       lineOpacity: (faded) => legibleOpacity(colour, (isB ? B_STRENGTH : 1) * (faded ? PROVISIONAL_OPACITY : 1)),
-      mf, provisional: Boolean(mf?.provisional), span, points, fits, unreported, reference: ref,
+      mf, provisional: Boolean(mf?.provisional), span, points, fits, drawnForm, drawn, unreported, reference: ref,
+      // The noise fit's windows and low anchor in this mode, or why it has none (the server's sentence).
+      noise: {
+        points: [...(mf?.noise?.points ?? [])], lowAnchor: mf?.noise?.low_anchor ?? null,
+        span: Array.isArray(mf?.noise?.span_gev) ? [...mf.noise.span_gev] : null,
+        held: [...(mf?.noise?.params?.held ?? [])], reason: mf?.noise ? null : (mf?.noise_reason ?? null),
+      },
     };
   });
 
@@ -1995,8 +2620,7 @@ export function energyModel(payload, opts = {}) {
     }
   }
   const { k, provisional: ratioProvisional, capped: ratioCapped } = ratioRange(marks);
-  const ratioClipped = { markers: 0, whiskers: 0, fits: 0, bands: 0, literature: 0 };
-  const outlinedBands = [];
+  const ratioClipped = { markers: 0, whiskers: 0, fits: 0, literature: 0 };
   for (const s of series) {
     for (const p of s.points) {
       const r = p.ratio;
@@ -2006,41 +2630,19 @@ export function energyModel(payload, opts = {}) {
       if (r.over) ratioClipped.markers += 1;
       if (r.clip && (r.clip.cutLo || r.clip.cutHi)) ratioClipped.whiskers += 1;
     }
-    for (const f of ENERGY_FORMS.map((form) => s.fits[form])) {
-      if (!f?.drawable) continue;
-      if (f.outlined) outlinedBands.push({ panel: 'main', key: s.key, label: s.label, short: s.short, form: f.form, reference: false, fit: f.fit });
-      if (!f.ratio) continue;
-      const parts = splitAtSpan(f.ratio.rows, f.span);
-      const clampR = (v) => (Number.isFinite(v) && v > 0 ? Math.min(Math.max(v, 1 / k), k) : 1 / k);
-      const band = (rows) => rows.map(([e, , lo, up]) => [e, clampR(lo), clampR(up)]);
-      const line = (rows) => clipLog(rows.map(([e, r]) => [e, r]), k);
-      f.ratio.solid = line(parts.inside);
-      f.ratio.dashed = [...line(parts.below), ...line(parts.above)];
-      f.ratio.band = { below: band(parts.below), inside: band(parts.inside), above: band(parts.above) };
-      f.ratio.outlined = bandSpansShare(f.ratio.rows.map(([e, , lo, up]) => [e, lo, up]), f.span, 1 / k, k, true);
-      f.ratio.edges = f.ratio.outlined ? edgeRuns(parts, (pts) => clipLog(pts, k)) : null;
-      if (f.ratio.outlined) outlinedBands.push({ panel: 'ratio', key: s.key, label: s.label, short: s.short, form: f.form, reference: false, fit: f.fit });
-      f.ratio.cut = ratioCut(f.ratio.rows, k);
-      if (f.ratio.cut) ratioClipped.fits += 1;
-    }
-  }
-  // A deposit reference's own band about 1: drawn as its edges where it spans half the axis or more over its span
-  // The band contains 1, the centre of the log-symmetric axis, so with OUTLINE_SHARE ≤ 0.5 every band that reaches
-  // either end of the axis is outlined; the clamped wash with its muted caret serves only a share above one half.
-  // (as a fit's band is), else a wash, clamped at the axis with one muted caret at its first exit.
-  for (const ref of Object.values(byShower)) {
-    if (!ref.band) continue;
-    const rows = [...ref.band.below, ...ref.band.inside, ...ref.band.above].sort((a, b) => a[0] - b[0])
-      .filter((r, i, all) => i === 0 || r[0] !== all[i - 1][0]);
-    ref.outlined = bandSpansShare(rows.map(([e, , lo, up]) => [e, lo, up]), ref.span, 1 / k, k, true);
-    ref.edges = ref.outlined ? edgeRuns(ref.band, (pts) => clipLog(pts, k)) : null;
-    ref.bandCut = ref.outlined ? null : ratioCut(rows, k);
-    ref.bandClipped = Boolean(ref.bandCut);
-    if (ref.bandClipped) ratioClipped.bands += 1;
-    if (ref.outlined) {
-      const s = series.find((x) => x.key === ref.series);
-      outlinedBands.push({ panel: 'ratio', key: ref.series, label: ref.seriesLabel, short: s?.short ?? ref.seriesLabel, form: ref.form, reference: true, fit: ref.fit });
-    }
+    // The series' one curve divided by the reference, its line alone (no band about it, nor about 1).
+    const f = s.drawn;
+    if (!f?.ratio) continue;
+    const parts = splitAtSpan(f.ratio.rows, f.span);
+    const line = (rows) => clipLog(rows, k);
+    f.ratio.solid = line(parts.inside);
+    f.ratio.dashed = [...line(parts.below), ...line(parts.above)];
+    // A curve's ratio can start outside [1/k, k] at its first row (a noise fit's as E → 0, the a₀/√E fallback's at
+    // curveMin; review-ui F5): it enters there (`ratioEntry`, `whole` where it never comes in), and is cut beyond.
+    const { entry, rest } = ratioEntry(f.ratio.rows, k);
+    f.ratio.entry = entry;
+    f.ratio.cut = ratioLineCut(rest, k);
+    if (f.ratio.cut || f.ratio.entry) ratioClipped.fits += 1;
   }
 
   // The literature curves drawn (Martin, 2026-11-11), each in its identity colour on this card; none ever sets a
@@ -2063,7 +2665,7 @@ export function energyModel(payload, opts = {}) {
     let ratio = null;
     if (entry && key !== referenceKey) {
       const rows = curve.map(([e, v]) => [e, v / referenceValue(entry, e)]).filter(([, r]) => Number.isFinite(r) && r > 0);
-      const rcut = ratioCut(rows.map(([e, r]) => [e, r, r, r]), k);
+      const rcut = ratioCut(rows, k);
       if (rcut) ratioClipped.literature += 1;
       ratio = { rows, runs: clipLog(rows, k), cut: rcut };
     }
@@ -2072,7 +2674,7 @@ export function energyModel(payload, opts = {}) {
       colour: literatureColour(key, THEME.qualitativePalette), curve, runs: clipPolyline(curve, 0, hi), cut, ratio,
     });
   }
-  clipped.ratio = ratioClipped.markers + ratioClipped.whiskers + ratioClipped.fits + ratioClipped.bands + ratioClipped.literature;
+  clipped.ratio = ratioClipped.markers + ratioClipped.whiskers + ratioClipped.fits + ratioClipped.literature;
 
   // Direct labels at the curves' right ends, in a column beside the plot: with two showers on show, the shower
   // letter of every drawn curve whose value at x.max lies on its panel (B's lines are at 70% strength or more, so
@@ -2088,20 +2690,19 @@ export function energyModel(payload, opts = {}) {
   };
   for (const s of twoOnShow ? series : []) {
     const text = String(s.raw.shower).toUpperCase();
-    for (const form of ENERGY_FORMS) {
-      const f = s.fits[form];
-      if (!f?.drawable) continue;
-      // The key stroke draws the curve as it ends at x.max: dashed unless its fitted span reaches the axis end.
-      const solidAtEnd = Array.isArray(f.span) && f.span[1] >= x.max - 1e-9;
-      const label = {
-        key: s.key, form, name: s.label, text, colour: s.colour, literature: false,
-        stroke: { colour: s.colour, width: form === 'quadrature' ? 1.6 : 1, dash: solidAtEnd ? null : DASH_EXTRAPOLATED, opacity: s.lineOpacity(f.faded) },
-      };
-      const v = atEnd(f.curve);
-      if (v !== null && v >= 0 && v <= hi) endLabels.main.push({ ...label, value: v });
-      const r = f.ratio ? atEnd(f.ratio.rows) : null;
-      if (r !== null && r >= (1 / k) * (1 - 1e-9) && r <= k * (1 + 1e-9)) endLabels.ratio.push({ ...label, value: r });
-    }
+    const f = s.drawn;
+    if (!f) continue;
+    // The key stroke draws the curve as it ends at x.max: dashed unless its fitted span reaches the axis end; its
+    // width the form's (1.6 px a/√E ⊕ b ⊕ c/E, 1 px the a₀/√E fallback).
+    const solidAtEnd = Array.isArray(f.span) && f.span[1] >= x.max - 1e-9;
+    const label = {
+      key: s.key, form: f.form, name: s.label, text, colour: s.colour, literature: false,
+      stroke: { colour: s.colour, width: f.form === 'noise' ? 1.6 : 1, dash: solidAtEnd ? null : DASH_EXTRAPOLATED, opacity: s.lineOpacity(f.faded) },
+    };
+    const v = atEnd(f.curve);
+    if (v !== null && v >= 0 && v <= hi) endLabels.main.push({ ...label, value: v });
+    const r = f.ratio ? atEnd(f.ratio.rows) : null;
+    if (r !== null && r >= (1 / k) * (1 - 1e-9) && r <= k * (1 + 1e-9)) endLabels.ratio.push({ ...label, value: r });
   }
   for (const lit of literature) {
     const label = {
@@ -2127,8 +2728,7 @@ export function energyModel(payload, opts = {}) {
     }
   }
   const offScale = [...groups.values()].sort((a, b) => a.E - b.E);
-  const bySeries = series.flatMap((s) => ENERGY_FORMS.map((form) => s.fits[form]).filter((f) => f?.drawable)
-    .map((f) => ({ key: s.key, label: s.label, form: f.form, span: f.span })));
+  const bySeries = series.filter((s) => s.drawn).map((s) => ({ key: s.key, label: s.label, form: s.drawnForm, span: s.drawn.span }));
   const same = (a, b) => (a === null && b === null) || (a && b && a[0] === b[0] && a[1] === b[1]);
   const shared = bySeries.length > 0 && bySeries.every((b) => same(b.span, bySeries[0].span));
   const noteText = {
@@ -2146,27 +2746,23 @@ export function energyModel(payload, opts = {}) {
     : (Object.keys(byShower).length > 1 ? 'each shower\'s deposit fit' : (Object.values(byShower)[0]?.label ?? 'the deposit fit'));
   return {
     view: 'energy', mode, gates, estimator, nShowers, payload, x, y,
-    curveMinGev: curveMin, yMinGev, dataMaxGev: ea.data_max_gev ?? null, rule: ea.rule ?? null, notes: [...(ea.notes ?? [])],
+    curveMinGev: curveMin, noiseMinGev: noiseMin, yMinGev, dataMaxGev: ea.data_max_gev ?? null, rule: ea.rule ?? null, notes: [...(ea.notes ?? [])],
     reference: {
-      key: referenceKey, choice, label: refLabel, literature: entry, interval: entry ? null : 'band',
+      key: referenceKey, choice, label: refLabel, literature: entry, interval: null,
       flag: entry ? 'no interval reported' : null, byShower,
     },
     series, literature,
     ratio: {
       k, provisional: ratioProvisional, capped: ratioCapped, reference: referenceKey, clipped: ratioClipped, belowNotDrawn,
+      below: [...below.values()],
       noReference: Object.values(byShower).filter((r) => r.reason).map((r) => ({ shower: r.shower, reason: r.reason })),
-    },
-    bandsOutlined: {
-      main: outlinedBands.filter((b) => b.panel === 'main').length,
-      ratio: outlinedBands.filter((b) => b.panel === 'ratio').length,
-      entries: outlinedBands,
     },
     twoOnShow, endLabels,
     clipped, offScale,
     spans: { shared, span: shared ? bySeries[0].span : null, bySeries },
     noteText,
     nPoints: series.reduce((a, s) => a + s.points.length, 0),
-    nLines: series.reduce((a, s) => a + ENERGY_FORMS.filter((form) => s.fits[form]?.drawable).length, 0),
+    nLines: series.filter((s) => s.drawn).length,
   };
 }
 
@@ -2207,7 +2803,7 @@ export function ratioPointTip(model, s, p) {
   lines.splice(5, 0, `<b>${escapeHtml(text)}</b>`);
   const est = model.estimator ?? estimatorOf(null);
   lines.push(mutedLine(`The reference reads ${pct(r.ref)} at this E. The interval is conditional on the reference: it is this window's 95% ${intervalName(est, p.w)} interval divided by it, `
-    + (ref.literature ? 'and the literature curve has no interval reported.' : 'and the reference\'s own uncertainty, its band about 1, is not included.')));
+    + (ref.literature ? 'and the literature curve has no interval reported.' : 'and the reference fit\'s own uncertainty is not included.')));
   lines.push(...literatureWarningLines(model, Boolean(ref.literature)));
   if (ref.misfit) lines.push(mutedLine(referenceMisfitText(ref, model.gates)));
   if (r.over || r.clip?.cutLo || r.clip?.cutHi) {
@@ -2216,12 +2812,51 @@ export function ratioPointTip(model, s, p) {
   return lines.join('<br/>');
 }
 
-/** A drawn fit's equation, in ⊕ notation, with its parameters. */
+/** A drawn fit's equation, in ⊕ notation, with its parameters (a/√E ⊕ b ⊕ c/E: the form alone; its terms follow on their own line). */
 function energyEquation(f, sym = 'σ/E') {
   const p = f.fit.params ?? {};
-  return f.form === 'quadrature'
-    ? `Quadrature fit ${sym} = (${sig(p.a)} ± ${sig(p.se_a)})%/√E ⊕ (${sig(p.b)} ± ${sig(p.se_b)})%`
-    : `Origin-pinned fit ${sym} = (${sig(p.a0)} ± ${sig(p.se_a0)})%/√E ⊕ 0 (b ≡ 0, through the origin)`;
+  if (f.form === 'noise') return `${sym} = ${NOISE_FORM_NAME}`;
+  return `Origin-pinned fit ${sym} = (${sig(p.a0)} ± ${sig(p.se_a0)})%/√E ⊕ 0 (b ≡ 0, through the origin)`;
+}
+
+/**
+ * A drawn fit's χ²/ν line on the E view, as every curve tooltip writes it:
+ * "χ²/ν = …, p = …; S = …" where ν ≥ 1 (S = 1 where the windows' own errors
+ * stand), else the exact-pass sentence (review-ui N1, F4).
+ */
+function energyChi2Line(fit) {
+  return fit.ndf > 0 && Number.isFinite(fit.p_value)
+    ? `${chi2Text(fit)}; S = ${sig(Number.isFinite(fit.scale_factor) ? fit.scale_factor : 1)}`
+    : `${chi2Text(fit)}: the curve passes through its ${plural(fit.n_points, 'point')} exactly`;
+}
+
+/** A drawn fit's name in a sentence: "a/√E ⊕ b ⊕ c/E fit", "origin-pinned fit a₀/√E ⊕ 0". */
+function energyFitName(form) {
+  if (form === 'noise') return `${NOISE_FORM_NAME} fit`;
+  return 'origin-pinned fit a₀/√E ⊕ 0';
+}
+
+/**
+ * The terms of a/√E ⊕ b ⊕ c/E, each with its SE and unit, the held phrase, or
+ * its square with the square's SE where the term's SE exceeds it
+ * (`termAsSquare`, brief-fix m4): "a = 30.2 ± 4.1 %·√GeV; b = 0, held there by
+ * the constraint b² ≥ 0; the noise term c/E: c² = 0.04 ± 8.1 %²·GeV²".
+ */
+function noiseTermsText(p) {
+  const held = new Set(p.held ?? []);
+  const units = { a: A_UNIT, b: '%', c: C_UNIT };
+  return ['a', 'b', 'c'].map((t) => {
+    const lead = t === 'c' ? 'the noise term c/E: ' : '';
+    if (held.has(t)) return `${lead}${noiseHeldPhrase([t])}`;
+    if (termAsSquare(p, t)) return `${lead}${squareText(p, t)}`;
+    return `${lead}${t} = ${sig(p[t])} ± ${sig(p[`se_${t}`])} ${units[t]}`;
+  }).join('; ');
+}
+
+/** The windows of a noise fit for a tooltip: "4 windows, 3–16 GeV: 3–4 GeV (the low anchor), 7–8 GeV, …". */
+function noiseWindowsLine(model, s, f) {
+  const n = f.fit.n_points ?? f.points.length;
+  return `Windows fitted (${formatInt(n)}, ${spanText(f.span)}): ${noiseWindowsText(model.payload, s.raw, s.mf, model.mode)}`;
 }
 
 /**
@@ -2236,15 +2871,15 @@ function literatureWarningLines(model, on = true) {
 
 /** The extrapolation sentence of a dashed part. */
 function extrapolatedLine(f) {
-  return `Extrapolated: beyond the windows this fit used (${spanText(f.span)}). The band is its parameters' 95% uncertainty only and assumes the form holds.`;
+  return `Extrapolated: beyond the windows this fit used (${spanText(f.span)}), where the fitted form is assumed to hold and no window supports it.`;
 }
 
 /**
- * Why a fit's band is drawn as its edges: it spans half its axis or more over its fitted
- * windows, with the quantile that made it so (Student's t at a small ν once S
- * scales the covariance). `own` words the deposit reference's band about 1.
+ * Why a 1/√E-view fit's band is drawn as its edges: it spans half its axis or
+ * more over its fitted windows, with the quantile that made it so (Student's t
+ * at a small ν once S scales the covariance). The E view draws no band.
  */
-function outlinedLine(fit, own = false) {
+function outlinedLine(fit) {
   const q = Number.isFinite(fit?.band_quantile) ? fit.band_quantile : DEFAULT_QUANTILE;
   const scaled = Number.isFinite(fit?.scale_factor) && fit.scale_factor > 1;
   const why = [
@@ -2252,7 +2887,7 @@ function outlinedLine(fit, own = false) {
     Number.isFinite(fit?.ndf) ? `ν = ${formatInt(fit.ndf)}` : null,
     `q = ${sigFigs(q, 4)}`,
   ].filter(Boolean).join(', ');
-  return `${own ? 'Its own' : 'Its'} 95% band spans half its axis or more over its fitted windows (${why}), so it is drawn as its edges, not as a wash.`;
+  return `Its 95% band spans half its axis or more over its fitted windows (${why}), so it is drawn as its edges, not as a wash.`;
 }
 
 /** What a literature reference adds to every ratio mark's tooltip: none of it carries an interval. */
@@ -2265,106 +2900,141 @@ function showerBLine(model, s, faded) {
     + `${model.twoOnShow ? ', so the end labels name the shower' : ''}: on this view the dash means extrapolation, not the shower.`;
 }
 
-/** The tooltip of one drawn fit on the main panel; `part` 'solid' (over its windows) or 'dashed'. */
+/**
+ * The tooltip of one drawn fit on the main panel; `part` 'solid' (over its
+ * windows) or 'dashed'. a/√E ⊕ b ⊕ c/E has its own (`noiseFitTip`); a₀/√E is
+ * drawn only as the fallback of a series with no a/√E ⊕ b ⊕ c/E fit, and says
+ * so with the server's reason.
+ */
 export function energyFitTip(model, s, f, part = 'solid') {
-  const { fit, form } = f;
+  if (f.form === 'noise') return noiseFitTip(model, s, f, part);
+  const { fit } = f;
   const p = fit.params ?? {};
   const scaled = Number.isFinite(fit.scale_factor) && fit.scale_factor > 1;
   const sym = model.estimator?.symbol ?? 'σ/E';
   const lines = [`<b>${escapeHtml(s.label)}</b>`, escapeHtml(energyEquation(f, sym))];
-  if (form === 'quadrature') {
-    lines.push(mutedLine(`fitted as (${sym})² = A/E + B: A = ${sig(p.a2)} ± ${sig(p.se_a2)} %²·GeV, B = ${sig(p.b2)} ± ${sig(p.se_b2)} %², ρ(A, B) = ${sig(p.rho_a2b2)}`));
-    if (scaled) lines.push(mutedLine(`errors scaled by S = ${sig(fit.scale_factor)} (PDG, χ²/ν > 1); unscaled SE(a) = ${sig(p.se_a_stat)}, SE(b) = ${sig(p.se_b_stat)}`));
-  } else if (scaled) {
+  lines.push(escapeHtml(`This series has no ${NOISE_FORM_NAME} fit (${f.noiseReason ?? noiseReasonClause(s.mf)}), `
+    + `so its origin-pinned a₀/√E is drawn instead, from ${formatNumber(model.curveMinGev)} GeV.`));
+  if (scaled) {
     lines.push(mutedLine(`error scaled by S = ${sig(fit.scale_factor)} (PDG, χ²/ν > 1); unscaled SE(a₀) = ${sig(p.se_a0_stat)}`));
   }
-  lines.push(fit.ndf > 0 && Number.isFinite(fit.p_value)
-    ? chi2Text(fit)
-    : `${chi2Text(fit)}: the curve passes through its ${formatInt(fit.n_points)} point${fit.n_points === 1 ? '' : 's'} exactly`);
+  lines.push(escapeHtml(energyChi2Line(fit)));
   lines.push(`Windows fitted (${formatInt(fit.n_points)}): ${escapeHtml(windowsText(model.payload, s.raw, s.mf))}`);
   lines.push(mutedLine(`Solid over the span of the windows it was fitted to (${spanText(f.span)}); dashed beyond, from ${formatNumber(model.curveMinGev)} to ${formatNumber(model.x.max)} GeV, where it extrapolates its form.`));
   if (part === 'dashed') lines.push(escapeHtml(extrapolatedLine(f)));
   if (f.provisional) {
-    lines.push(mutedLine(`Provisional: fewer than two windows reach N = ${formatInt(model.gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(model.gates.whisker_n)}; drawn faded.`));
+    lines.push(mutedLine(`Provisional: fewer than two windows from ${formatNumber(model.gates.e_min_gev)} GeV reach N = ${formatInt(model.gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(model.gates.whisker_n)}; drawn faded.`));
   }
   if (f.misfit) lines.push(mutedLine(misfitText(fit, model.gates)));
   if (!f.converged) {
     lines.push(mutedLine(`Not converged: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so this is the last refit's curve, not a fixed point.`));
   }
   if (s.isB) lines.push(mutedLine(showerBLine(model, s, f.faded)));
-  if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
-  lines.push(mutedLine(f.outlined ? outlinedLine(fit) : 'The shaded band beside it is the fit\'s 95% confidence band.'));
+  if (f.entry) lines.push(mutedLine('It comes down into the plot from the top: the caret there says where.'));
+  if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true value.'));
+  lines.push(mutedLine(ENERGY_NO_BAND_TEXT));
   return lines.join('<br/>');
 }
 
-/** The tooltip of one fit's band on the main panel; `outside` for its parts beyond the fitted windows. */
-export function energyBandTip(model, s, f, outside = false) {
-  const fit = f.fit;
-  const q = Number.isFinite(fit.band_quantile) ? fit.band_quantile : DEFAULT_QUANTILE;
-  const scaled = Number.isFinite(fit.scale_factor) && fit.scale_factor > 1;
+/**
+ * The tooltip of an a/√E ⊕ b ⊕ c/E curve on the main panel (brief section 4.3
+ * of res-noise): the equation; each term with its SE and unit, the held
+ * phrase, or a term's square where its SE exceeds it (brief-fix m4); χ²/ν and
+ * S; the windows fitted, the low anchor named; the correlation of the
+ * squares; and that no band is drawn on this view (Martin's directive of
+ * 2026-11-15). The floor sentence and the naming caveat are the drawer's
+ * alone (brief-fix m6).
+ */
+function noiseFitTip(model, s, f, part = 'solid') {
+  const { fit } = f;
+  const p = fit.params ?? {};
   const sym = model.estimator?.symbol ?? 'σ/E';
-  const lines = [`<b>${escapeHtml(s.label)}</b>`];
-  lines.push(escapeHtml(f.form === 'quadrature'
-    ? `95% confidence band of the quadrature fit a/√E ⊕ b: √ of the band of z = (${sym})² = A/E + B, ẑ ± ${sigFigs(q, 4)} √(gᵀΣg) with g = (1/E, 1). z is linear in (A, B) and √ is monotone, so this is the exact 95% band, with no delta method.`
-    : `95% confidence band of the origin-pinned fit a₀/√E ⊕ 0: a₀/√E ± ${sigFigs(q, 4)}·SE(a₀)/√E.`));
+  const scaled = Number.isFinite(fit.scale_factor) && fit.scale_factor > 1;
+  const lines = [`<b>${escapeHtml(s.label)}</b>`, `<b>${escapeHtml(energyEquation(f, sym))}</b>`, escapeHtml(noiseTermsText(p))];
+  lines.push(mutedLine(noiseConstraintText(sym)));
   if (scaled) {
-    lines.push(mutedLine(`The covariance is scaled by S = ${sig(fit.scale_factor)}; S is estimated from the fit's own ν = ${formatInt(fit.ndf)}, so Student's t₀.₉₇₅,${formatInt(fit.ndf)} = ${sigFigs(q, 4)} replaces 1.96.`));
+    // A term printed as its square (brief-fix m4) gives its square's unscaled SE.
+    const unscaled = ['a', 'b', 'c'].filter((t) => Number.isFinite(p[`se_${t}`]))
+      .map((t) => (termAsSquare(p, t)
+        ? `SE(${t}²) = ${sig(p[`se_${t}2`] / fit.scale_factor)}`
+        : `SE(${t}) = ${sig(p[`se_${t}`] / fit.scale_factor)}`)).join(', ');
+    lines.push(mutedLine(`errors scaled by S = ${sig(fit.scale_factor)} (PDG, χ²/ν > 1)${unscaled ? `; unscaled ${unscaled}` : ''}`));
   }
-  lines.push(mutedLine('The uncertainty of the fitted curve, not the spread of the events.'));
-  if (f.outlined) lines.push(escapeHtml(outlinedLine(fit)));
-  if (outside) lines.push(escapeHtml(f.outlined ? extrapolatedLine(f) : `${extrapolatedLine(f)} Drawn at a third of its strength.`));
-  if (f.floorCut) {
-    lines.push(mutedLine(f.form === 'quadrature'
-      ? `Its lower edge is cut at 0 where ẑ − h < 0: ${model.estimator?.name === 'median' ? 'a median relative error' : 'a resolution'} cannot be negative.`
-      : `Its lower edge is cut at ${sym} = 0, the floor of the axis.`));
+  lines.push(escapeHtml(energyChi2Line(fit)));
+  lines.push(escapeHtml(noiseWindowsLine(model, s, f)));
+  if (model.mode === 'anchors' && f.lowAnchor !== null) {
+    const nAnchors = f.points.filter((b) => b !== f.lowAnchor).length;
+    lines.push(mutedLine(noiseLowAnchorText(binLabel(model.payload, s.raw, f.lowAnchor), model.noiseMinGev, nAnchors)));
   }
-  if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
-  return lines.join('<br/>');
-}
-
-/** The tooltip of the caret where a drawn fit's curve or band leaves the top of the main panel. */
-export function energyFitCutTip(model, s, f) {
-  const { cut } = f;
-  const name = f.form === 'quadrature' ? 'quadrature fit a/√E ⊕ b' : 'origin-pinned fit a₀/√E ⊕ 0';
-  const [pe, py, plo, pup] = cut.peak;
-  const at = (e) => `E = ${sig(e)} GeV`;
-  return [
-    `<b>${escapeHtml(s.label)}</b>`,
-    escapeHtml(`The ${f.provisional ? 'provisional ' : ''}${name} leaves the top of the ${model.y.provisional ? 'provisional ' : ''}axis (0 to ${pct(model.y.hi)}):`
-      + `${cut.lineAt !== null ? ` its curve first at ${at(cut.lineAt)},` : ''} its 95% band first at ${at(cut.bandAt ?? cut.lineAt)}, scanning up in E.`),
-    escapeHtml(`True values where the band reaches highest, at ${at(pe)}: the curve ${pct(py)}, the band [${pct(plo)}, ${pct(pup)}].`),
-    mutedLine(rangeRuleText(model, `${formatNumber(model.yMinGev)} GeV`)),
-    ...(f.misfit ? [mutedLine(misfitText(f.fit, model.gates))] : []),
-  ].join('<br/>');
-}
-
-/** The tooltip of one drawn fit on the ratio panel (its line, its band and, where outlined, its band's edges). */
-export function ratioFitTip(model, s, f, part = 'solid') {
-  const ref = s.reference;
-  const lines = [
-    `<b>${escapeHtml(s.label)}</b>`,
-    escapeHtml(`${energyEquation(f, model.estimator?.symbol)} ÷ ${ref.label}`),
-    mutedLine(`The fitted curve divided by the reference at each E. Its ${f.ratio?.outlined ? '' : 'faint '}band is the fit's 95% band divided the same way, `
-      + `conditional on the reference: the reference is held exact${ref.literature ? '' : ' (its own band about 1 is drawn beside it, not folded in)'}.`),
-  ];
+  lines.push(mutedLine(`Solid over the span of the windows it was fitted to (${spanText(f.span)}); dashed beyond, from 0 to ${formatNumber(model.x.max)} GeV, where it extrapolates its form.`));
   if (part === 'dashed') lines.push(escapeHtml(extrapolatedLine(f)));
-  if (f.misfit) lines.push(mutedLine(misfitText(f.fit, model.gates)));
-  if (f.ratio?.outlined) lines.push(mutedLine(outlinedLine(f.fit)));
-  if (f.ratio?.cut) lines.push(mutedLine('It leaves the ratio axis: the caret there gives its true values.'));
-  if (ref.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
-  lines.push(...literatureWarningLines(model, Boolean(ref.literature)));
+  const rho = noiseCorrelationText(p.rho);
+  if (rho) lines.push(mutedLine(rho));
+  if (f.provisional) {
+    lines.push(mutedLine(`Provisional: fewer than two windows from ${formatNumber(model.gates.e_min_gev)} GeV reach N = ${formatInt(model.gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(model.gates.whisker_n)}; drawn faded.`));
+  }
+  if (f.misfit) lines.push(mutedLine(misfitText(fit, model.gates)));
+  if (!f.converged) {
+    lines.push(mutedLine(`Not converged: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so this is the last refit's curve, not a fixed point.`));
+  }
+  if (s.isB) lines.push(mutedLine(showerBLine(model, s, f.faded)));
+  if (f.entry) lines.push(mutedLine('It comes down into the plot from the top: the caret there says where.'));
+  if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true value.'));
+  lines.push(mutedLine(ENERGY_NO_BAND_TEXT));
   return lines.join('<br/>');
 }
 
-/** The tooltip of the caret where a fit's ratio leaves the ratio axis. */
-function ratioFitCutTip(model, s, f) {
-  const cut = f.ratio.cut;
-  const [pe, pr, plo, pup] = cut.peak;
-  const name = f.form === 'quadrature' ? 'quadrature fit a/√E ⊕ b' : 'origin-pinned fit a₀/√E ⊕ 0';
+/**
+ * The tooltip of the caret where an a/√E ⊕ b ⊕ c/E curve comes down into the
+ * main panel: brief section 8's sentence alone (the lead's decision of
+ * 2026-11-13; the drawer gives the same energy, from the same root), or, for a
+ * line above the whole axis, what is so. The line alone: no band is drawn.
+ */
+function noiseEntryTip(model, s, f) {
+  const e = f.entry;
+  const at = (v) => `E = ${sig(v)} GeV`;
+  const lines = [`<b>${escapeHtml(s.label)}</b>`];
+  if (e.above) {
+    lines.push(escapeHtml(`The ${f.provisional ? 'provisional ' : ''}${NOISE_FORM_NAME} fit lies above the top of the ${model.y.provisional ? 'provisional ' : ''}axis (0 to ${pct(model.y.hi)}) over the whole axis: at ${at(model.x.max)} it reads ${pct(evalFitAt(f.fit, model.x.max)?.y)}.`));
+  } else if (e.term) {
+    lines.push(escapeHtml(noiseEntryText(e.lineAt, e.term)));
+  } else {
+    lines.push(escapeHtml(`It comes down into the plot at ${at(e.lineAt)}.`));
+  }
+  if (e.atAxis) lines.push(mutedLine(NOISE_AXIS_LINE_TEXT));
+  return lines.join('<br/>');
+}
+
+/**
+ * The tooltip of the caret where the a₀/√E fallback comes down into the main
+ * panel (review-ui F5, the lead's words verbatim): a₀/√E falls with E, so a
+ * curve that starts above the top at curveMin enters at E = (a₀/y.hi)², or,
+ * where that lies beyond the axis end, lies above the top over the whole axis.
+ */
+function pinnedEntryTip(model, s, f) {
+  const e = f.entry;
+  const top = `the top of the axis (0 to ${pct(model.y.hi)})`;
+  const from = sig(model.curveMinGev);
+  const text = e.above
+    ? `The origin-pinned a₀/√E lies above ${top} at every energy from ${from} GeV: at ${sig(model.x.max)} GeV it reads ${pct(evalFitAt(f.fit, model.x.max)?.y)}.`
+    : `The origin-pinned a₀/√E comes down into the plot at E = ${sig(e.lineAt)} GeV: it falls as 1/√E, so from ${from} GeV up to that energy it lies above ${top}.`;
+  return [`<b>${escapeHtml(s.label)}</b>`, escapeHtml(text)].join('<br/>');
+}
+
+/**
+ * The tooltip of the caret where a fit's ratio comes into the ratio panel from
+ * outside as E rises from its first row, or stays outside it (`whole`): the
+ * a/√E ⊕ b ⊕ c/E fit's from 0 GeV, the a₀/√E fallback's from curveMin.
+ */
+function ratioEntryTip(model, s, f) {
+  const e = f.ratio.entry;
+  const [pe, pr] = e.peak;
+  const where = e.whole
+    ? `stays ${e.dir === 'up' ? 'above' : 'below'} the ratio axis (${ratioRangeText(model)}) over the whole axis`
+    : `comes into the ratio axis (${ratioRangeText(model)}) from ${e.dir === 'up' ? 'above' : 'below'} at E = ${sig(e.at)} GeV`;
   const lines = [
     `<b>${escapeHtml(s.label)}</b>`,
-    escapeHtml(`The ratio of the ${name} to ${s.reference.label} leaves the ratio axis (${ratioRangeText(model)}) first at E = ${sig(cut.at)} GeV, scanning up in E.`),
-    escapeHtml(`True values where it deviates most, at E = ${sig(pe)} GeV: the ratio ${sig(pr)}, its band [${sig(plo)}, ${sig(pup)}].`),
+    escapeHtml(`The ratio of the ${energyFitName(f.form)} to ${s.reference.label} ${where}, scanning up in E from ${sig(pe)} GeV, where it reads ${sig(pr)}.`),
     mutedLine(`Clipped, not rescaled: the ratio range follows the windows of N ≥ ${formatInt(model.gates.fit_n)} from ${formatNumber(model.yMinGev)} GeV alone; `
       + 'a fit summarises its windows, so no fit ratio sets it.'),
   ];
@@ -2373,34 +3043,68 @@ function ratioFitCutTip(model, s, f) {
   return lines.join('<br/>');
 }
 
-/** The tooltip of a deposit reference's own band about 1 on the ratio panel (its wash, or its edges where outlined). */
-function referenceBandTip(model, ref, outside) {
+/** The tooltip of the caret where a drawn fit's curve leaves the top of the main panel: its own values, no band. */
+export function energyFitCutTip(model, s, f) {
+  const { cut } = f;
+  const name = energyFitName(f.form);
+  const [pe, py] = cut.peak;
+  const at = (e) => `E = ${sig(e)} GeV`;
+  return [
+    `<b>${escapeHtml(s.label)}</b>`,
+    escapeHtml(`The ${f.provisional ? 'provisional ' : ''}${name} leaves the top of the ${model.y.provisional ? 'provisional ' : ''}axis (0 to ${pct(model.y.hi)}) `
+      + `first at ${at(cut.at)}, scanning up in E.`),
+    escapeHtml(`True values where it reaches highest, at ${at(pe)}: the curve ${pct(py)}.`),
+    mutedLine(rangeRuleText(model, `${formatNumber(model.yMinGev)} GeV`)),
+    ...(f.misfit ? [mutedLine(misfitText(f.fit, model.gates))] : []),
+  ].join('<br/>');
+}
+
+/**
+ * The tooltip of one drawn fit on the ratio panel: its line divided by the
+ * reference, with no band (review-ui F4): below the title its terms with their
+ * SEs (a/√E ⊕ b ⊕ c/E's terms, or a₀/√E's equation with ± SE(a₀)), its χ²/ν
+ * line as the main tooltip writes it, the explanation, and that no band is
+ * drawn on this view.
+ */
+export function ratioFitTip(model, s, f, part = 'solid') {
+  const ref = s.reference;
+  const noise = f.form === 'noise';
   const lines = [
-    `<b>${escapeHtml(ref.seriesLabel ?? ref.label)}</b>`,
-    escapeHtml(`The reference, ${ref.label}: its own 95% confidence band relative to itself, [lo/ŷ, hi/ŷ] about 1.`),
-    mutedLine('The ratio marks\' intervals are conditional on the reference and do not include this band.'),
+    `<b>${escapeHtml(s.label)}</b>`,
+    escapeHtml(`${noise ? `${NOISE_FORM_NAME} fit` : 'Origin-pinned fit a₀/√E ⊕ 0'} ÷ ${ref.label}`),
+    escapeHtml(noise ? noiseTermsText(f.fit.params ?? {}) : energyEquation(f, model.estimator?.symbol)),
+    escapeHtml(energyChi2Line(f.fit)),
+    mutedLine('The fitted curve divided by the reference at each E, the reference held exact.'),
+    mutedLine(ENERGY_NO_BAND_TEXT),
   ];
-  if (outside) {
-    lines.push(mutedLine(`Beyond its fitted windows (${spanText(ref.span)}), where the reference extrapolates its form: drawn ${ref.outlined ? 'dashed' : 'fainter'}.`));
+  if (part === 'dashed') lines.push(escapeHtml(extrapolatedLine(f)));
+  if (f.misfit) lines.push(mutedLine(misfitText(f.fit, model.gates)));
+  if (f.ratio?.entry?.whole) {
+    lines.push(mutedLine('It stays beyond the ratio axis over the whole axis: the caret at the axis end says so.'));
+  } else if (f.ratio?.entry) {
+    lines.push(mutedLine(`It comes into the ratio axis from beyond it as E rises from ${noise ? '0' : `${formatNumber(model.curveMinGev)} GeV`}: the caret there says where.`));
   }
-  if (ref.outlined) lines.push(mutedLine(outlinedLine(ref.fit, true)));
-  if (ref.misfit) lines.push(mutedLine(referenceMisfitText(ref, model.gates)));
-  if (ref.bandCut) lines.push(mutedLine('It leaves the ratio axis: the muted caret there gives its true values.'));
+  if (f.ratio?.cut) lines.push(mutedLine('It leaves the ratio axis: the caret there gives its true value.'));
+  if (ref.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
+  lines.push(...literatureWarningLines(model, Boolean(ref.literature)));
   return lines.join('<br/>');
 }
 
-/** The tooltip of the muted caret where a deposit reference's band about 1, a wash, first leaves the ratio axis. */
-function referenceBandCutTip(model, ref) {
-  const cut = ref.bandCut;
-  const [pe, , plo, pup] = cut.peak;
-  return [
-    `<b>${escapeHtml(ref.seriesLabel ?? ref.label)}</b>`,
-    escapeHtml(`The reference's own 95% band about 1 (${ref.label}) leaves the ratio axis (${ratioRangeText(model)}) first at E = ${sig(cut.at)} GeV, `
-      + `${cut.dir === 'up' ? 'above' : 'below'} it, scanning up in E.`),
-    escapeHtml(`True values where it deviates most, at E = ${sig(pe)} GeV: the band [${sig(plo)}, ${sig(pup)}].`),
-    mutedLine('Clamped at the axis, not rescaled: a reference band never sets the ratio range.'),
-    ...(ref.misfit ? [mutedLine(referenceMisfitText(ref, model.gates))] : []),
-  ].join('<br/>');
+/** The tooltip of the caret where a fit's ratio leaves the ratio axis: its own values, no band. */
+function ratioFitCutTip(model, s, f) {
+  const cut = f.ratio.cut;
+  const [pe, pr] = cut.peak;
+  const name = energyFitName(f.form);
+  const lines = [
+    `<b>${escapeHtml(s.label)}</b>`,
+    escapeHtml(`The ratio of the ${name} to ${s.reference.label} leaves the ratio axis (${ratioRangeText(model)}) first at E = ${sig(cut.at)} GeV, scanning up in E.`),
+    escapeHtml(`True values where it deviates most, at E = ${sig(pe)} GeV: the ratio ${sig(pr)}.`),
+    mutedLine(`Clipped, not rescaled: the ratio range follows the windows of N ≥ ${formatInt(model.gates.fit_n)} from ${formatNumber(model.yMinGev)} GeV alone; `
+      + 'a fit summarises its windows, so no fit ratio sets it.'),
+  ];
+  if (s.reference.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
+  lines.push(...literatureWarningLines(model, Boolean(s.reference.literature)));
+  return lines.join('<br/>');
 }
 
 /**
@@ -2415,7 +3119,7 @@ function unityTip(model) {
     `<b>ratio = 1</b>`,
     escapeHtml(none
       ? 'The ratio axis\'s centre, with no reference to divide by, so the panel holds no ratio marks.'
-      : `${model.estimator?.symbol ?? 'σ/E'} equal to the reference: ${ref.literature ? referenceEquation(ref.literature) : ref.label}.`),
+      : `${model.estimator?.symbol ?? 'σ/E'} equal to the reference: ${ref.literature ? `${referenceEquation(ref.literature)} (${REFERENCE_UNITS})` : ref.label}.`),
     mutedLine(`A log axis symmetric about 1 (${ratioRangeText(model)}), so ×k and ÷k lie at equal distances from this rule.`),
   ];
   for (const r of missing) {
@@ -2430,7 +3134,7 @@ function unityTip(model) {
 }
 
 /**
- * What a ratio mark's tooltip, the reference's own band and the 1.0 rule say of a deposit reference whose form
+ * What a ratio mark's tooltip and the 1.0 rule say of a deposit reference whose form
  * does not describe its windows (its fit's `misfit`): its S and χ²/ν, and that no ratio against it sets k.
  */
 function referenceMisfitText(ref, gates) {
@@ -2495,7 +3199,7 @@ function literatureRatioTip(model, lit) {
   const [e1, r1] = rows[rows.length - 1];
   return [
     `<b>${escapeHtml(`${lit.entry.particle} literature curve ÷ ${ref.particle}`)}</b>`,
-    escapeHtml(`${referenceEquation(lit.entry)} divided by ${referenceEquation(ref)}: ${sig(r0)} at E = ${sig(e0)} GeV, ${sig(r1)} at E = ${sig(e1)} GeV.`),
+    escapeHtml(`${referenceEquation(lit.entry)} divided by ${referenceEquation(ref)} (in both, ${REFERENCE_UNITS}): ${sig(r0)} at E = ${sig(e0)} GeV, ${sig(r1)} at E = ${sig(e1)} GeV.`),
     mutedLine('Both curves are transcribed point estimates with no interval reported, so neither has one here; it never sets the ratio range.'),
     ...(lit.ratio.cut ? [mutedLine('It leaves the ratio axis: the caret there gives its true values.')] : []),
     ...literatureWarningLines(model),
@@ -2520,7 +3224,7 @@ function literatureCutTip(model, lit) {
   const [pe, pv] = lit.cut.peak;
   return [
     `<b>${escapeHtml(`${lit.entry.particle} literature curve`)}</b>`,
-    escapeHtml(`${referenceEquation(lit.entry)} lies above the top of the axis (0 to ${pct(model.y.hi)}) below E = ${sig(lit.cut.at)} GeV; at E = ${sig(pe)} GeV it reads ${pct(pv)}.`),
+    escapeHtml(`${referenceEquation(lit.entry)} (${REFERENCE_UNITS}) lies above the top of the axis (0 to ${pct(model.y.hi)}) below E = ${sig(lit.cut.at)} GeV; at E = ${sig(pe)} GeV it reads ${pct(pv)}.`),
     mutedLine('Clipped, not rescaled: a literature curve never sets the range.'),
     mutedLine(LITERATURE_NO_INTERVAL),
     ...literatureWarningLines(model),
@@ -2563,14 +3267,12 @@ function energyMarkers(s, items, id, tip) {
   };
 }
 
-/** A band series on the ratio grid: its one datum a valid point of the log axis (`customBand` draws from its closure). */
-function ratioBand(options) {
-  const band = customBand(options);
-  const first = options.points[0];
-  return { ...band, data: [[first[0], first[1]]], xAxisIndex: 1, yAxisIndex: 1 };
-}
-
-/** Every mark of one series on both grids, each named after it, so its legend entry shows and hides all of them. */
+/**
+ * Every mark of one series on both grids, each named after it, so its legend
+ * entry shows and hides all of them: its windows, whiskers and carets, and its
+ * one fitted curve (`s.drawn`) with its entry and exit carets, with no band
+ * (Martin's directive of 2026-11-15).
+ */
 function energySeriesMarks(model, s) {
   const { y } = model;
   const k = model.ratio.k;
@@ -2603,47 +3305,28 @@ function energySeriesMarks(model, s) {
     if (p.value > y.hi || p.clip?.cutHi) carets.push({ at: [p.E, y.hi], dir: 'up', tooltip: tip });
     if (p.value < 0 || p.clip?.cutLo) carets.push({ at: [p.E, 0], dir: 'down', tooltip: tip });
   }
-  for (const form of ENERGY_FORMS) {
-    const f = s.fits[form];
-    if (f?.drawable && f.cut) carets.push({ at: [f.cut.at, y.hi], dir: 'up', tooltip: energyFitCutTip(model, s, f) });
+  // The series' one curve (`s.drawn`): a/√E ⊕ b ⊕ c/E, or the a₀/√E fallback; none where it has neither.
+  const f = s.drawn;
+  // The curve comes down into the plot from the top: one caret where its line enters (`noiseEntryTip`; the a₀/√E
+  // fallback's `pinnedEntryTip`, review-ui F5), or at x.max where it lies above the whole axis.
+  if (f?.entry) {
+    carets.push({ at: [f.entry.at, y.hi], dir: 'up', tooltip: f.form === 'noise' ? noiseEntryTip(model, s, f) : pinnedEntryTip(model, s, f) });
   }
+  if (f?.cut) carets.push({ at: [f.cut.at, y.hi], dir: 'up', tooltip: energyFitCutTip(model, s, f) });
   if (carets.length) {
     out.push(named({ ...caretSeries({ name: s.label, carets, color: s.colour, offsetPx: s.offsetPx }), id: `${s.key}|carets` }));
   }
-  for (const form of ENERGY_FORMS) {
-    const f = s.fits[form];
-    if (!f?.drawable) continue;
-    const wide = form === 'quadrature';
-    // A faded fit (provisional, or a misfit) fades whole: its solid part, its dashed extrapolation and its band.
-    const opacity = s.lineOpacity(f.faded);
-    const width = (wide ? 1.6 : 1) * THEME.lineAxis;
-    for (const [part, runs] of [['solid', f.solid], ['dashed', f.dashed]]) {
-      runs.forEach((run, i) => {
-        out.push(named({
-          ...customPolyline({
-            name: s.label, points: run, color: s.colour, opacity, z: 5, width,
-            dash: part === 'dashed' ? DASH_EXTRAPOLATED : null,
-            tooltip: () => energyFitTip(model, s, f, part),
-          }),
-          id: `${s.key}|${form}|${part}|${i}`,
-        }));
-      });
-    }
-    if (f.outlined) {
-      out.push(...bandEdges(f.edges, s.colour, `${s.key}|${form}`, (part) => energyBandTip(model, s, f, part === 'dashed')).map(named));
-      continue;
-    }
-    const alpha = (wide ? 1 : 0.5) * THEME.bandAlpha * (f.faded ? 0.6 : 1) * (s.isB ? B_STRENGTH : 1);
-    for (const part of ['below', 'inside', 'above']) {
-      const points = f.band[part];
-      if (points.length < 2) continue;
-      out.push(named({
-        ...customBand({ name: s.label, points, color: s.colour, z: 2, opacity: part === 'inside' ? alpha : alpha * OUT_ALPHA }),
-        id: `${s.key}|${form}|band|${part}`,
-        silent: false,
-        tooltip: { formatter: () => energyBandTip(model, s, f, part !== 'inside') },
-      }));
-    }
+  // The width is the form: a/√E ⊕ b ⊕ c/E at 1.6 px, the a₀/√E fallback at 1 px. A faded fit (provisional, or a
+  // misfit) fades whole, its solid part and its dashed extrapolation, on both panels.
+  const opacity = f ? s.lineOpacity(f.faded) : 1;
+  const width = (f?.form === 'noise' ? 1.6 : 1) * THEME.lineAxis;
+  const curveRuns = (part, runs, panel) => runs.map((run) => customPolyline({
+    name: s.label, points: run, color: s.colour, opacity, z: 5, width,
+    dash: part === 'dashed' ? DASH_EXTRAPOLATED : null,
+    tooltip: panel === 'ratio' ? () => ratioFitTip(model, s, f, part) : () => energyFitTip(model, s, f, part),
+  })).map((x, i) => ({ ...x, id: `${s.key}${panel === 'ratio' ? '|ratio' : ''}|${f.form}|${part}|${i}` }));
+  if (f) {
+    for (const [part, runs] of [['solid', f.solid], ['dashed', f.dashed]]) out.push(...curveRuns(part, runs, 'main').map(named));
   }
 
   // ---- the ratio panel
@@ -2675,94 +3358,31 @@ function energySeriesMarks(model, s) {
     if (up) ratioCarets.push({ at: [p.E, k], dir: 'up', tooltip: tip });
     if (down) ratioCarets.push({ at: [p.E, 1 / k], dir: 'down', tooltip: tip });
   }
-  for (const form of ENERGY_FORMS) {
-    const f = s.fits[form];
-    const cut = f?.drawable ? f.ratio?.cut : null;
-    if (cut) ratioCarets.push({ at: [cut.at, cut.dir === 'up' ? k : 1 / k], dir: cut.dir, tooltip: ratioFitCutTip(model, s, f) });
-  }
+  // The curve's ratio: where it comes into the axis as E rises from 0 (a noise fit), and where it leaves.
+  const rEntry = f?.ratio?.entry ?? null;
+  const rCut = f?.ratio?.cut ?? null;
+  if (rEntry) ratioCarets.push({ at: [rEntry.at, rEntry.dir === 'up' ? k : 1 / k], dir: rEntry.dir, tooltip: ratioEntryTip(model, s, f) });
+  if (rCut) ratioCarets.push({ at: [rCut.at, rCut.dir === 'up' ? k : 1 / k], dir: rCut.dir, tooltip: ratioFitCutTip(model, s, f) });
   if (ratioCarets.length) {
     out.push(named(onRatio({ ...caretSeries({ name: s.label, carets: ratioCarets, color: s.colour, offsetPx: s.offsetPx }), id: `${s.key}|ratio|carets` })));
   }
-  for (const form of ENERGY_FORMS) {
-    const f = s.fits[form];
-    if (!f?.drawable || !f.ratio) continue;
-    const wide = form === 'quadrature';
-    const opacity = s.lineOpacity(f.faded);
-    const width = (wide ? 1.6 : 1) * THEME.lineAxis;
+  // The curve divided by the reference; the reference's own curve (1 by construction) has no ratio and is not drawn.
+  if (f?.ratio) {
     for (const [part, runs] of [['solid', f.ratio.solid], ['dashed', f.ratio.dashed]]) {
-      runs.forEach((run, i) => {
-        out.push(named(onRatio({
-          ...customPolyline({
-            name: s.label, points: run, color: s.colour, opacity, z: 5, width,
-            dash: part === 'dashed' ? DASH_EXTRAPOLATED : null,
-            tooltip: () => ratioFitTip(model, s, f, part),
-          }),
-          id: `${s.key}|ratio|${form}|${part}|${i}`,
-        })));
-      });
-    }
-    if (f.ratio.outlined) {
-      out.push(...bandEdges(f.ratio.edges, s.colour, `${s.key}|ratio|${form}`, (part) => ratioFitTip(model, s, f, part)).map((x) => named(onRatio(x))));
-      continue;
-    }
-    const alpha = RATIO_BAND_SHARE * (wide ? 1 : 0.5) * THEME.bandAlpha * (f.faded ? 0.6 : 1) * (s.isB ? B_STRENGTH : 1);
-    for (const part of ['below', 'inside', 'above']) {
-      const points = f.ratio.band[part];
-      if (points.length < 2) continue;
-      out.push(named({
-        ...ratioBand({ name: s.label, points, color: s.colour, z: 2, opacity: part === 'inside' ? alpha : alpha * OUT_ALPHA }),
-        id: `${s.key}|ratio|${form}|band|${part}`,
-        silent: false,
-        tooltip: { formatter: () => ratioFitTip(model, s, f, part === 'inside' ? 'solid' : 'dashed') },
-      }));
-    }
-  }
-  // The deposit reference's own band about 1, drawn with its deposit series (and hidden with it): its edges where
-  // it spans half the axis or more over its span, else a muted wash clamped at the axis with one muted caret where it leaves.
-  const ref = s.reference;
-  if (ref && !ref.reason && ref.band && ref.series === s.key) {
-    const legendStyle = { ...style };
-    if (ref.outlined) {
-      out.push(...bandEdges(ref.edges, THEME.muted, `${s.key}|ratio|reference`, (part) => referenceBandTip(model, ref, part === 'dashed'))
-        .map((x) => ({ ...onRatio(x), name: s.label, itemStyle: legendStyle })));
-    } else {
-      for (const part of ['below', 'inside', 'above']) {
-        const points = ref.band[part].map(([e, , lo, up]) => [e, Math.min(Math.max(lo, 1 / k), k), Math.min(Math.max(up, 1 / k), k)]);
-        if (points.length < 2) continue;
-        out.push({
-          ...ratioBand({
-            name: s.label, points, color: THEME.muted, z: 1,
-            opacity: REFERENCE_BAND_SHARE * THEME.bandAlpha * (part === 'inside' ? 1 : OUT_ALPHA),
-          }),
-          id: `${s.key}|ratio|reference|band|${part}`,
-          itemStyle: legendStyle,
-          silent: false,
-          tooltip: { formatter: () => referenceBandTip(model, ref, part !== 'inside') },
-        });
-      }
-    }
-    if (ref.bandCut) {
-      const cut = ref.bandCut;
-      out.push({
-        ...onRatio(caretSeries({
-          name: s.label, carets: [{ at: [cut.at, cut.dir === 'up' ? k : 1 / k], dir: cut.dir, tooltip: referenceBandCutTip(model, ref) }],
-          color: THEME.muted,
-        })),
-        id: `${s.key}|ratio|reference|caret`,
-        itemStyle: legendStyle,
-      });
+      out.push(...curveRuns(part, runs, 'ratio').map((x) => named(onRatio(x))));
     }
   }
   return out;
 }
 
 /**
- * A band that spans half its axis or more, drawn as its two edges: thin lines in `colour`
- * at `EDGE_OPACITY` (raised to 3:1), solid over the fitted span and dashed
- * beyond it, as its curve is, on the E view; the 1/√E view, whose lines mark
- * no extrapolation, passes solid runs only. `edges` {solid, dashed} runs, already clipped
- * to the plot. Each run is a series `${id}|edges|<solid|dashed>|<i>` whose
- * tooltip is `tip(part)`.
+ * A 1/√E-view band that spans half its axis or more, drawn as its two edges:
+ * thin lines in `colour` at `EDGE_OPACITY` (raised to 3:1), solid along their
+ * whole length, since that view's lines mark no extrapolation (`edges.dashed`
+ * is empty there). The E view draws no band (Martin's directive of
+ * 2026-11-15). `edges` {solid, dashed} runs, already clipped to the plot. Each
+ * run is a series `${id}|edges|<solid|dashed>|<i>` whose tooltip is
+ * `tip(part)`.
  */
 function bandEdges(edges, colour, id, tip) {
   const opacity = legibleOpacity(colour, EDGE_OPACITY);
@@ -3120,7 +3740,7 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
   const series = [];
   const legend = [];
   for (const s of model.series) {
-    if (!s.points.length && !ENERGY_FORMS.some((form) => s.fits[form]?.drawable)) continue;
+    if (!s.points.length && !s.drawn) continue;
     series.push(...energySeriesMarks(model, s));
     legend.push({ name: s.label, icon: 'circle' });
   }
@@ -3329,7 +3949,7 @@ export class ResolutionScalingPanel extends ChartPanel {
 
   /**
    * Text nodes only: every label comes from a payload. One `tbody` per series:
-   * its name (a row-group header) and the windows it fitted span its three
+   * its name (a row-group header) and the windows it fitted span its four
    * fit rows, each headed by the fit's name. Every cell wraps at its spaces;
    * text is left-aligned (`text`) and numbers right-aligned (`num`), a value
    * and its SE held together by no-break spaces.
@@ -3371,17 +3991,17 @@ export class ResolutionScalingPanel extends ChartPanel {
           series.setAttribute?.('rowspan', String(row.fits.length));
           tr.append(series);
         }
-        // Fit, a, b, χ²/ν, S, then (once) the windows, then the status.
-        const [name, a, b, chi2, scale, status] = fit.cells;
+        // Fit, a, b, c, χ²/ν, S, then (once) the windows, then the status.
+        const [name, a, b, c, chi2, scale, status] = fit.cells;
         const fitName = el('th', name, 1);
         fitName.setAttribute?.('scope', 'row');
-        tr.append(fitName, el('td', a, 2), el('td', b, 3), el('td', chi2, 4), el('td', scale, 5));
+        tr.append(fitName, el('td', a, 2), el('td', b, 3), el('td', c, 4), el('td', chi2, 5), el('td', scale, 6));
         if (k === 0) {
-          const windows = el('td', row.windows, 6);
+          const windows = el('td', row.windows, 7);
           windows.setAttribute?.('rowspan', String(row.fits.length));
           tr.append(windows);
         }
-        tr.append(el('td', status, 7));
+        tr.append(el('td', status, 8));
         body.append(tr);
       });
       table.append(body);

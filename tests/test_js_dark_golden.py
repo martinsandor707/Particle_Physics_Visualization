@@ -127,6 +127,107 @@ and prints a table of SHA-256 digests, one per case:
     longer says "as a provisional fit is", since robust has no provisional
     fit.
 
+The noise term (2026-11-13, res-noise, Martin's decisions of that day: the E view draws a/√E ⊕ b ⊕ c/E from 0 GeV
+in place of a/√E ⊕ b, fitted with its squares held non-negative to windows from 1 GeV) re-recorded 368 of the
+2,869 cases, in the same two families and nothing else; the case-id set and the theme map did not move (measured
+against a dump of the golden commit, 97adcd1, and a dump at cf4d742 before the re-record):
+  - 248 `models/resolution/*` cases, 22 per recording and 14 for each robust single-shower recording. The two
+    1/√E fit tables gained the a/√E ⊕ b ⊕ c/E row, tabled only, the c column and the caption's constraint; the
+    1/√E options themselves (both modes, print, narrow card, one shower) did not move. On the E view every
+    option, on screen and in print, its two tables, the narrow card and one shower moved: the noise curve from
+    0 GeV with its entry caret, the 3-anchor mode's low anchor drawn, the ratio panel divided by the deposit's
+    noise fit with marks from 1 GeV, and the role lines of the 1–4 GeV windows. The robust single-shower
+    recordings serve no noise fit: their 3-anchor E options, which hold no fit, did not move, and their
+    all-windows ones moved only by those role lines and the 1.0 rule's wording.
+  - 120 `notes/models_resolution/*` drawers, 10 per recording: the 1/√E drawer's tabled sentence (both modes),
+    and on the E view the two drawn forms, the constraint, the low anchor, the floor, the held terms, the
+    naming caveat, the correlated terms, the entry at the top, the ratio reference from 1 GeV and its count
+    below 1 GeV, in place of the a/√E ⊕ b lines and "no curve is drawn below 4 GeV".
+
+  The lead's fixes of the same day (N-jstests' findings F1–F5) re-recorded 100 more cases, in the same two
+  families, against the golden at b3052cb; the case-id set and the theme map did not move:
+  - 96 `notes/models_resolution/*` E-view drawers, 8 per recording and 10 on the two sample single-shower ones:
+    the mode line names both floors under All windows and the low anchor in the 3-anchor mode (F4); the bands
+    cut at 0 include the a/√E ⊕ b ⊕ c/E ones (F1); a noise band above the top with its curve inside is named
+    (F2); a reference band beyond the whole ratio axis is said (F5).
+  - 4 `models/resolution/*` cases, the two sample single-shower recordings' 3-anchor E view on screen and in
+    print: that reference band leaves the list of bands drawn as edges, and the 1.0 rule's tooltip says it
+    lies beyond the axis (F5).
+
+The res-noise fix round (2026-11-13, brief-fix.md: Martin's decisions after the review, FX1 the noise band as
+the envelope of the conditional band and the all-free face's, FX2 a second pooled scale c_low below 4 GeV, FX3
+the unread notes and quadrature fields off the wire, and the lead's decisions on the review's m1–m7 and nits)
+re-recorded 368 of the 2,869 cases, in the same two families and nothing else; the case-id set and the theme map
+did not move (measured against a dump of the golden commit, 0909bf7, and a dump at 32d62c9 before the
+re-record):
+  - 248 `models/resolution/*` cases, 22 per recording and 14 for each robust single-shower recording. The 1/√E
+    options (both modes, print, narrow card, one shower) did not move; its two fit tables did, by the caption
+    (no band clause, nit 6; a term printed as its square where its SE exceeds it, m4) and the squared cells. On
+    the E view the noise band is the envelope wherever a term is held, so its edges, outlines and carets moved;
+    its tooltips carry the envelope sentence in place of "conditional on", the band tooltip no longer claims an
+    exact band or speaks of a held term's variance, the curve's tooltip drops the floor sentence and the naming
+    caveat (m6), a window below 4 GeV prints its weight with c_low, the provisional sentences say "from 4 GeV"
+    (m2), an entry within 0.1% of the axis says it runs up the axis line (m7), and the quadrature table cell no
+    longer says its band cannot be built (nit 2). The robust single-shower recordings serve no noise fit: their
+    3-anchor E options did not move.
+  - 120 `notes/models_resolution/*` drawers, 10 per recording: the held lines end in the envelope sentence; the
+    legend says how the envelope is built and claims no 95% coverage for a fit that holds a term; the pooled-scale
+    line names c and c_low and ends in the brief's weights sentence (median and robust); the held-term caveat is
+    its own line (m3) and the correlation line says each free term's SE already carries the trade; a window only
+    the noise fit uses is no longer "not fitted" (m1); "a₀/√E fits every window from 4 GeV" on the E view
+    (nit 4); an entry within 0.1% of the axis says so (m7); the 1/√E drawer states the noise fit's windows and
+    floor that the retired definition note carried (FX3). Nit 8 (no zero count on the robust floor line) moves no
+    recording: each holds a window of 2 ≤ N < 20 without a value, so `test_js_models_panels.py` pins it on a
+    synthetic copy.
+
+The single-curve round (2026-11-15, single-curve/brief.md: Martin's directive D1–D4 of that day, one fitted curve
+per series on the E view, no band anywhere on it, FX1's envelope and all-free face retired, one pooled scale in
+place of c and c_low; with the lead's fixes of 29c3ae8) re-recorded 348 of the 2,869 cases, in the same two
+families and nothing else; the case-id set and the theme map did not move (measured against a dump of the golden
+commit, 711fcf3, whose run reproduces the golden exactly):
+  - 236 `models/resolution/*` cases. On the E view 112 options on screen and 88 in print (every one but the 3-anchor
+    options of the two robust single-shower recordings, which serve no fit and draw the empty state) and its 24 fit
+    tables: one curve per series (a/√E ⊕ b ⊕ c/E, else a₀/√E from 4 GeV at 1 px), no wash, edges or band caret on
+    either panel, no reference band about 1, the curve's tooltips ending in the no-band sentence, a window of 1–4 GeV
+    printing c, and the Fit cells and caption naming the one curve drawn. On the 1/√E view 12 fit tables, both modes
+    of the six median and robust recordings that serve a noise fit, by the noise row's numbers alone, its weights
+    now one c. No 1/√E chart case moved: not `<name>/anchors` or `/all`, `/showerA`, `/narrow`, nor their `@print`
+    twins, on any recording.
+  - 112 `notes/models_resolution/*` drawers: the 96 E-view drawers (the one-curve and no-band sentences, the
+    fallback and no-curve lines, no envelope, cut-at-0, outlined-band or reference-band line, "fitted curve" counts,
+    the held lines without a band sentence), and the 16 1/√E drawers of the eight median and robust recordings, by
+    the weight label, the one-scale pooled line and the tabled noise fit's S.
+
+The single-curve round's fix round and the legend change (2026-11-15: Martin's request c406217, the literature
+legend without a % sign by its values and REFERENCE_UNITS beside the equation; the review's fixes 09a3be4, 19f6ab2,
+28d58e5 and fa85fe8) re-recorded 284 of the 2,869 cases, in the same two families and nothing else; the case-id set
+and the theme map did not move (measured against a dump of the code and recordings of 29c3ae8, whose run reproduces
+the golden exactly; every moved leaf was classified, none outside the changes named here):
+  - 172 `models/resolution/*` cases. On the E view 82 options on screen and 74 in print: every literature state's
+    legend, curve tooltips and 1.0 rule ("σ/E = 27.2/√E ⊕ 1.0", the units in the provenance), and every ratio-panel
+    curve tooltip (its terms with their SEs, its χ²/ν line and the no-band sentence, review-ui F4); the 60 that did
+    not move draw no literature curve and no ratio curve (the deposit reference of the one-shower recordings, of the
+    median two-shower deposits and of the robust XGBoost series, which serve no fit; their `/narrow` and `/showerA`;
+    the empty state of the two robust one-shower recordings' 3 anchors). 8 E fit tables and 8 1/√E fit tables (both
+    modes of `median_two`, `robust_single_hits`, `robust_single_events` and `robust_xgb`), by the true cause of a
+    missing fit from 4 GeV alone: the Status cells' "no fit: …", the E view's pinned "not drawn: …" and its affine
+    and quadrature "not fitted: …" (review-ui F2, review-docs M3). No 1/√E chart case moved: not `<name>/anchors` or
+    `/all`, `/showerA`, `/narrow`, nor their `@print` twins, on any recording.
+  - 112 `notes/models_resolution/*` drawers: the 96 E-view drawers (the transcription line's units, the ink end
+    labels of review-docs M4, the no-curve line's true cause, the pooled-scale line's review-stats S2 clause) and the
+    16 1/√E drawers of the eight median and robust recordings, by the weight label without "as its rule says"
+    (review-ui N3) and the pooled-scale line's S2 clause. The fallback's entry from the top (review-ui F5) and the
+    noise fit's "fit not converged" hazard (review-ui F3) move no case: no recording draws a fallback or carries an
+    unconverged fit; `test_js_models_panels.py` pins both on doctored copies.
+
+The literature tooltips' units (2026-11-15, 1b91b64: FX-browser's finding, the 1.0 rule's tooltip and the other
+curve's tooltip on the ratio panel now say REFERENCE_UNITS beside the equation) re-recorded 132 of the 2,869 cases,
+all `models/resolution/*` E-view options with a literature curve on (`/pi`, `/e`, `/both`, screen and `@print`), on
+every recording but the empty state of the two robust one-shower recordings' 3 anchors. Nothing else moved: no
+`/deposit` case, nor the E view's `/showerA` and `/narrow` (all three drawn against the deposit, with no literature
+curve), no 1/√E chart case, no fit table and no drawer. The caret where a literature curve leaves the top of the
+main panel says the units too and moves no case: no recording's top is low enough for it.
+
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
 behaviour, never code, so a refactor that reorders an object literal or

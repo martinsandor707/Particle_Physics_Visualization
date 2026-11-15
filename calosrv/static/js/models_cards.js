@@ -62,7 +62,7 @@ import { SECTION, notesText, warningsNotShown, withHiddenLegend } from './panel_
 import { describeError } from './page_common.js';
 import { viewFrame, effectiveSpecies } from './capabilities.js';
 import { MODELS_LABELS, featureChoices } from './labels.js';
-import { RESOLUTION_REFERENCES, referenceEquation } from './catalog/resolution_refs.js';
+import { RESOLUTION_REFERENCES, REFERENCE_UNITS, referenceEquation } from './catalog/resolution_refs.js';
 
 /** Where each panel class lives; fetched on first use. Literal specifiers, so the server stamps them. */
 const PANEL_MODULES = {
@@ -519,7 +519,7 @@ const RES_LITERATURE_CONTROL = {
   choices: () => RESOLUTION_REFERENCES.map((entry) => ({
     value: entry.key,
     label: entry.particle,
-    title: `Draw or hide ${referenceEquation(entry)}; transcribed from the supplied figure's legend; no interval reported. `
+    title: `Draw or hide ${referenceEquation(entry)} (${REFERENCE_UNITS}); transcribed from the supplied figure's legend; no interval reported. `
       + 'The ratio panel divides by the curve drawn, by the one the windows lie farther from when both are, '
       + 'and by each shower\'s deposit fit when neither is.',
   })),

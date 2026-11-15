@@ -72,7 +72,7 @@ def _rows(text: str) -> list[list[str]]:
 def test_catalogue_is_deep_frozen(dump):
     assert all(dump["frozen"].values()), dump["frozen"]
     assert set(dump["data"]) == {"REFERENCE_SOURCE", "RESOLUTION_REFERENCES", "REFERENCE_KEYS",
-                                 "REFERENCE_BY_KEY"}
+                                 "REFERENCE_BY_KEY", "REFERENCE_UNITS"}
 
 
 def test_rows_equal_the_record(dump, record):
@@ -103,8 +103,14 @@ def test_reference_value(dump):
 
 
 def test_equation_label_and_lookup(dump):
-    assert dump["calls"]["equation"] == ["σ/E = 27.2%/√E ⊕ 1.0%",
-                                         "σ/E = 14.0%/√E ⊕ 0.4%"]
+    # As the figure's legend prints them, with no % sign by the values (Martin's request, 2026-11-15): the record's
+    # own `printed` form after its particle, the units said apart, wherever the equation is read away from the axes.
+    assert dump["calls"]["equation"] == ["σ/E = 27.2/√E ⊕ 1.0",
+                                         "σ/E = 14.0/√E ⊕ 0.4"]
+    assert dump["calls"]["equation"] == [r["printed"].split(": ", 1)[1]
+                                         for r in dump["data"]["RESOLUTION_REFERENCES"]]
+    assert "%" not in "".join(dump["calls"]["equation"])
+    assert dump["data"]["REFERENCE_UNITS"] == "σ/E in percent, E in GeV"
     assert dump["calls"]["label"] == ["π± 27.2/√E ⊕ 1.0", "e± 14.0/√E ⊕ 0.4"]
     assert dump["calls"]["of"] == [True, None, None]
     for s in dump["calls"]["equation"] + dump["calls"]["label"]:

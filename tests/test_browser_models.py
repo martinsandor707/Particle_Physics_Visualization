@@ -43,17 +43,27 @@ page is checked as a reader meets it:
   baseline's two events draw its empty state, with the table still there);
   its "E (GeV) + ratio" view, from the same response and with no request,
   stacks two grids on one 0-80 GeV axis, σ/E from 0 over a log ratio axis
-  symmetric about 1, fitted curves solid over their windows and dashed beyond
-  with none below 4 GeV, a 600 px plot, a title naming the view, an export of
-  both grids and tooltips under the 20% rule on either grid; "Ratio to" and
-  the shower buttons repaint it, and the 1/√E view comes back identical;
+  symmetric about 1, one fitted curve per series and panel (its a/√E ⊕ b ⊕ c/E,
+  else its a₀/√E from 4 GeV) solid over its windows and dashed beyond, with no
+  band anywhere on the view (Martin's directive of 2026-11-15), a 600 px plot,
+  a title naming the view, an export of both grids and tooltips under the 20%
+  rule on either grid; "Ratio to" and the shower buttons repaint it, and the
+  1/√E view, which keeps its bands, comes back identical;
 * the resolution card's Estimator control (Martin's decisions of 2026-11-12), on the recorded two-shower responses
   served by the request's estimator: View, Estimator, Windows, Shower, Literature in that order, Median |rel. err.|
-  pressed by default; each switch one request carrying the new estimator, the other choices kept; the title, the
+  pressed by default, the View and literature buttons with their titles (the E view's naming one curve per series
+  and no band; each equation without a % sign, its units beside it); each switch one request carrying the new
+  estimator, the other choices kept; the title, the
   y axis and the export's est-<name> follow it; under the median in the E view with a curve on, the note band, the
   drawer, the Details hazard and the curve and ratio tooltips carry the literature disclosure, and under Robust σ
   (IQR) or with no curve none do; every tooltip keeps to the 20% cap under each estimator; screens of both views
   under each estimator in both themes (CALOSRV_RES_SCREENS);
+* the single-curve round (Martin's directive of 2026-11-15), read back from the live chart in both themes, under
+  each estimator, both window modes, the literature curves on and off: one fitted-curve family per series and
+  panel, no band, edge or reference-band series, each ratio curve's tooltip with its terms, χ²/ν and S and the
+  no-band line once, the literature legend entries and tooltips without a % sign by the values and with their
+  units, a 1–4 GeV window's tooltip naming the one pooled scale c, and the drawer's no-band sentence once with no
+  envelope, its pooled-scale clause on the 1–4 GeV windows' residuals under median and robust;
 * a series switched off on the resolution card's legend (Martin's bugs of
   2026-11-11, both views, on the recorded two-shower response) stays off
   across the window switch with no page error, and switched back on draws
@@ -74,6 +84,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -998,7 +1009,7 @@ _RES_ENERGY = """() => {
   const curves = {};
   model.eachSeries((s) => {
     const id = s.get('id') || '';
-    if (!/\\|(quadrature|pinned)\\|(solid|dashed)\\|\\d+$/.test(id)) return;
+    if (!/\\|(noise|quadrature|pinned)\\|(solid|dashed)\\|\\d+$/.test(id)) return;
     const grid = s.get('yAxisIndex') ?? 0;
     const pts = [];
     let dash = null;
@@ -1085,6 +1096,9 @@ _WATCH_EXPORT_GRIDS = """() => {
 
 #: The view's E axis: where a fitted curve may start (`axis.energy.curve_min_gev`).
 CURVE_MIN_GEV = 4.0
+#: Where a/√E ⊕ b ⊕ c/E's windows start (`axis.energy.noise_min_gev`, resolution_scaling.py NOISE_MIN_GEV): the
+#: 1–4 GeV windows enter it, the 0–1 GeV window never does (res-noise brief §0 decision 3).
+NOISE_MIN_GEV = 1.0
 
 
 def _res_payload(base, asked):
@@ -1139,7 +1153,8 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
         # The caption names the quantity under the median (S2-panel decision 7).
         assert fit["caption"].startswith("Fits of the median rel. through the 3 anchor windows"), fit
         assert fit["heads"][0] == "Series" and "Windows fitted" in fit["heads"], fit
-        assert fit["rows"] and len(fit["fits"]) == 3 * len(fit["rows"]), fit
+        # Four fits per series: the affine, the pinned, a/√E ⊕ b and a/√E ⊕ b ⊕ c/E (res-noise, tabled here).
+        assert fit["rows"] and len(fit["fits"]) == 4 * len(fit["rows"]), fit
         # Its text columns wrap, so at 1600 px the table keeps to its card (it ran 1721 px in 1212 kept on one line).
         assert fit["overflow"] <= 1, fit
 
@@ -1217,56 +1232,136 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
 E_TOL = 1e-6
 
 
+def _noise_entry(params, top):
+    """Where a/√E ⊕ b ⊕ c/E comes down into the main panel, in GeV: the root u = 1/E of
+    C·u² + A·u + (B − top²) = 0 in its stable form (res-noise brief §4.1), the squares in %² as served; None for a
+    flat curve (A = C = 0), drawn from 0 GeV, or one above the top at every E (B ≥ top²)."""
+    a2, b2, c2 = params["a2"], params["b2"], params["c2"]
+    room = top * top - b2
+    if (a2 <= 0 and c2 <= 0) or room <= 0:
+        return None
+    u = 2 * room / (a2 + (a2 * a2 + 4 * c2 * room) ** 0.5)
+    return 1 / u
+
+
+def _noise_drawable(block):
+    """Whether a noise block can be drawn (panels/resolution_scaling.js `noiseDrawable`): its three squares finite
+    and non-negative, one of them positive."""
+    params = (block or {}).get("params") or {}
+    squares = [params.get(k) for k in ("a2", "b2", "c2")]
+    return (bool(block) and block.get("form") == "noise"
+            and all(isinstance(v, (int, float)) and math.isfinite(v) and v >= 0 for v in squares) and sum(squares) > 0)
+
+
+def _drawn_form(mf):
+    """The one curve a series draws on the E view in a mode (Martin's directive of 2026-11-15, CLAUDE.md §5 "One
+    fitted curve per series"): its a/√E ⊕ b ⊕ c/E where drawable, else its origin-pinned a₀/√E, else none."""
+    if _noise_drawable(mf.get("noise")):
+        return "noise"
+    a0 = ((mf.get("pinned") or {}).get("params") or {}).get("a0")
+    return "pinned" if isinstance(a0, (int, float)) and math.isfinite(a0) else None
+
+
+#: Why a series has no fit from 4 GeV (panels/resolution_scaling.js `fitMissingReason`, review-ui F2 and
+#: review-docs M3, 19f6ab2), verbatim, as the fit table's cells and the drawer give it.
+DECLINED_REASON = "Robust σ (IQR) fits no line through fewer than two fittable windows"
+NO_SCALE_REASON = "no window from 4 GeV carries a fit weight, so this series has no pooled scale"
+TOO_FEW_WINDOWS = "too few windows"
+
+
+def _fit_missing_reason(payload, s, mode):
+    """The causes `fitMissingReason` can give for a series' missing fit from 4 GeV, as a tuple of the ones the payload
+    allows: no pooled scale where `weight_scale.c` is null; under the robust estimator with no fitted window, the
+    decline or too few windows (which of the two turns on the windows' fittability, the panel's to judge); else too
+    few windows."""
+    ws = s.get("weight_scale")
+    if payload["estimator"]["name"] == "robust" and not s["fits"][mode].get("points"):
+        return (DECLINED_REASON, NO_SCALE_REASON, TOO_FEW_WINDOWS) if ws and ws.get("c") is None \
+            else (DECLINED_REASON, TOO_FEW_WINDOWS)
+    if ws and ws.get("c") is None:
+        return (NO_SCALE_REASON,)
+    return (TOO_FEW_WINDOWS,)
+
+
 def _assert_e_view_curves(view, payload, mode):
-    """The E view's fitted curves as drawn (brief §1 decision 3, §4.3): no point below `curve_min_gev`; each solid
-    run inside its series' fitted span and meeting it at both edges, unless the curve leaves the top of the plot
-    there (CLAUDE.md §5: a fit is never a range setter, and one that leaves the top is clipped with a caret, so its
-    solid run then starts where it comes back in, on the axis's top edge); each dashed run [6, 4] and wholly outside
-    the span; on the main panel the dashed part beyond the span runs to the axis end; the quadrature fit drawn only
-    where both its terms are defined. Returns the forms drawn per series."""
+    """The E view's fitted curves as drawn (res-noise brief §0 decision 2, §4.1; CLAUDE.md §5 "One fitted curve per
+    series", "Solid and dashed").
+
+    One curve per series on each panel (Martin's directive of 2026-11-15): its a/√E ⊕ b ⊕ c/E where it has a
+    drawable one, else its a₀/√E, never both, and no band. a₀/√E: nothing below `curve_min_gev` (4 GeV).
+    a/√E ⊕ b ⊕ c/E: drawn from 0 GeV, coming down into the main panel from its top at the energy where its line
+    reaches the axis top (the root of C·u² + A·u + (B − top²)), or from E = 0 when flat (A = C = 0). Each solid run
+    inside its fit's own span (`span_gev`) and meeting it at both edges, unless the curve is above the plot at the
+    span's low edge (CLAUDE.md §5: a fit is never a range setter, so its solid run then starts on the axis's top
+    edge); each dashed run [6, 4] and wholly outside the span; on the main panel the dashed part beyond the span runs
+    to the axis end. a/√E ⊕ b is never drawn on this view (it is tabled). Returns the forms drawn per series."""
     energy = payload["axis"]["energy"]
     x_max, curve_min = energy["x"]["max"], energy["curve_min_gev"]
-    assert curve_min == CURVE_MIN_GEV, energy
+    assert curve_min == CURVE_MIN_GEV and energy["noise_min_gev"] == NOISE_MIN_GEV, energy
     by_key = {s["key"]: s for s in payload["series"]}
     top = view["y"][0]["max"]
     drawn = {}
+    on_ratio = {}
+    # No band, outline edge or reference band on this view (§2's recorded exception): every series id says so.
+    assert not [i for i in view["ids"] if "|band|" in i or i.endswith("|band") or "|edges|" in i
+                or "|reference|" in i], view["ids"]
 
     def at_top(value):
         # A point read back from its pixel on the main panel's top edge (the float round trip of a 600 px plot).
         return value == pytest.approx(top, rel=1e-3, abs=1e-6)
 
+    def fit_of(key, form):
+        mf = by_key[key]["fits"][mode]
+        return mf["noise"] if form == "noise" else mf
+
     for cid, curve in view["curves"].items():
         parts = cid.split("|")
         key, run_part, form = parts[0], parts[-2], parts[-3]
-        on_ratio = parts[1] == "ratio"
+        on_ratio_panel = parts[1] == "ratio"
         es = [pt[0] for pt in curve["points"]]
         assert es, (cid, curve)
-        assert curve["grid"] == (1 if on_ratio else 0), (cid, curve["grid"])
-        # Nothing below 4 GeV, which no fit uses; nothing past the axis end.
-        assert min(es) >= curve_min - E_TOL, (cid, min(es))
+        assert curve["grid"] == (1 if on_ratio_panel else 0), (cid, curve["grid"])
+        # a/√E ⊕ b is tabled on this view, never drawn (res-noise decision 2).
+        assert form in ("noise", "pinned"), cid
+        # a₀/√E: nothing below 4 GeV, which it cannot use. a/√E ⊕ b ⊕ c/E: from 0 GeV. Nothing past the axis end.
+        assert min(es) >= (curve_min if form == "pinned" else 0) - E_TOL, (cid, min(es))
         assert max(es) <= x_max + E_TOL, (cid, max(es))
-        lo, hi = by_key[key]["fits"][mode]["span_gev"]
+        lo, hi = fit_of(key, form)["span_gev"]
         if run_part == "solid":
             assert curve["dash"] is None, (cid, curve["dash"])
             assert lo - E_TOL <= min(es) and max(es) <= hi + E_TOL, (cid, (min(es), max(es)), (lo, hi))
         else:
             assert curve["dash"] == [6, 4], (cid, curve["dash"])
             assert max(es) <= lo + E_TOL or min(es) >= hi - E_TOL, (cid, (min(es), max(es)), (lo, hi))
-        if not on_ratio:
+        if on_ratio_panel:
+            on_ratio.setdefault(key, set()).add(form)
+        else:
             first = min(curve["points"], key=lambda pt: pt[0])
             drawn.setdefault(key, {}).setdefault(form, []).append((run_part, min(es), max(es), first[1]))
+    # Every series on show (its window markers drawn) whose one curve reaches the main panel draws it there: the noise
+    # fit unless its line is above the axis top at every E (B ≥ top², where its caret at the axis end says so
+    # instead), the a₀/√E fallback unless it is above the top even at the axis end, where it is lowest.
+    shown = {i.split("|")[0] for i in view["ids"] if i.endswith("|markers") and "|ratio|" not in i}
+    x_end = energy["x"]["max"]
+    for key in shown:
+        mf = by_key[key]["fits"][mode]
+        expected = _drawn_form(mf)
+        visible = (expected == "noise" and mf["noise"]["params"]["b2"] < top * top) or \
+                  (expected == "pinned" and mf["pinned"]["params"]["a0"] / x_end ** 0.5 < top)
+        assert (key in drawn) is visible, (key, expected, sorted(drawn.get(key, {})), mf["noise_reason"])
+    for key, forms in on_ratio.items():
+        # The ratio panel divides the same one curve, never another form.
+        assert forms == {_drawn_form(by_key[key]["fits"][mode])}, (key, forms)
     for key, forms in drawn.items():
-        s = by_key[key]
-        lo, hi = s["fits"][mode]["span_gev"]
-        params = s["fits"][mode]["quadrature"]["params"]
-        # Martin's decision 2: the quadrature fit where both terms are defined; the pinned fit always.
-        assert ("quadrature" in forms) is bool(params.get("a_defined") and params.get("b_defined")), (key, forms, params)
-        assert "pinned" in forms, (key, forms)
+        mf = by_key[key]["fits"][mode]
+        # One curve per series: its a/√E ⊕ b ⊕ c/E where drawable, else its a₀/√E, never a second line beside it.
+        assert sorted(forms) == [_drawn_form(mf)], (key, sorted(forms), mf["noise_reason"])
         for form, runs in forms.items():
+            lo, hi = fit_of(key, form)["span_gev"]
             solid = [r for r in runs if r[0] == "solid"]
             assert len(solid) == 1, (key, form, runs)
             # Solid over the fitted windows, meeting the dashed parts exactly at the span's edges; a curve that is
-            # above the plot at the span's low edge (both fitted forms fall with E) comes in at the top edge instead.
+            # above the plot at the span's low edge (every fitted form falls with E) comes in at the top edge instead.
             clipped_low = solid[0][1] > lo + E_TOL
             if clipped_low:
                 assert at_top(solid[0][3]), (key, form, runs, top)
@@ -1279,12 +1374,22 @@ def _assert_e_view_curves(view, payload, mode):
                 assert beyond[0][2] == pytest.approx(x_max, abs=E_TOL), (key, form, runs)
             below = [r for r in runs if r[0] == "dashed" and r[2] <= lo + E_TOL]
             if clipped_low:
-                # Above the plot from the span's low edge down to 4 GeV: nothing is drawn below the span.
+                # Above the plot from the span's low edge down: nothing is drawn below the span.
                 assert below == [], (key, form, runs)
-            elif lo > curve_min:
+            elif form == "pinned" and lo > curve_min:
                 # Down to 4 GeV, or to where the curve leaves the top of the axis on its way there.
                 assert len(below) == 1 and below[0][2] == pytest.approx(lo, abs=E_TOL), (key, form, runs)
                 assert below[0][1] == pytest.approx(curve_min, abs=E_TOL) or at_top(below[0][3]), (key, form, runs)
+            elif form == "noise":
+                # Down from the span towards 0 GeV: from the top edge, where the line comes down into the plot at
+                # the root's energy, or from E = 0 when the curve is flat.
+                assert len(below) == 1 and below[0][2] == pytest.approx(lo, abs=E_TOL), (key, form, runs)
+                entry = _noise_entry(mf["noise"]["params"], top)
+                if entry is None:
+                    assert below[0][1] == pytest.approx(0, abs=1e-3), (key, runs, mf["noise"]["params"])
+                else:
+                    assert at_top(below[0][3]), (key, runs, top)
+                    assert below[0][1] == pytest.approx(entry, rel=1e-3, abs=1e-4), (key, runs, entry)
     return {key: sorted(forms) for key, forms in drawn.items()}
 
 
@@ -1350,8 +1455,10 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
 
     "1/√E linear | E (GeV) + ratio" repaints the one response: no request on the view, the windows or the "Ratio
     to" switch. The E view stacks two grids on one E axis 0 → `axis.energy.x.max` (the top one's labels hidden, a
-    crosshair linked across both, no axis-trigger tooltip); σ/E from 0 to `axis.energy.y.hi`; fitted curves solid
-    over their fitted windows and dashed beyond, none below 4 GeV; a log ratio axis symmetric about 1 (min · max =
+    crosshair linked across both, no axis-trigger tooltip); σ/E from 0 to `axis.energy.y.hi`; one fitted curve per
+    series and panel with no band (Martin's directive of 2026-11-15), solid over its fitted windows and dashed
+    beyond, a/√E ⊕ b ⊕ c/E from 0 GeV or else a₀/√E from 4 GeV, the fit table's Fit cells naming the one drawn and
+    a/√E ⊕ b only tabled (res-noise); a log ratio axis symmetric about 1 (min · max =
     1). The title names the view, the plot is 600 px tall (420 px in the 1/√E view), its export holds both grids,
     and every tooltip over either grid keeps to the 20% rule. Back in the 1/√E view the axes, the series and the
     fit table are exactly what they were. The baseline's two events draw the E view's empty state; the recorded
@@ -1455,7 +1562,43 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
             # The fit table names what this view draws (panels/resolution_scaling.js energyTableName).
             table_e = page.evaluate(_RES_TABLE)
             assert any(f.startswith("Affine a/√E + b — drawn in the 1/√E view") for f in table_e["fits"]), table_e
-            assert any(f.startswith("Origin-pinned a₀/√E ⊕ 0 — drawn") for f in table_e["fits"]), table_e
+            # a/√E ⊕ b is tabled on this view (res-noise §4.4).
+            assert any(f.startswith("Quadrature a/√E ⊕ b — table only") for f in table_e["fits"]), table_e
+            assert not any(f.startswith("Quadrature a/√E ⊕ b — drawn") for f in table_e["fits"]), table_e
+            # One curve per series (Martin's directive of 2026-11-15): the Fit cells name the one drawn, a/√E ⊕ b ⊕ c/E
+            # where drawable, else a₀/√E; beside a drawn a/√E ⊕ b ⊕ c/E, a₀/√E is table only. Four rows per series.
+            # Each cell, series by series, as `energyTableName` writes it (review-ui F2 and fa85fe8): a missing fit
+            # from 4 GeV gives its true cause (`_fit_missing_reason`) in the a₀/√E cell, and the affine and
+            # quadrature cells say "— not fitted: <the same cause>"; a₀/√E is "table only" only beside a drawn
+            # a/√E ⊕ b ⊕ c/E. The cells come in series order, four per series.
+            forms = [_drawn_form(s["fits"]["anchors"]) for s in payload["series"]]
+            cells = table_e["fits"]
+            assert len([f for f in cells if f.startswith("Origin-pinned a₀/√E ⊕ 0 — ")]) == len(forms), cells
+            assert cells.count("a/√E ⊕ b ⊕ c/E — drawn") == forms.count("noise"), (cells, forms)
+            assert cells.count("Origin-pinned a₀/√E ⊕ 0 — drawn: no a/√E ⊕ b ⊕ c/E fit") == forms.count("pinned"), \
+                (cells, forms)
+            assert len([f for f in cells if f.startswith("a/√E ⊕ b ⊕ c/E — not drawn: ")]) == \
+                len(forms) - forms.count("noise"), cells
+            pinned_cells = [f for f in cells if f.startswith("Origin-pinned a₀/√E ⊕ 0 — ")]
+            affine_cells = [f for f in cells if f.startswith("Affine a/√E + b — ")]
+            quad_cells = [f for f in cells if f.startswith("Quadrature a/√E ⊕ b — ")]
+            assert len(affine_cells) == len(quad_cells) == len(forms), cells
+            for s, form, pinned, affine, quad in zip(payload["series"], forms, pinned_cells, affine_cells, quad_cells):
+                mf = s["fits"]["anchors"]
+                reasons = _fit_missing_reason(payload, s, "anchors")
+                if mf.get("pinned") is None or mf["pinned"]["params"].get("a0") is None:
+                    assert any(pinned == f"Origin-pinned a₀/√E ⊕ 0 — not drawn: {r}" for r in reasons), \
+                        (s["key"], pinned, reasons)
+                elif form == "noise":
+                    assert pinned == "Origin-pinned a₀/√E ⊕ 0 — table only on this view", (s["key"], pinned)
+                if mf.get("affine") is None:
+                    assert any(affine == f"Affine a/√E + b — not fitted: {r}" for r in reasons), (s["key"], affine)
+                else:
+                    assert affine == "Affine a/√E + b — drawn in the 1/√E view", (s["key"], affine)
+                if mf.get("quadrature") is None:
+                    assert any(quad == f"Quadrature a/√E ⊕ b — not fitted: {r}" for r in reasons), (s["key"], quad)
+                else:
+                    assert quad.startswith("Quadrature a/√E ⊕ b — table only"), (s["key"], quad)
             e_series = page.evaluate(_RES_SERIES)
 
             # Every window, then the anchors again: a repaint, and the curves keep the rules.
@@ -1527,12 +1670,13 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
                 assert _res_press(page, "models-shower", "both")
                 assert page.evaluate(_RES_SERIES) == e_series
 
-            # With both curves off the ratio panel divides each shower's windows by its deposit fit, so a shower
-            # whose deposit has no fit in this mode has no ratio marks. Under the default median the recorded
-            # two-shower deposits tie (every bootstrap replicate the same value, SE below 10⁻⁶ of it): they carry
-            # no fit weight and no fit (review-ui M1), and that panel holds nothing to read.
+            # With both curves off the ratio panel divides each shower's windows by its deposit's a/√E ⊕ b ⊕ c/E
+            # fit, else its a₀/√E fit (res-noise §4.2), so a shower whose deposit has neither in this mode has no
+            # ratio marks. Under the default median the recorded two-shower deposits tie (every bootstrap replicate
+            # the same value, SE below 10⁻⁶ of it): they carry no fit weight and no fit of either form (review-ui M1;
+            # their noise_reason says so), and that panel holds nothing to read.
             fitted = {s["shower"] for s in payload["series"]
-                      if s["source"] == "detector" and s["fits"]["anchors"]["pinned"]}
+                      if s["source"] == "detector" and (s["fits"]["anchors"]["noise"] or s["fits"]["anchors"]["pinned"])}
             marked = {k.split("|")[0].split(":")[1] for k, m in view["markers"].items()
                       if k.endswith("|ratio|markers") and m["fills"]}
             assert marked == fitted, (marked, fitted)
@@ -1630,6 +1774,16 @@ RES_ESTIMATOR_BUTTONS = {
     "sample": ("Sample σ/μ",
                "s(R) / R̄ over every event of the window, tails included: the Physics page resolution card's "
                "estimator."),
+}
+#: The View buttons, verbatim (labels.js MODELS_LABELS.res_view): the E view's title names one fitted curve per
+#: series with no band (Martin's directive of 2026-11-15; review-ui F1, 19f6ab2).
+RES_VIEW_BUTTONS = {
+    "linear": ("1/√E linear",
+               "The error scale against a reversed 1/√E axis: a pure stochastic term is a straight line into the origin"),
+    "energy": ("E (GeV) + ratio",
+               "The error scale against the energy in GeV: one fitted curve per series, its a/√E ⊕ b ⊕ c/E from 0 GeV "
+               "(a₀/√E from 4 GeV where a series has none), solid over its windows and dashed beyond, with no band; and "
+               "a ratio panel"),
 }
 #: The card's title per estimator and view (brief §4 `cardTitle`): a median relative error is not a resolution.
 RES_TITLES = {
@@ -1735,6 +1889,14 @@ def test_the_estimator_control_reloads_the_card_once_and_keeps_every_other_choic
         assert [page.get_attribute(f'.main .card[data-panel="res-scaling"] .seg[aria-label="Estimator"] '
                                    f'button:nth-child({i + 1})', "data-res-estimator")
                 for i in range(3)] == list(RES_ESTIMATORS)
+        # The View buttons and their titles (labels.js res_view; the E view's title says one curve per series and
+        # no band, review-ui F1, 19f6ab2), the 1/√E view pressed at open.
+        view = next(g for g in controls if g["label"] == "View")
+        assert view["buttons"] == [[label, "true" if value == "linear" else "false", title]
+                                   for value, (label, title) in RES_VIEW_BUTTONS.items()], view
+        # The literature toggles' titles: the equation without a % sign, its units beside it (c406217).
+        assert [[t[0], t[3]] for t in page.evaluate(_RES_LIT_TOGGLES)] == \
+            [[LITERATURE[key][0], LITERATURE_TITLE[key]] for key in ("pi", "e")]
 
         # The reader's other choices, none of them the defaults: the E view, every window, shower B, e± alone.
         before = len(requests)
@@ -1858,20 +2020,28 @@ def test_the_median_estimator_discloses_its_comparison_with_the_literature_curve
 
 #: A window tooltip's SE line under the median and the robust estimators (brief-fix F1 and F3, "The tooltip's SE
 #: line"): a window whose bootstrap SE is below 10⁻⁶ of its value is tied replicates and carries no fit weight; any
-#: other is weighted with its series' pooled scale c, printed to three significant figures.
+#: other is weighted with its series' one pooled scale c, printed to three significant figures; below 4 GeV, where
+#: only a/√E ⊕ b ⊕ c/E uses the window, by the same c, which the line says it does not enter (Martin's directive of
+#: 2026-11-15, D3: one pooled scale, no c_low).
 SE_TIED = ": below 10⁻⁶ of the value (tied replicates), so no fit weight"
 SE_WEIGHTED = re.compile(r"^bootstrap SE \S+ \(κ = [\d.]+%\); fit weight se = c·ŷ/√N, c = ([\d.]+) for this series$")
+SE_WEIGHTED_LOW = re.compile(r"^bootstrap SE \S+ \(κ = [\d.]+%\); fit weight se = c·ŷ/√N, c = ([\d.]+) for this "
+                             r"series, pooled over its windows from 4 GeV$")
 #: A window tooltip's second line: the window and its count.
 WINDOW_LINE = re.compile(r"^(\d+–\d+ GeV) · N = ")
 
 
 def _se_lines(texts, payload, where):
     """Every window tooltip's SE line, checked against the window it names: under the median and the robust
-    estimators a tied window (an SE but no κ) says so and no c, every other window prints its series' pooled scale c;
-    under the sample estimator there is no bootstrap SE line. Returns (tied, weighted, the series hovered)."""
+    estimators a tied window (an SE but no κ) says so and no c; every other window prints its series' one pooled
+    scale c, one below 4 GeV adding that c is pooled over the windows from 4 GeV (D3), and none names c_low; under
+    the sample estimator there is no bootstrap SE line. Returns (tied, weighted, of those weighted the windows below
+    4 GeV, the series hovered)."""
     by_label = {s["label"]: s for s in payload["series"]}
-    tied, weighted, hovered = 0, 0, set()
+    tied, weighted, low, hovered = 0, 0, 0, set()
     for text in texts:
+        # The second scale is retired (D3): no tooltip names it, under any estimator.
+        assert "c_low" not in text, (where, text[:300])
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         se = [line for line in lines if line.startswith("bootstrap SE ")]
         if payload["estimator"]["name"] == "sample":
@@ -1890,13 +2060,22 @@ def _se_lines(texts, payload, where):
             assert w["se"] is not None, (where, s["key"], label)
             assert se[0].endswith(SE_TIED) and "κ" not in se[0] and " c = " not in se[0], (where, se[0])
             tied += 1
+        elif w["p_lo"] < CURVE_MIN_GEV:
+            # Below 4 GeV only a/√E ⊕ b ⊕ c/E fits the window, weighted by the series' one c, which it does not enter.
+            assert set(s["weight_scale"]) == {"c", "n_windows", "rule"}, (where, s["key"], s["weight_scale"])
+            got = SE_WEIGHTED_LOW.match(se[0])
+            assert got, (where, s["key"], label, se[0])
+            assert float(got.group(1)) == pytest.approx(s["weight_scale"]["c"], rel=5e-3), \
+                (where, s["key"], se[0], s["weight_scale"])
+            weighted += 1
+            low += 1
         else:
             got = SE_WEIGHTED.match(se[0])
             assert got, (where, s["key"], label, se[0])
             assert float(got.group(1)) == pytest.approx(s["weight_scale"]["c"], rel=5e-3), \
                 (where, s["key"], se[0], s["weight_scale"])
             weighted += 1
-    return tied, weighted, hovered
+    return tied, weighted, low, hovered
 
 
 #: The centre of every window marker the resolution card drew (series `<key>|markers` and `<key>|ratio|markers`), in
@@ -1954,9 +2133,11 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
     negative number. A window's value line names the estimator's quantity and its cross-references the two not
     plotted (brief §4). Under the median in the E view the literature curves' and the ratio marks' tooltips carry
     the verbatim disclosure (the ratio divides by a literature curve while both are on); no tooltip carries it
-    otherwise. The SE line (brief-fix F1, F3): under the median and the robust estimators a weighted window prints
-    "c = … for this series", its series' pooled scale; under the median the recorded deposits' tied windows say
-    "below 10⁻⁶ of the value (tied replicates), so no fit weight" and are drawn in the all-windows mode only."""
+    otherwise. The SE line (brief-fix F1, F3; the single-curve round's D3): under the median and the robust estimators
+    a weighted window prints "c = … for this series", its series' one pooled scale, and below 4 GeV (the E view's 1–4
+    GeV windows) the same c ", pooled over its windows from 4 GeV", never c_low; under the median the recorded
+    deposits' tied windows say "below 10⁻⁶ of the value (tied replicates), so no fit weight" and are drawn in the
+    all-windows mode only."""
     served = _fixture_payload(RES_TWO, estimator)
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
@@ -2000,10 +2181,13 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
                             on_ratio.append(probe["text"])
             shares[f"{view}/{mode}"] = round(worst, 3)
             texts = [probe["text"] for _, probe, _ in found]
-            tied, weighted, hovered = _se_lines(texts, served, where)
-            counts[f"{view}/{mode}"] = (tied, weighted)
+            tied, weighted, low, hovered = _se_lines(texts, served, where)
+            counts[f"{view}/{mode}"] = (tied, weighted, low)
             if estimator != "sample":
                 assert weighted, f"{where}: no weighted window's tooltip read"
+                # The 1/√E view draws no window below 4 GeV; the E view draws the 1–4 GeV windows in the all-windows
+                # mode (and the low anchor in the 3-anchor mode), each weighted by the series' one c (D3).
+                assert bool(low) is (view == "energy"), (where, low)
             if estimator == "median":
                 # The tied deposits are drawn in the all-windows mode only, never fitted (brief-fix F3).
                 deposits = {k for k in hovered if k.startswith("detector:")}
@@ -2011,6 +2195,7 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
             else:
                 assert tied == 0, (where, tied)
             assert _hyphen_negatives(texts) == [], (where, _hyphen_negatives(texts))
+            assert _says_exact(texts) == [], (where, _says_exact(texts))
             lines = [line.strip() for t in texts for line in t.splitlines()]
             assert any(line.startswith(VALUE_LINE[estimator]) for line in lines), (where, texts[:4])
             for name in CROSS_REFERENCES[estimator]:
@@ -2025,7 +2210,7 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
             else:
                 assert warned == [], (where, warned[:2])
         print(f"res-scaling, {estimator}: largest share of the grid read {shares}; "
-              f"tooltips read (tied, weighted) {counts}")
+              f"tooltips read (tied, weighted, of those below 4 GeV) {counts}")
         browser.close()
     assert problems == [], problems
 
@@ -2117,10 +2302,12 @@ def _res_screens(tmp_path):
 
 @pytest.mark.parametrize("scheme", ["dark", "light"])
 def test_the_resolution_card_screens_under_each_estimator(models_live_server, scheme, tmp_path):
-    """The resolution card at 1600 × 900, both views × the three estimators, on the recorded two-shower responses,
-    saved as PNG (CALOSRV_RES_SCREENS, else the temporary folder) for a reader's eye. Each screen is the card as
-    drawn: its title follows the estimator, its y axis is named by it, and the disclosure is on the canvas exactly
-    under the median in the E view."""
+    """The resolution card at 1600 × 900 under the three estimators, on the recorded two-shower responses, saved as
+    PNG (CALOSRV_RES_SCREENS, else the temporary folder) for a reader's eye: the 1/√E view once per estimator (3
+    anchors), and the E view in both window modes with both literature curves on and with both off (the single-curve
+    round's screens), each with its fit table on its own. Each screen is the card as drawn: its title follows the
+    estimator, its y axis is named by it, and the disclosure is on the canvas exactly under the median in the E view
+    with a curve on."""
     folder = _res_screens(tmp_path)
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE, scheme=scheme)
@@ -2129,41 +2316,841 @@ def test_the_resolution_card_screens_under_each_estimator(models_live_server, sc
         assert state["message"] is None and state["canvas"], state
         assert page.evaluate("() => document.documentElement.dataset.theme") == scheme
         card = page.locator('.main .card[data-panel="res-scaling"]')
+
+        def shoot(stem, where, *, table):
+            page.evaluate(_SCROLL_START, "res-scaling")
+            page.mouse.move(2, 2)
+            _frames(page, 4)
+            # The card from its top as far as `.main` shows it (its plot whole; an element screenshot of a card
+            # taller than the scroller is cut there and padded with the page), then its fit table on its own.
+            clip = page.evaluate(_VISIBLE_CARD, "res-scaling")
+            assert clip["height"] > 500, (where, clip)
+            target = folder / f"{stem}.png"
+            page.screenshot(path=str(target), clip=clip)
+            assert target.stat().st_size > 20_000, target
+            if table:
+                # The table with its caption, clear of the sticky tab and species bars: in a window tall enough to
+                # hold it whole below them, its top scrolled to just under them; then the 900 px window again.
+                page.set_viewport_size({"width": 1600, "height": 2200})
+                _frames(page, 4)
+                page.evaluate("""() => {
+                  const host = document.querySelector('.main .card[data-panel="res-scaling"] .res-fit-table');
+                  const main = document.querySelector('.main');
+                  const sticky = [...main.querySelectorAll('*')].filter((el) => getComputedStyle(el).position === 'sticky')
+                    .reduce((b, el) => Math.max(b, el.getBoundingClientRect().bottom), main.getBoundingClientRect().top);
+                  main.scrollTop += host.getBoundingClientRect().top - sticky - 8;
+                }""")
+                _frames(page, 4)
+                card.locator(".res-fit-table").screenshot(path=str(folder / f"{stem}_table.png"))
+                page.set_viewport_size({"width": 1600, "height": 900})
+                _frames(page, 4)
+
         for est in RES_ESTIMATORS:
             served = _fixture_payload(RES_TWO, est)
             if est != DEFAULT_ESTIMATOR:
                 _res_estimator(page, requests, est, served["estimator"]["axis_name"])
-            for view in ("linear", "energy"):
+            cases = [("linear", "anchors", True)] + [("energy", mode, lit) for mode in ("anchors", "all")
+                                                     for lit in (True, False)]
+            for view, mode, lit in cases:
                 _res_press(page, "res-view", view)
+                _res_press(page, "res-windows", mode)
+                if view == "energy":
+                    _set_literature(page, lit)
                 page.evaluate(_SCROLL_START, "res-scaling")
                 page.mouse.move(2, 2)
                 _frames(page, 4)
-                where = f"{scheme} {est} {view}"
+                where = f"{scheme} {est} {view} {mode} literature {'on' if lit else 'off'}"
                 assert page.evaluate(_RES_CHROME)["title"] == RES_TITLES[est][view], where
                 axis = served["axis"]["energy"]["y"] if view == "energy" else served["axis"]["y"]
                 assert _res_y_name(page).startswith(axis["name"]), (where, _res_y_name(page))
-                assert (LITERATURE_WARNING in _res_note(page)) is (est == "median" and view == "energy"), where
-                # The card from its top as far as `.main` shows it (its plot whole; an element screenshot of a card
-                # taller than the scroller is cut there and padded with the page), then its fit table on its own.
-                clip = page.evaluate(_VISIBLE_CARD, "res-scaling")
-                assert clip["height"] > 500, (where, clip)
-                target = folder / f"res-scaling_{scheme}_{view}_{est}.png"
-                page.screenshot(path=str(target), clip=clip)
-                assert target.stat().st_size > 20_000, target
-                table = card.locator(".res-fit-table")
-                table.scroll_into_view_if_needed()
-                _frames(page)
-                table.screenshot(path=str(folder / f"res-scaling_{scheme}_{view}_{est}_table.png"))
+                assert (LITERATURE_WARNING in _res_note(page)) is (est == "median" and view == "energy" and lit), where
+                if view == "linear":
+                    shoot(f"res-scaling_{scheme}_linear_{est}", where, table=True)
+                else:
+                    stem = f"res-scaling_{scheme}_energy_{est}_{mode}_{'lit-pi-e' if lit else 'lit-none'}"
+                    # The fit table does not follow the literature toggles: one per mode.
+                    shoot(stem, where, table=lit)
+            _res_press(page, "res-windows", "anchors")
+            _res_press(page, "res-view", "energy")
+            _set_literature(page, True)
             _res_press(page, "res-view", "linear")
         browser.close()
     print(f"res-scaling screens in {folder}")
     assert problems == [], problems
 
 
+# ------------------------------------------- the resolution card's noise term --
+
+#: The E view's a/√E ⊕ b ⊕ c/E marks in viewport pixels (res-noise brief §4.1): per series key, every run of its
+#: main-panel curve (`<key>|noise|<solid|dashed>|<i>`, the polyline's pixel points), and the centroid of every
+#: caret its `<key>|carets` series drew (a window's, an entry's or a cut's: the tooltip tells them apart).
+_RES_NOISE_TARGETS = """() => {
+  const host = document.getElementById('plot-res-scaling');
+  const inst = echarts.getInstanceByDom(host);
+  const c = host.getBoundingClientRect();
+  const lines = {};
+  const carets = {};
+  inst.getModel().eachSeries((s) => {
+    const id = s.get('id') || '';
+    const line = /^([^|]+)\\|noise\\|(solid|dashed)\\|\\d+$/.exec(id);
+    const caret = /^([^|]+)\\|carets$/.exec(id);
+    if (!line && !caret) return;
+    inst.getViewOfSeriesModel(s).group.traverse((el) => {
+      if (el.isGroup || el.invisible || el.ignore) return;
+      if (line && el.type === 'polyline' && el.shape?.points) {
+        (lines[line[1]] ??= []).push({ id, part: line[2], points: el.shape.points.map(([x, y]) => [c.left + x, c.top + y]) });
+      } else if (caret && el.type === 'polygon' && el.shape?.points?.length) {
+        // The caret's centroid from its own pixel points (a reused element's cached paint rect can still hold the
+        // previous render's place).
+        const n = el.shape.points.length;
+        const sx = el.shape.points.reduce((t, [x]) => t + x, 0) / n;
+        const sy = el.shape.points.reduce((t, [, y]) => t + y, 0) / n;
+        (carets[caret[1]] ??= []).push([c.left + sx, c.top + sy]);
+      }
+    });
+  });
+  return { lines, carets };
+}"""
+
+#: Every window mark's E on each grid, by series key, from the option (`<key>|markers`, `<key>|ratio|markers`: a
+#: datum [E, value, index]; `<key>|ratio|carets`: [E, the axis end, index], a ratio beyond [1/k, k]).
+_RES_MARK_ES = """() => {
+  const out = {};
+  for (const s of echarts.getInstanceByDom(document.getElementById('plot-res-scaling')).getOption().series || []) {
+    const m = /^([^|]+)\\|(markers|ratio\\|markers|ratio\\|carets)$/.exec(s.id || '');
+    if (m) ((out[m[1]] ??= {})[m[2]] = (s.data || []).map((d) => d[0]));
+  }
+  return out;
+}"""
+
+#: brief §8, verbatim: the floor sentence and the naming caveat (panels/resolution_scaling.js noiseFloorText,
+#: NOISE_NAMING_CAVEAT). The drawer's alone since brief-fix m6: no curve tooltip carries either.
+NOISE_FLOOR = ("It uses windows from 1 GeV: below that a 1 GeV window reaches momenta near zero, so its average of 1/E² is "
+               "far from what its plotted energy implies, and no single abscissa can carry the noise term c/E.")
+NOISE_CAVEAT = ("c/E is the calorimeter's conventional noise term. Here it takes up whatever grows like 1/E at low "
+                "momentum (for a network, its pull toward mid-range; under Median |rel. err.|, the response's bias as "
+                "well), so c is a fitted coefficient, not a measured noise level.")
+NOISE_ENTRY = re.compile(r"It comes down into the plot at E = ([\d.]+(?:e[−-]?\d+)?) GeV: a/√E ⊕ b ⊕ c/E rises "
+                         r"without bound as E → 0, through its (noise term c/E|stochastic term a/√E)\.")
+NOISE_UNITS = {"a": "%·√GeV", "b": "%", "c": "%·GeV"}
+#: A term's square's unit, where the term is printed as its square (brief-fix m4: its SE exceeds its value).
+NOISE_SQUARE_UNITS = {"a": "%²·GeV", "b": "%²", "c": "%²·GeV²"}
+#: A non-negative number as the panel prints it to three significant figures (chart_panel.js `sigFigs`: plain from
+#: 10⁻³ to 10⁵, else a mantissa × a power of ten in superscript digits).
+_NUM = r"[\d.]+(?:×10⁻?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)?"
+
+
+#: The line every fitted curve's main-panel tooltip ends with on the E view (panels/resolution_scaling.js
+#: `ENERGY_NO_BAND_TEXT`, the lead's wording of 2026-11-15), verbatim.
+ENERGY_NO_BAND_TEXT = "No band is drawn on this view: the standard errors above and the fit table carry the fit's uncertainty."
+#: The drawer's one no-band sentence on the E view (models_notes.js `resolutionEnergyNotes`, What is drawn), verbatim.
+DRAWER_NO_BAND = ("No band is drawn round a fitted curve on this view: each curve's tooltip and the fit table give its "
+                  "terms with their standard errors, χ²/ν and S, and every window keeps its whisker.")
+#: The drawer's pooled-scale line ends with this clause under the median and the robust estimators, in both views
+#: (models_notes.js `pooledScaleLine`; review-stats S2, FX-notes, 28d58e5), verbatim; the sample estimator has no
+#: pooled scale and no such line.
+POOLED_CLAUSE = ("The a/√E ⊕ b ⊕ c/E fit weights its windows of 1–4 GeV by the same c, se = c·ŷ/√N, which they do not "
+                 "enter, so their residuals count in S and the misfit verdict at c·ŷ/√N, not at their own bootstrap errors.")
+#: The ratio panel's curve tooltip (panels/resolution_scaling.js `ratioFitTip`, review-ui F4, 19f6ab2): its title
+#: line per drawn form, and the explanation it gives before the no-band line, verbatim.
+RATIO_FIT_NAME = {"noise": "a/√E ⊕ b ⊕ c/E fit", "pinned": "Origin-pinned fit a₀/√E ⊕ 0"}
+RATIO_FIT_EXPLAINED = "The fitted curve divided by the reference at each E, the reference held exact."
+
+
+def _assert_noise_terms(line, params, where):
+    """The terms line of an a/√E ⊕ b ⊕ c/E tooltip (`noiseTermsText`): every term with its SE and unit, its square
+    with the square's SE where the term's SE exceeds it (brief-fix m4), or the held phrase."""
+    held = params["held"]
+    terms = line.split("; ")
+    assert len(terms) == 3, (where, line)
+    for t, term in zip("abc", terms):
+        body = term.removeprefix("the noise term c/E: ") if t == "c" else term
+        assert (t == "c") is term.startswith("the noise term c/E: "), (where, term)
+        if t in held:
+            assert body == f"{t} = 0, held there by the constraint {t}² ≥ 0", (where, term)
+        elif params[f"se_{t}"] > params[t]:
+            # A symmetric error larger than the value would reach below 0 for a term that cannot: its square.
+            assert re.fullmatch(rf"{t}² = {_NUM} ± {_NUM} {re.escape(NOISE_SQUARE_UNITS[t])}", body), (where, term)
+        else:
+            assert re.fullmatch(rf"{t} = {_NUM} ± {_NUM} {re.escape(NOISE_UNITS[t])}", body), (where, term)
+
+
+def _assert_chi2_line(line, fit, where):
+    """A drawn fit's χ²/ν line on the E view (`energyChi2Line`, review-ui N1 and F4): "χ²/ν = …/ν, p = …; S = …" with
+    its S where ν ≥ 1, else the ν = 0 sentence that the curve passes through its points."""
+    if fit["ndf"] > 0 and fit.get("p_value") is not None:
+        m = re.fullmatch(rf"χ²/ν = {_NUM}/(\d+), p = {_NUM}; S = ([\d.]+)", line)
+        assert m and int(m.group(1)) == fit["ndf"], (where, line, fit["ndf"])
+        scale = fit["scale_factor"] if fit.get("scale_factor") is not None else 1
+        assert float(m.group(2)) == pytest.approx(scale, rel=5e-3), (where, line, scale)
+    else:
+        assert re.fullmatch(r"ν = 0: no χ² test: the curve passes through its \d+ points? exactly", line), (where, line)
+
+
+def _assert_ratio_fit_tip(text, s, payload, mode, where):
+    """A fitted curve's tooltip on the ratio panel (review-ui F4, 19f6ab2): the series; "<fit> ÷ <reference>"; the
+    drawn fit's terms with their SEs (a/√E ⊕ b ⊕ c/E's terms, or a₀/√E with ± SE(a₀)); its χ²/ν line with S; the
+    explanation; and the no-band line, once, the one mention of a band. A literature reference is named without a
+    % sign by its values (c406217)."""
+    lines = _noise_tip_lines(text)
+    flat = _flat(text)
+    mf = s["fits"][mode]
+    form = _drawn_form(mf)
+    assert form in RATIO_FIT_NAME, (where, s["key"], form)
+    fit = mf[form]
+    assert lines[0] == s["label"], (where, lines[:2])
+    head = f"{RATIO_FIT_NAME[form]} ÷ "
+    assert lines[1].startswith(head) and len(lines[1]) > len(head), (where, lines[1])
+    assert "%" not in lines[1], (where, lines[1])
+    if form == "noise":
+        _assert_noise_terms(lines[2], fit["params"], where)
+    else:
+        sym = payload["estimator"].get("symbol") or "σ/E"
+        assert re.fullmatch(rf"{re.escape(sym)} = \({_NUM} ± {_NUM}\)%/√E ⊕ 0 \(b ≡ 0, through the origin\)",
+                            lines[2]), (where, lines[2])
+    _assert_chi2_line(lines[3], fit, where)
+    assert lines[4] == RATIO_FIT_EXPLAINED, (where, lines[4])
+    assert lines[5] == ENERGY_NO_BAND_TEXT, (where, lines[5])
+    # The no-band line is the one place the word "band" appears, and it appears once.
+    assert flat.count(ENERGY_NO_BAND_TEXT) == 1, (where, flat[-500:])
+    assert "band" not in flat.replace(ENERGY_NO_BAND_TEXT, "").lower(), (where, flat[-500:])
+    assert "envelope" not in flat.lower() and "conditional on" not in flat, (where, flat[-500:])
+
+
+def _noise_tip_lines(text):
+    return [_flat(line) for line in text.splitlines() if line.strip()]
+
+
+def _assert_noise_tip(text, s, noise, payload, mode, where):
+    """A curve tooltip of a/√E ⊕ b ⊕ c/E (brief §4.3, §8, §11): its series and equation; every term with its SE
+    and unit, its square with the square's SE where the term's SE exceeds it (brief-fix m4), or the held phrase;
+    χ²/ν and S; the windows fitted, the low anchor named in the 3-anchor mode, with its sentence; the correlations of
+    the fitted squares where any pair is free; no band sentence, only the no-band line, once (Martin's directive of
+    2026-11-15). The floor sentence and the naming caveat are the drawer's alone (brief-fix m6), so the tooltip
+    carries neither."""
+    lines = _noise_tip_lines(text)
+    flat = _flat(text)
+    params = noise["params"]
+    held = params["held"]
+    sym = payload["estimator"]["symbol"] if "symbol" in payload["estimator"] else None
+    assert lines[0] == s["label"], (where, lines[:2])
+    assert lines[1].endswith(" = a/√E ⊕ b ⊕ c/E") and (sym is None or lines[1] == f"{sym} = a/√E ⊕ b ⊕ c/E"), \
+        (where, lines[1])
+    _assert_noise_terms(lines[2], params, where)
+    assert "held non-negative, so every term is real." in flat, where
+    if noise["ndf"] > 0:
+        assert re.search(r"χ²/ν = .+; S = [\d.]+", flat), (where, flat[:300])
+    windows = next((line for line in lines if line.startswith("Windows fitted (")), None)
+    assert windows and windows.startswith(f"Windows fitted ({noise['n_points']}, "), (where, windows)
+    low = noise["low_anchor"]
+    labels = {w["bin"]: w["label"] for w in s["windows"]}
+    if mode == "anchors" and low is not None:
+        assert f"{labels[low]} (the low anchor)" in windows, (where, windows)
+        others = len([b for b in noise["points"] if b != low])
+        count = {1: "the one anchor", 2: "the two anchors", 3: "the three anchors"}[others]
+        assert (f"In the 3-anchor mode it runs through {count} and the lowest fittable window from 1 GeV "
+                f"({labels[low]}), since anchors from 5 GeV cannot fix a 1/E term.") in flat, (where, flat[-600:])
+    else:
+        assert "(the low anchor)" not in windows, (where, windows)
+    # No band on the E view (Martin's directive of 2026-11-15): no band sentence, envelope or conditional, held term
+    # or not; the one no-band line says where the fit's uncertainty is instead, once.
+    assert "The band is" not in flat and "envelope" not in flat.lower() and "conditional on" not in flat, \
+        (where, held, flat[-800:])
+    assert flat.count(ENERGY_NO_BAND_TEXT) == 1, (where, flat[-400:])
+    rho ={k: v for k, v in params["rho"].items() if v is not None}
+    names = {"a2b2": "ρ(a², b²)", "a2c2": "ρ(a², c²)", "b2c2": "ρ(b², c²)"}
+    if rho:
+        line = next((x for x in lines if x.startswith("ρ(")), None)
+        assert line is not None, (where, rho, lines)
+        assert [n for k, n in names.items() if k in rho] == re.findall(r"ρ\([abc]², [abc]²\)", line.split(":")[0]), \
+            (where, line)
+        if max(abs(v) for v in rho.values()) >= 0.7 and all(v < 0 for v in rho.values()):
+            assert line.endswith("the terms trade off against each other over the fitted windows, so the curve is "
+                                 "better determined than its terms."), (where, line)
+        elif max(abs(v) for v in rho.values()) < 0.7:
+            assert "no pair of the fitted squares is strongly correlated here" in line, (where, line)
+    else:
+        assert "ρ(" not in flat, (where, flat[-600:])
+    # brief-fix m6: the floor sentence and the naming caveat are the drawer's, stated there once.
+    assert NOISE_FLOOR not in flat and NOISE_CAVEAT not in flat, (where, flat[-700:])
+    assert "It uses windows from 1 GeV" not in flat and "not a measured noise level" not in flat, (where, flat[-700:])
+    assert _hyphen_negatives([text]) == [], (where, text)
+
+
+def _hover_points(page, points, where):
+    """Hover each point; every tooltip that showed, probed (as `_hover_marks` returns them)."""
+    page.evaluate(_WATCH_HOVER, "plot-res-scaling")
+    boxes = page.evaluate(_BOXES, "plot-res-scaling")
+    found = []
+    for x, y in points:
+        page.mouse.move(x, y)
+        _frames(page)
+        probe = page.evaluate(_PROBE)
+        if probe is not None:
+            found.append(((x, y), probe, boxes))
+    page.mouse.move(2, 2)
+    _frames(page)
+    return found
+
+
+def _assert_capped(page, found, where):
+    """Every probe on the tooltip layer, beside or off the plot, and over at most a fifth of the plot and of the
+    grid being read (the 20% readout cap)."""
+    _check_tips(found, where)
+    chart = page.evaluate(_BOXES, "plot-res-scaling")["chart"]
+    grids = [{k: v + (chart["left"] if k in ("left", "right") else chart["top"]) for k, v in r.items()}
+             for r in page.evaluate(_RES_ENERGY)["rects"]]
+    for (x, y), probe, box in found:
+        plot = box["plot"]
+        area = (plot["right"] - plot["left"]) * (plot["bottom"] - plot["top"])
+        assert _overlap(probe["tip"], plot) / area <= PROJECTION_READOUT_SHARE, (where, (x, y), probe["text"][:80])
+        for g in grids:
+            if _within((x, y), g):
+                share = _overlap(probe["tip"], g) / ((g["right"] - g["left"]) * (g["bottom"] - g["top"]))
+                assert share <= PROJECTION_READOUT_SHARE, (where, (x, y), probe["text"][:80], share)
+
+
+#: The estimators the noise checks read on the recorded two-shower response: the median (the default; both networks
+#: come down from the top through c/E, the tied deposits have no fit of any form) and the sample estimator (both
+#: deposits fitted: shower A's through c/E, shower B's through a/√E with c held; network A flat, b alone).
+NOISE_ESTIMATORS = ("median", "sample")
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_the_noise_fit_comes_down_from_the_top_and_the_ratio_marks_start_at_one_gev(models_live_server, scheme):
+    """The res-noise change on the recorded two-shower response, in both themes (brief §0, §4; Martin's decisions
+    of 2026-11-13), under the median and the sample estimators, both literature curves off.
+
+    - **The entry.** Each a/√E ⊕ b ⊕ c/E curve with A > 0 or C > 0 comes down into the main panel at its top, from
+      the left: its first point lies on the axis top at the energy where its line reaches it (the root of
+      C·u² + A·u + (B − top²)), and it falls from there; a flat one (b alone) starts at E = 0. Hovered, the curve
+      names its terms with their SEs (a term's square where its SE exceeds it) or the held phrase, the correlation
+      of the free squares and the windows (the low anchor named), the no-band line and no band sentence (Martin's
+      directive of 2026-11-15), and no longer the floor sentence or the naming caveat (the drawer's, brief-fix m6); the
+      entry caret says where the curve comes down and through which term (§8). Every tooltip keeps to the 20% cap.
+    - **The low anchor.** In the 3-anchor mode the low anchor's window is drawn on the E view (on neither the 1/√E
+      view's axis nor its anchors), and its tooltip's role line names it the low anchor.
+    - **Ratio marks from 1 GeV.** With both literature curves off, every window from 1 GeV the mode draws, those of
+      1–4 GeV included, carries a ratio mark against its shower's deposit a/√E ⊕ b ⊕ c/E fit where it has one; a
+      shower whose deposit has no fit of any form has none.
+    - **No request.** Views and window modes repaint the response in hand; only the estimator asks the service."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE, scheme=scheme)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        assert page.evaluate("() => document.documentElement.dataset.theme") == scheme
+        before = len(requests)
+        assert _res_press(page, "res-view", "energy")
+        assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
+        assert requests[before:] == [], f"the view or a literature toggle asked the service: {requests[before:]}"
+        seen = {"curve": 0, "entry": 0, "low": 0, "ratio": 0}
+        for est in NOISE_ESTIMATORS:
+            payload = _fixture_payload(RES_TWO, est)
+            if est != DEFAULT_ESTIMATOR:
+                # The one control that asks: exactly one request (`_res_estimator` counts it).
+                _res_estimator(page, requests, est, payload["estimator"]["axis_name"])
+            mark = len(requests)
+            by_key = {s["key"]: s for s in payload["series"]}
+            deposit = {s["shower"]: s for s in payload["series"] if s["source"] == "detector"}
+            for mode in ("anchors", "all"):
+                assert _res_press(page, "res-windows", mode)
+                page.evaluate(_SCROLL_START, "res-scaling")
+                page.mouse.move(2, 2)
+                _frames(page, 4)
+                where = f"{scheme}, {est}, {mode}"
+                view = page.evaluate(_RES_ENERGY)
+                _assert_e_view_curves(view, payload, mode)
+                top = view["y"][0]["max"]
+                targets = page.evaluate(_RES_NOISE_TARGETS)
+                fitted = {k: s["fits"][mode]["noise"] for k, s in by_key.items() if s["fits"][mode]["noise"]}
+                assert set(targets["lines"]) == set(fitted), (where, sorted(targets["lines"]), sorted(fitted))
+                found = []
+                for key, noise in fitted.items():
+                    s = by_key[key]
+                    # Comes down from the top-left: the main curve's lowest-E point on the axis top at the root's E,
+                    # and below the top just after it; a flat curve from E = 0 at b.
+                    pts = sorted(pt for cid, c in view["curves"].items() if cid.startswith(f"{key}|noise|")
+                                 for pt in c["points"])
+                    entry = _noise_entry(noise["params"], top)
+                    if entry is None:
+                        assert pts[0][0] == pytest.approx(0, abs=1e-3), (where, key, pts[:2])
+                        assert pts[0][1] == pytest.approx(noise["params"]["b"], rel=1e-3), (where, key, pts[:2])
+                    else:
+                        assert pts[0][0] == pytest.approx(entry, rel=1e-3, abs=1e-4), (where, key, pts[0], entry)
+                        assert pts[0][1] == pytest.approx(top, rel=1e-3), (where, key, pts[0], top)
+                        later = [pt for pt in pts if pt[0] > pts[0][0] * 1.5 + 0.05]
+                        assert later and later[0][1] < top and min(pt[1] for pt in pts) < top, (where, key, pts[:4])
+
+                    # Hover the curve: points along its runs until one of its own tooltips shows (a marker or a
+                    # crossing curve may lie over a point), one on its solid run and one on a dashed run.
+                    tips = {}
+                    for run in sorted(targets["lines"][key], key=lambda r: r["part"] != "solid"):
+                        if run["part"] in tips:
+                            continue
+                        pts_px = run["points"]
+                        step = max(1, len(pts_px) // 12)
+                        for got in _hover_points(page, pts_px[step // 2::step], where):
+                            lines = _noise_tip_lines(got[1]["text"])
+                            if len(lines) > 1 and lines[0] == s["label"] and lines[1].endswith("= a/√E ⊕ b ⊕ c/E"):
+                                tips[run["part"]] = got
+                                break
+                    assert "solid" in tips, (where, key, "no a/√E ⊕ b ⊕ c/E tooltip on its solid run")
+                    for part, got in tips.items():
+                        _assert_noise_tip(got[1]["text"], s, noise, payload, mode, f"{where}, {key}, {part}")
+                        assert (part == "dashed") is ("Extrapolated: beyond the windows this fit used" in got[1]["text"]), \
+                            (where, key, part)
+                        found.append(got)
+                    seen["curve"] += 1
+
+                    # The entry caret: §8's sentence, at the root's energy, through the term that dominates as E → 0.
+                    hovered = _hover_points(page, targets["carets"].get(key, []), where)
+                    # Its own entry tooltips: a caret within a pixel or two of another series' (both near E = 0) may
+                    # show that one's, read under its own key.
+                    entries = [got for got in hovered if NOISE_ENTRY.search(_flat(got[1]["text"]))
+                               and _noise_tip_lines(got[1]["text"])[0] == s["label"]]
+                    found += entries
+                    if entry is None:
+                        assert entries == [], (where, key, [g[1]["text"][:120] for g in entries])
+                        continue
+                    for got in entries:
+                        m = NOISE_ENTRY.search(_flat(got[1]["text"]))
+                        assert float(m.group(1)) == pytest.approx(entry, rel=6e-3), (where, key, m.group(0), entry)
+                        term = "noise term c/E" if noise["params"]["c2"] > 0 else "stochastic term a/√E"
+                        assert m.group(2) == term, (where, key, m.group(0))
+                    # A caret within a few pixels of E = 0 may lie under another series' caret; one at 0.5 GeV or
+                    # more is found (a window caret beside it may show the same tip, every one checked above).
+                    if entry >= 0.5:
+                        assert entries, (where, key, entry, "its entry caret shows no entry tooltip")
+                        seen["entry"] += 1
+
+                # The low anchor: drawn on the E view in the 3-anchor mode, and named so by its tooltip.
+                marks = page.evaluate(_RES_MARK_ES)
+                windows = _hover_windows(page)
+                found += windows
+                texts = [probe["text"] for _, probe, _ in windows]
+                for key, noise in fitted.items():
+                    s = by_key[key]
+                    low = noise["low_anchor"]
+                    if mode != "anchors":
+                        assert low is None, (where, key, low)
+                        continue
+                    assert low is not None, (where, key, noise)
+                    w = next(w for w in s["windows"] if w["bin"] == low)
+                    assert w["p_lo"] < CURVE_MIN_GEV and low not in s["fits"]["anchors"]["points"], (where, key, w)
+                    assert any(e == pytest.approx(1 / w["x"] ** 2, rel=1e-6) for e in marks[key]["markers"]), \
+                        (where, key, w["label"], marks[key]["markers"])
+                    tip = [t for t in texts if _noise_tip_lines(t)[0] == s["label"] and f"{w['label']} · N = " in t
+                           and "Ratio to " not in t]
+                    assert tip, (where, key, w["label"])
+                    assert all("the low anchor of the a/√E ⊕ b ⊕ c/E fit: the lowest fittable window from 1 GeV, "
+                               "since anchors from 5 GeV cannot fix a 1/E term; a₀/√E does not use it" in _flat(t)
+                               for t in tip), (where, key, [t[-400:] for t in tip])
+                    seen["low"] += 1
+
+                # Ratio marks from 1 GeV: every drawn window of a shower whose deposit has a noise fit, against it.
+                for key, s in by_key.items():
+                    ref = deposit[s["shower"]]["fits"][mode]
+                    drawn = sorted(marks.get(key, {}).get("markers", []))
+                    on_ratio = sorted(marks.get(key, {}).get("ratio|markers", []) + marks.get(key, {}).get("ratio|carets", []))
+                    if ref["noise"] is None:
+                        if not ref["pinned"]:
+                            assert on_ratio == [], (where, key, on_ratio)
+                        continue
+                    low_windows = [w for w in s["windows"] if w["value"] is not None
+                                   and NOISE_MIN_GEV <= w["p_lo"] < CURVE_MIN_GEV
+                                   and any(e == pytest.approx(1 / w["x"] ** 2, rel=1e-6) for e in drawn)]
+                    if mode == "all":
+                        assert low_windows, (where, key, "no 1–4 GeV window drawn")
+                    for w in low_windows:
+                        assert any(e == pytest.approx(1 / w["x"] ** 2, rel=1e-6) for e in on_ratio), \
+                            (where, key, w["label"], on_ratio)
+                        seen["ratio"] += 1
+                    # Every window marker from 1 GeV on the main panel has its ratio mark (a marker, or a caret beyond
+                    # [1/k, k]), and no window below 1 GeV has one. (A ratio caret at no window's E is a fit's.)
+                    for e in drawn:
+                        if e >= NOISE_MIN_GEV:
+                            assert any(r == pytest.approx(e, rel=1e-6) for r in on_ratio), (where, key, e, on_ratio)
+                    for w in s["windows"]:
+                        if w["p_lo"] < NOISE_MIN_GEV and w.get("x"):
+                            assert not any(r == pytest.approx(1 / w["x"] ** 2, rel=1e-6) for r in on_ratio), \
+                                (where, key, w["label"], on_ratio)
+                    label = f"shower {s['shower'].upper()}'s deposit a/√E ⊕ b ⊕ c/E fit"
+                    ratio_tips = [t for t in texts if _noise_tip_lines(t)[0] == s["label"] and "Ratio to " in t]
+                    assert ratio_tips and all(f"Ratio to {label} = " in _flat(t) for t in ratio_tips), \
+                        (where, key, [t[:300] for t in ratio_tips[:2]])
+                assert found, where
+                _assert_capped(page, found, where)
+                # brief-fix FX1: no tooltip calls anything exact, the kept reference phrase aside.
+                said = _says_exact([probe["text"] for _, probe, _ in found])
+                assert said == [], (where, said)
+            # The 1/√E view and back, both window modes: repaints of the response in hand.
+            assert _res_press(page, "res-view", "linear")
+            assert _res_press(page, "res-windows", "anchors")
+            assert _res_press(page, "res-view", "energy")
+            assert requests[mark:] == [], f"{scheme}, {est}: a view or a window mode asked the service: {requests[mark:]}"
+        print(f"res-scaling noise, {scheme}: curves {seen['curve']}, entry carets {seen['entry']}, low anchors "
+              f"{seen['low']}, 1–4 GeV ratio marks {seen['ratio']}")
+        assert all(seen.values()), seen
+        assert [q.get("estimator") for q in _requests_of(requests, "/api/resolution-scaling")] == list(NOISE_ESTIMATORS)
+        browser.close()
+    assert problems == [], problems
+
+
+# --------------------------------- one fitted curve per series, no band (single-curve round) --
+
+#: The tooltip phrases with the word "exact" the card keeps: the ratio-fit tooltip's statement that the reference is
+#: held fixed (panels/resolution_scaling.js `ratioFitTip`; NF-panel kept it for the lead's call, NF-panel.md §2, and
+#: the single-curve round reworded it). They name the reference's treatment, not a band's coverage. `_says_exact`
+#: holds every other tooltip line to the fix round's brief.
+EXACT_KEPT = ("the reference is held exact", "the reference held exact")
+
+
+def _says_exact(texts):
+    """Every tooltip line that says "exact" (brief-fix FX1: the word went from every band sentence), the kept phrases
+    aside. "exactly" is not the word: a ν = 0 fit "passes through its points exactly", which is no band claim."""
+    out = []
+    for t in texts:
+        for line in (_flat(x) for x in t.splitlines()):
+            rest = line
+            for kept in EXACT_KEPT:
+                rest = rest.replace(kept, "")
+            if re.search(r"\bexact\b", rest):
+                out.append(line)
+    return out
+
+
+#: Every series of the live chart as its option holds it (`getOption().series`): [id, yAxisIndex, legend name].
+_RES_OPTION_SERIES = """() => (echarts.getInstanceByDom(document.getElementById('plot-res-scaling')).getOption().series || [])
+  .map((s) => [s.id ?? '', s.yAxisIndex ?? 0, s.name ?? ''])"""
+
+#: A fitted-curve family's series id: `<series key>|[ratio|]<form>|<rest>` (panels/resolution_scaling.js
+#: `energySeriesMarks`, whose curve runs are `<rest>` = `<solid|dashed>|<i>`; a band, edge or reference band would be
+#: any other `<rest>`).
+FIT_FAMILY_ID = re.compile(r"^(?P<key>[^|]+)\|(?P<ratio>ratio\|)?(?P<form>noise|pinned|quadrature|affine)\|(?P<rest>.+)$")
+CURVE_RUN = re.compile(r"^(solid|dashed)\|\d+$")
+
+#: Every fitted-curve run the E view drew, on both grids, read back from the elements ECharts painted (a custom
+#: series keeps its geometry in a closure): per series id, its grid, form and part and its polylines' points in
+#: viewport pixels, to hover.
+_RES_CURVE_RUNS = """() => {
+  const host = document.getElementById('plot-res-scaling');
+  const inst = echarts.getInstanceByDom(host);
+  const c = host.getBoundingClientRect();
+  const out = [];
+  inst.getModel().eachSeries((s) => {
+    const id = s.get('id') || '';
+    const m = /^([^|]+)\\|(ratio\\|)?(noise|pinned|quadrature|affine)\\|(solid|dashed)\\|\\d+$/.exec(id);
+    if (!m) return;
+    const px = [];
+    inst.getViewOfSeriesModel(s).group.traverse((el) => {
+      if (el.isGroup || el.invisible || el.ignore || el.type !== 'polyline' || !el.shape?.points?.length) return;
+      px.push(...el.shape.points.map(([x, y]) => [c.left + x, c.top + y]));
+    });
+    out.push({ id, key: m[1], ratio: Boolean(m[2]), form: m[3], part: m[4], px });
+  });
+  return out;
+}"""
+
+
+#: The literature curves' runs on both grids, as `_RES_CURVE_RUNS` reads the fitted curves: per series id
+#: `literature|<key>[|ratio]`, its key, panel and polylines' points in viewport pixels, to hover.
+_RES_LIT_RUNS = """() => {
+  const host = document.getElementById('plot-res-scaling');
+  const inst = echarts.getInstanceByDom(host);
+  const c = host.getBoundingClientRect();
+  const out = [];
+  inst.getModel().eachSeries((s) => {
+    const m = /^literature\\|([a-z]+)(\\|ratio)?$/.exec(s.get('id') || '');
+    if (!m) return;
+    const px = [];
+    inst.getViewOfSeriesModel(s).group.traverse((el) => {
+      if (el.isGroup || el.invisible || el.ignore || el.type !== 'polyline' || !el.shape?.points?.length) return;
+      px.push(...el.shape.points.map(([x, y]) => [c.left + x, c.top + y]));
+    });
+    out.push({ key: m[1], ratio: Boolean(m[2]), px });
+  });
+  return out;
+}"""
+
+#: The legend entries of the live chart: every name its legend lists.
+_RES_LEGEND_NAMES = """() => ((echarts.getInstanceByDom(document.getElementById('plot-res-scaling')).getOption().legend
+  || [])[0]?.data || []).map((d) => (typeof d === 'string' ? d : d.name))"""
+
+#: The two literature curves as the card writes them (catalog/resolution_refs.js `referenceEquation`, Martin's request
+#: of 2026-11-15, c406217): the figure's legend, no % sign by the values; the units said apart (`REFERENCE_UNITS`).
+LITERATURE = {"pi": ("π±", "σ/E = 27.2/√E ⊕ 1.0"), "e": ("e±", "σ/E = 14.0/√E ⊕ 0.4")}
+REFERENCE_UNITS = "σ/E in percent, E in GeV"
+#: The legend entry of each curve (panels/resolution_scaling.js `energyModel`: `${particle} lit. — ${equation}`).
+LITERATURE_LEGEND = {key: f"{particle} lit. — {eq}" for key, (particle, eq) in LITERATURE.items()}
+#: Each toggle's title (models_cards.js `RES_LITERATURE_CONTROL`), verbatim.
+LITERATURE_TITLE = {key: (f"Draw or hide {eq} ({REFERENCE_UNITS}); transcribed from the supplied figure's legend; no "
+                          "interval reported. The ratio panel divides by the curve drawn, by the one the windows lie "
+                          "farther from when both are, and by each shower's deposit fit when neither is.")
+                    for key, (_, eq) in LITERATURE.items()}
+#: The drawer's transcription line (models_notes.js `resolutionEnergyNotes`), verbatim from the equations on.
+LITERATURE_TRANSCRIBED = (f"{LITERATURE['pi'][1]} and {LITERATURE['e'][1]}, transcribed as the legend prints them, "
+                          f"{REFERENCE_UNITS}.")
+#: A literature curve that rises less than this above its panel's floor lies on the axis line and on the other curve,
+#: so its own tooltip cannot be hovered apart (robust on the recorded two-shower response: 0 to 5,500%).
+LIT_SQUEEZED_PX = 6
+#: Either literature equation, written anywhere: its two % slots, which must stay empty (c406217).
+LITERATURE_ANY = re.compile(r"(?:27\.2|14\.0)(%?)/√E ⊕ (?:1\.0|0\.4)(%?)")
+
+
+def _percent_literature(texts):
+    """Every text that writes a literature equation with a % sign by its values."""
+    return [t for t in texts for m in LITERATURE_ANY.finditer(_flat(t)) if m.group(1) or m.group(2)]
+
+
+#: A literature equation as `referenceEquation` writes it (the label form "π± 27.2/√E ⊕ 1.0" is not one).
+LITERATURE_EQUATION = re.compile(r"σ/E = (?:27\.2|14\.0)/√E ⊕ (?:1\.0|0\.4)")
+
+
+def _unitless_literature(texts):
+    """Every tooltip that writes a literature equation without REFERENCE_UNITS (FX-browser's finding, 2026-11-15:
+    the 1.0 rule, the other curve on the ratio panel and the caret above the main panel wrote it without them)."""
+    return [t for t in texts if LITERATURE_EQUATION.search(_flat(t)) and REFERENCE_UNITS not in _flat(t)]
+
+
+def _set_literature(page, on):
+    """Both literature curves on or both off (`π± | e±`, card controls): click each toggle not already as asked."""
+    for key, particle in (("pi", "π±"), ("e", "e±")):
+        pressed = dict((t[0], t[1]) for t in page.evaluate(_RES_LIT_TOGGLES))[particle] == "true"
+        if pressed is not on:
+            assert _res_press(page, "res-literature", key) is on, (key, on)
+
+
+def _curve_families(option_series, payload, mode, where):
+    """The fitted-curve families of the live chart, from its option (`getOption().series`), against the payload.
+    Every curve series id is a run `<solid|dashed>|<i>`, never a band, an edge or a reference band, and none of
+    those exists under any id; each family lies on its own grid (the ratio panel's on grid 1); each series draws one
+    form per panel, the one `_drawn_form` names. Returns {(series key, panel): form}."""
+    ids = [sid for sid, _, _ in option_series]
+    assert not [i for i in ids if "|band|" in i or i.endswith("|band") or "|edges|" in i or "|reference|" in i], \
+        (where, ids)
+    by_key = {s["key"]: s for s in payload["series"]}
+    families = {}
+    for sid, grid, _ in option_series:
+        m = FIT_FAMILY_ID.match(sid)
+        if not m:
+            continue
+        assert CURVE_RUN.match(m["rest"]), (where, sid)
+        panel = "ratio" if m["ratio"] else "main"
+        assert grid == (1 if panel == "ratio" else 0), (where, sid, grid)
+        families.setdefault((m["key"], panel), set()).add(m["form"])
+    for (key, panel), forms in families.items():
+        # Exactly one fitted-curve family per series and panel, the one curve the series draws.
+        assert len(forms) == 1, (where, key, panel, sorted(forms))
+        expected = _drawn_form(by_key[key]["fits"][mode])
+        assert forms == {expected}, (where, key, panel, sorted(forms), expected)
+    return {k: next(iter(v)) for k, v in families.items()}
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_the_e_view_draws_one_curve_per_series_with_no_band_and_one_pooled_scale(models_live_server, scheme):
+    """The single-curve round (Martin's directive of 2026-11-15; CLAUDE.md §2 "Recorded exception: the E view's fitted
+    curves carry no band", §5 "One fitted curve per series", "Retired: the envelope band", "One pooled scale") on the
+    recorded two-shower response, in both themes, under every estimator, in both window modes, with both literature
+    curves on and with both off, both showers on show. Read back from the live chart:
+
+    - **One family.** Every series draws one fitted-curve family on each panel (`getOption().series`): its
+      a/√E ⊕ b ⊕ c/E where drawable, else its a₀/√E; a series whose curve reaches the main panel draws it there; the
+      curves keep the solid-and-dashed rules (`_assert_e_view_curves`).
+    - **No band.** No series id contains `|band|`, `|edges|` or `|reference|`. Every fitted curve's main-panel
+      tooltip carries the no-band line once; no tooltip read names a band sentence, the envelope or c_low.
+    - **The ratio curve's tooltip** (review-ui F4): every series whose curve reaches the ratio panel yields one; it
+      names "<fit> ÷ <reference>", the drawn fit's terms with their SEs, its χ²/ν line with S, the explanation, and
+      the no-band line once, the only mention of a band (`_assert_ratio_fit_tip`).
+    - **The literature curves** (c406217): with the curves on, both legend entries read "<particle> lit. — σ/E =
+      27.2/√E ⊕ 1.0" (and 14.0/√E ⊕ 0.4); no legend entry, tooltip or drawer writes a literature equation with a %
+      sign by its values; each main-panel curve's tooltip gives its equation and says "σ/E in percent, E in GeV".
+    - **One pooled scale.** Under the median and the robust estimators a 1–4 GeV window's tooltip prints its series'
+      one c, "pooled over its windows from 4 GeV", never c_low (`_se_lines`).
+    - **The drawer.** The Details drawer carries the no-band sentence once and never says "envelope" or "c_low";
+      under median and robust its pooled-scale line ends with the clause on the 1–4 GeV windows' residuals
+      (review-stats S2), under sample there is none; with the curves on, its transcription line names the units.
+    - **The cap, and no "exact".** Every tooltip read keeps to the 20% readout cap and says "exact" only in the kept
+      reference phrase.
+    - **No request** but the estimator's."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE, scheme=scheme)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        assert page.evaluate("() => document.documentElement.dataset.theme") == scheme
+        before = len(requests)
+        assert _res_press(page, "res-view", "energy")
+        both = '.main .card[data-panel="res-scaling"] button[data-models-shower="both"]'
+        assert page.get_attribute(both, "aria-pressed") == "true", "both showers on show"
+        assert requests[before:] == [], f"the view asked the service: {requests[before:]}"
+        seen = {"families": 0, "noise": 0, "curve tips": 0, "ratio tips": 0, "literature tips": 0,
+                "literature ratio tips": 0, "low": 0, "drawers": 0, "tips": 0}
+        squeezed = {"literature squeezed": 0}
+        for est in RES_ESTIMATORS:
+            payload = _fixture_payload(RES_TWO, est)
+            if est != DEFAULT_ESTIMATOR:
+                _res_estimator(page, requests, est, payload["estimator"]["axis_name"])
+            mark = len(requests)
+            by_label = {s["label"]: s for s in payload["series"]}
+            for mode in ("anchors", "all"):
+                assert _res_press(page, "res-windows", mode)
+                for lit in (True, False):
+                    _set_literature(page, lit)
+                    page.evaluate(_SCROLL_START, "res-scaling")
+                    page.mouse.move(2, 2)
+                    _frames(page, 4)
+                    where = f"{scheme}, {est}, {mode}, literature {'on' if lit else 'off'}"
+                    assert _literature_drawn(page) == (["e", "pi"] if lit else []), where
+
+                    # One family per series and panel, from the option; the curves' geometry, from the paint.
+                    families = _curve_families(page.evaluate(_RES_OPTION_SERIES), payload, mode, where)
+                    view = page.evaluate(_RES_ENERGY)
+                    drawn = _assert_e_view_curves(view, payload, mode)
+                    assert {k for k, panel in families if panel == "main"} == set(drawn), (where, families, drawn)
+                    seen["families"] += len(families)
+                    seen["noise"] += sum(form == "noise" for form in families.values())
+
+                    # Each curve's tooltips: points along every run, until one of the series' own curve tips shows.
+                    runs = page.evaluate(_RES_CURVE_RUNS)
+                    found, curve_tips = [], {}
+                    for run in runs:
+                        panel = "ratio" if run["ratio"] else "main"
+                        if (run["key"], panel) in curve_tips or not run["px"]:
+                            continue
+                        label = next(s["label"] for s in payload["series"] if s["key"] == run["key"])
+                        step = max(1, len(run["px"]) // 10)
+                        for got in _hover_points(page, run["px"][step // 2::step], where):
+                            found.append(got)
+                            lines = _noise_tip_lines(got[1]["text"])
+                            if len(lines) < 2 or lines[0] != label:
+                                continue
+                            # The curve's own tip: its equation on the main panel, "… ÷ <reference>" on the ratio.
+                            if panel == "ratio" and " ÷ " in lines[1] and "fit" in lines[1]:
+                                curve_tips[(run["key"], panel)] = got[1]["text"]
+                                break
+                            if panel == "main" and ENERGY_NO_BAND_TEXT in _flat(got[1]["text"]):
+                                curve_tips[(run["key"], panel)] = got[1]["text"]
+                                break
+                    by_key = {s["key"]: s for s in payload["series"]}
+                    for (key, panel), text in curve_tips.items():
+                        flat = _flat(text)
+                        if panel == "main":
+                            assert flat.count(ENERGY_NO_BAND_TEXT) == 1, (where, key, flat[-500:])
+                            seen["curve tips"] += 1
+                        else:
+                            # The ratio of a curve (review-ui F4): its terms with their SEs, its χ²/ν line with S,
+                            # and the no-band line once, the one mention of a band; no band is drawn round it.
+                            _assert_ratio_fit_tip(text, by_key[key], payload, mode, f"{where}, {key}, ratio")
+                            seen["ratio tips"] += 1
+                    shown_main = {k for k, panel in families if panel == "main"}
+                    assert shown_main <= {k for k, panel in curve_tips if panel == "main"}, \
+                        (where, sorted(shown_main), sorted(curve_tips))
+                    # Every series whose one curve reaches the ratio panel yields its own ratio-curve tooltip there.
+                    ratio_runs = {r["key"] for r in runs if r["ratio"] and r["px"]}
+                    assert ratio_runs <= {k for k, panel in curve_tips if panel == "ratio"}, \
+                        (where, sorted(ratio_runs), sorted(curve_tips))
+
+                    # The literature curves (c406217): each legend entry and equation without a % sign by its values;
+                    # the main curve's tooltip says the units (REFERENCE_UNITS).
+                    legend = page.evaluate(_RES_LEGEND_NAMES)
+                    assert _percent_literature(legend) == [], (where, legend)
+                    if lit:
+                        assert set(LITERATURE_LEGEND.values()) <= set(legend), (where, legend)
+                        lit_tips, lit_heads, rise = {}, {}, {}
+                        # A curve's points inside its own grid (part of it is clipped above the top), up to 40 of
+                        # them spread along it: a window marker or a fitted curve can lie over any one of them.
+                        chart = page.evaluate(_BOXES, "plot-res-scaling")["chart"]
+                        grids = [{k: v + (chart["left"] if k in ("left", "right") else chart["top"])
+                                  for k, v in r.items()} for r in view["rects"]]
+                        for run in page.evaluate(_RES_LIT_RUNS):
+                            panel = "ratio" if run["ratio"] else "main"
+                            particle = LITERATURE[run["key"]][0]
+                            box = grids[1 if run["ratio"] else 0]
+                            inside = [pt for pt in run["px"] if _within(pt, box)]
+                            # How far the curve rises above the grid's floor, in pixels, where it is drawn.
+                            rise[(run["key"], panel)] = max((box["bottom"] - y for _, y in inside), default=0)
+                            step = max(1, len(inside) // 40)
+                            for got in _hover_points(page, inside[step // 2::step], where):
+                                found.append(got)
+                                head = _noise_tip_lines(got[1]["text"])[0]
+                                lit_heads.setdefault((run["key"], panel), []).append(head)
+                                if head == f"{particle} literature curve" or head.startswith(f"{particle} literature curve ÷ "):
+                                    lit_tips[(run["key"], panel)] = got[1]["text"]
+                                    break
+                        for key, (particle, eq) in LITERATURE.items():
+                            text = lit_tips.get((key, "main"))
+                            if text is None and rise.get((key, "main"), 0) < LIT_SQUEEZED_PX:
+                                # Under a tall axis both curves lie in the panel's bottom pixels, on the axis line
+                                # and on each other (robust, 0 to 5,500% on the recording): nothing to hover apart.
+                                squeezed["literature squeezed"] += 1
+                                continue
+                            assert text is not None, (where, key, "no main-panel literature tooltip read",
+                                                      lit_heads, rise, view["y"][0])
+                            lines = _noise_tip_lines(text)
+                            assert lines[1] == eq, (where, key, lines[:3])
+                            assert f", {REFERENCE_UNITS}; no interval reported;" in _flat(text), (where, key, text[:400])
+                            seen["literature tips"] += 1
+                        for (key, panel), text in lit_tips.items():
+                            # The other curve on the ratio panel writes both equations and their units (FX-browser's
+                            # finding, 2026-11-15); its caret, which writes no equation, may be the one hovered.
+                            line = _noise_tip_lines(text)[1]
+                            if panel != "ratio" or line.startswith("It leaves the ratio axis"):
+                                continue
+                            assert line.startswith(f"{LITERATURE[key][1]} divided by σ/E = ") \
+                                and f" (in both, {REFERENCE_UNITS}): " in line, (where, key, line)
+                            seen["literature ratio tips"] += 1
+                        assert any(panel == "main" for _, panel in lit_tips), (where, sorted(lit_tips), lit_heads)
+                        assert any(panel == "ratio" for _, panel in lit_tips), (where, sorted(lit_tips))
+
+                    # Every window: its SE line names the one pooled scale (D3).
+                    windows = _hover_windows(page)
+                    found += windows
+                    assert found, where
+                    texts = [probe["text"] for _, probe, _ in found]
+                    seen["tips"] += len(texts)
+                    _, weighted, low, _ = _se_lines([probe["text"] for _, probe, _ in windows], payload, where)
+                    if est != "sample":
+                        assert weighted and low, (where, "no 1–4 GeV window's tooltip read", weighted, low)
+                        seen["low"] += low
+                    for text in texts:
+                        flat = _flat(text)
+                        assert "envelope" not in flat.lower() and "c_low" not in flat, (where, flat[:300])
+                        assert "The band is" not in flat and "95% confidence band" not in flat, (where, flat[:300])
+                        if ENERGY_NO_BAND_TEXT in flat:
+                            assert flat.count(ENERGY_NO_BAND_TEXT) == 1, (where, flat[-400:])
+                            assert _noise_tip_lines(text)[0] in by_label, (where, flat[:120])
+                    assert _says_exact(texts) == [], (where, _says_exact(texts))
+                    assert _hyphen_negatives(texts) == [], (where, _hyphen_negatives(texts))
+                    assert _percent_literature(texts) == [], (where, _percent_literature(texts)[:2])
+                    assert _unitless_literature(texts) == [], (where, _unitless_literature(texts)[:2])
+                    _assert_capped(page, found, where)
+
+                    # The drawer: the no-band sentence once, no envelope, no second scale; the pooled-scale line
+                    # ends with the clause on the 1–4 GeV windows (review-stats S2) under median and robust only;
+                    # the literature transcription line names the units.
+                    _, _, body = _drawer(page, "res-scaling")
+                    flat = _flat(body)
+                    assert flat.count(DRAWER_NO_BAND) == 1, (where, flat[:600])
+                    assert "envelope" not in flat.lower() and "c_low" not in flat, (where, flat[:600])
+                    assert flat.count(POOLED_CLAUSE) == (0 if est == "sample" else 1), (where, flat[:900])
+                    assert flat.count(LITERATURE_TRANSCRIBED) == (1 if lit else 0), (where, flat[-900:])
+                    assert _percent_literature([body]) == [], where
+                    seen["drawers"] += 1
+            assert _res_press(page, "res-windows", "anchors")
+            _set_literature(page, True)
+            assert requests[mark:] == [], f"{scheme}, {est}: a card control asked the service: {requests[mark:]}"
+        print(f"res-scaling single curve, {scheme}: {seen}, {squeezed}")
+        assert all(seen.values()), seen
+        assert [q.get("estimator") for q in _requests_of(requests, "/api/resolution-scaling")] == list(RES_ESTIMATORS)
+        browser.close()
+    assert problems == [], problems
+
+
 # ------------------------------------------------- the resolution card's legend --
 
 #: The legend entry switched off, in the recorded two-shower response: every mark of shower A's energy network
-#: (markers, whiskers, carets, fitted lines and bands, on both grids in the E view) carries it. Martin switched off
+#: (markers, whiskers, carets and fitted lines, with bands in the 1/√E view, on both grids in the E view) carries it. Martin switched off
 #: the calibrated deposit (2026-11-11); under the default median estimator the recorded deposits tie (bootstrap SE
 #: below 10⁻⁶ of the value), carry no fit weight and in the 3-anchor mode draw nothing (review-ui M1), so the tests
 #: take the network, which every estimator draws and fits in both window modes.
@@ -2287,12 +3274,17 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_the_window_switch_
         fresh["all"] = _drawn(page)[0]
         own = sorted(sid for sid, (name, *_) in fresh["all"].items() if name == LEGEND_ENTRY)
         assert any(fresh["all"][sid][3] for sid in own), own
-        # The entry draws fitted lines and bands in both modes, as well as its markers: what the bug lost. A band
-        # is a wash, or its two edges where it spans half its axis or more (OUTLINE_SHARE).
+        # The entry draws fitted lines in both modes, as well as its markers: what the bug lost. In the 1/√E view
+        # its fits carry bands, a wash or its two edges where it spans half its axis or more (OUTLINE_SHARE); the E
+        # view draws its one curve, a/√E ⊕ b ⊕ c/E, and no band (Martin's directive of 2026-11-15).
         for mode in ("anchors", "all"):
             drawn = [sid for sid, (name, _, _, elements) in fresh[mode].items() if name == LEGEND_ENTRY and elements]
-            assert any("|pinned|" in sid and ("|line|" in sid or "|solid|" in sid) for sid in drawn), (mode, drawn)
-            assert any("|band" in sid or "|edges|" in sid for sid in drawn), (mode, drawn)
+            if view == "linear":
+                assert any("|pinned|line|" in sid for sid in drawn), (mode, drawn)
+                assert any("|band" in sid or "|edges|" in sid for sid in drawn), (mode, drawn)
+            else:
+                assert any("|noise|solid|" in sid for sid in drawn), (mode, drawn)
+                assert not any("|pinned|" in sid or "|band" in sid or "|edges|" in sid for sid in drawn), (mode, drawn)
         # The switch removes items from a series of the entry: the path ECharts threw on.
         assert any(sid in fresh["anchors"] and fresh["anchors"][sid][2] < fresh["all"][sid][2] for sid in own), \
             {sid: (fresh["anchors"].get(sid), fresh["all"][sid]) for sid in own}
