@@ -220,6 +220,14 @@ the golden exactly; every moved leaf was classified, none outside the changes na
     noise fit's "fit not converged" hazard (review-ui F3) move no case: no recording draws a fallback or carries an
     unconverged fit; `test_js_models_panels.py` pins both on doctored copies.
 
+The literature tooltips' units (2026-11-15, 1b91b64: FX-browser's finding, the 1.0 rule's tooltip and the other
+curve's tooltip on the ratio panel now say REFERENCE_UNITS beside the equation) re-recorded 132 of the 2,869 cases,
+all `models/resolution/*` E-view options with a literature curve on (`/pi`, `/e`, `/both`, screen and `@print`), on
+every recording but the empty state of the two robust one-shower recordings' 3 anchors. Nothing else moved: no
+`/deposit` case, nor the E view's `/showerA` and `/narrow` (all three drawn against the deposit, with no literature
+curve), no 1/√E chart case, no fit table and no drawer. The caret where a literature curve leaves the top of the
+main panel says the units too and moves no case: no recording's top is low enough for it.
+
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
 behaviour, never code, so a refactor that reorders an object literal or
