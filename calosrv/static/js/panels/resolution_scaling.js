@@ -3119,7 +3119,7 @@ function unityTip(model) {
     `<b>ratio = 1</b>`,
     escapeHtml(none
       ? 'The ratio axis\'s centre, with no reference to divide by, so the panel holds no ratio marks.'
-      : `${model.estimator?.symbol ?? 'σ/E'} equal to the reference: ${ref.literature ? referenceEquation(ref.literature) : ref.label}.`),
+      : `${model.estimator?.symbol ?? 'σ/E'} equal to the reference: ${ref.literature ? `${referenceEquation(ref.literature)} (${REFERENCE_UNITS})` : ref.label}.`),
     mutedLine(`A log axis symmetric about 1 (${ratioRangeText(model)}), so ×k and ÷k lie at equal distances from this rule.`),
   ];
   for (const r of missing) {
@@ -3199,7 +3199,7 @@ function literatureRatioTip(model, lit) {
   const [e1, r1] = rows[rows.length - 1];
   return [
     `<b>${escapeHtml(`${lit.entry.particle} literature curve ÷ ${ref.particle}`)}</b>`,
-    escapeHtml(`${referenceEquation(lit.entry)} divided by ${referenceEquation(ref)}: ${sig(r0)} at E = ${sig(e0)} GeV, ${sig(r1)} at E = ${sig(e1)} GeV.`),
+    escapeHtml(`${referenceEquation(lit.entry)} divided by ${referenceEquation(ref)} (in both, ${REFERENCE_UNITS}): ${sig(r0)} at E = ${sig(e0)} GeV, ${sig(r1)} at E = ${sig(e1)} GeV.`),
     mutedLine('Both curves are transcribed point estimates with no interval reported, so neither has one here; it never sets the ratio range.'),
     ...(lit.ratio.cut ? [mutedLine('It leaves the ratio axis: the caret there gives its true values.')] : []),
     ...literatureWarningLines(model),
@@ -3224,7 +3224,7 @@ function literatureCutTip(model, lit) {
   const [pe, pv] = lit.cut.peak;
   return [
     `<b>${escapeHtml(`${lit.entry.particle} literature curve`)}</b>`,
-    escapeHtml(`${referenceEquation(lit.entry)} lies above the top of the axis (0 to ${pct(model.y.hi)}) below E = ${sig(lit.cut.at)} GeV; at E = ${sig(pe)} GeV it reads ${pct(pv)}.`),
+    escapeHtml(`${referenceEquation(lit.entry)} (${REFERENCE_UNITS}) lies above the top of the axis (0 to ${pct(model.y.hi)}) below E = ${sig(lit.cut.at)} GeV; at E = ${sig(pe)} GeV it reads ${pct(pv)}.`),
     mutedLine('Clipped, not rescaled: a literature curve never sets the range.'),
     mutedLine(LITERATURE_NO_INTERVAL),
     ...literatureWarningLines(model),

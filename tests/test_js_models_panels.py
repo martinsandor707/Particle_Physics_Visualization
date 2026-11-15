@@ -7125,6 +7125,23 @@ for (const name of names) {
     }
   }
 }
+// FX-browser's finding: the caret where a literature curve leaves the top of the main panel. No recording's E-view
+// top is low enough for it (both curves start under it at the grid's first E), so each recording is also read with
+// its top lowered to 25%, which both curves cross.
+fx.literatureLowTop = [];
+for (const name of names) {
+  const copy = JSON.parse(JSON.stringify(load(name)));
+  copy.axis.energy.y.hi = 25;
+  for (const windows of ['anchors', 'all']) {
+    for (const literature of LITS) {
+      const opts = { windows, shower: 'both', literature };
+      const model = rs.energyModel(copy, opts);
+      const w = walk(rs.energyViewOption(copy, opts, RE).option);
+      fx.literatureLowTop.push({ name, windows, literature, cuts: model.literature.filter((l) => l.cut).map((l) => l.key),
+        strings: w.strings });
+    }
+  }
+}
 fx.exports = { noBand: rs.ENERGY_NO_BAND_TEXT, provenance: rs.LITERATURE_PROVENANCE };
 console.log(JSON.stringify(fx));
 """
@@ -7443,3 +7460,33 @@ def test_fx_the_literature_equations_carry_no_percent_sign_and_say_their_units(f
         elif not c["literature"]:
             assert not units
     assert drawn >= 60
+
+
+_FX_LIT_EQUATION = re.compile(r"σ/E = (?:27\.2|14\.0)/√E ⊕ (?:1\.0|0\.4)")
+
+
+def test_fx_every_tooltip_that_writes_a_literature_equation_says_its_units(fx):
+    """FX-browser's finding (2026-11-15): the 1.0 rule's tooltip, the other curve's tooltip on the ratio panel and the
+    caret where a literature curve leaves the top of the main panel wrote the equation without REFERENCE_UNITS, which
+    CLAUDE.md asks of the tooltips wherever the equation is written. Every tooltip on the card that writes a literature
+    equation, on every recording, window mode and literature choice, now says them; each of the three is read. The
+    caret needs a top both curves cross: the recordings are read again with it lowered to 25%."""
+    kinds = {"unity": 0, "ratio": 0, "cut": 0, "main": 0}
+    for c in fx["literatureLowTop"]:
+        assert c["cuts"] == c["literature"], (c["name"], c["windows"], c["literature"], c["cuts"])
+    for c in fx["literature"] + fx["literatureLowTop"]:
+        for text in c["strings"]:
+            plain = _plain(text)
+            if "<br/>" not in text or not _FX_LIT_EQUATION.search(plain):
+                continue
+            assert REFERENCE_UNITS in plain, ((c["name"], c["windows"], c["literature"]), plain[:240])
+            if plain.startswith("ratio = 1 "):
+                kinds["unity"] += 1
+            elif " divided by σ/E = " in plain:
+                assert f"(in both, {REFERENCE_UNITS}): " in plain, plain[:240]
+                kinds["ratio"] += 1
+            elif " lies above the top of the axis (0 to " in plain:
+                kinds["cut"] += 1
+            else:
+                kinds["main"] += 1
+    assert all(n > 0 for n in kinds.values()), kinds

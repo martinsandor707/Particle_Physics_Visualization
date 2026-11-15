@@ -2903,6 +2903,16 @@ def _percent_literature(texts):
     return [t for t in texts for m in LITERATURE_ANY.finditer(_flat(t)) if m.group(1) or m.group(2)]
 
 
+#: A literature equation as `referenceEquation` writes it (the label form "π± 27.2/√E ⊕ 1.0" is not one).
+LITERATURE_EQUATION = re.compile(r"σ/E = (?:27\.2|14\.0)/√E ⊕ (?:1\.0|0\.4)")
+
+
+def _unitless_literature(texts):
+    """Every tooltip that writes a literature equation without REFERENCE_UNITS (FX-browser's finding, 2026-11-15:
+    the 1.0 rule, the other curve on the ratio panel and the caret above the main panel wrote it without them)."""
+    return [t for t in texts if LITERATURE_EQUATION.search(_flat(t)) and REFERENCE_UNITS not in _flat(t)]
+
+
 def _set_literature(page, on):
     """Both literature curves on or both off (`π± | e±`, card controls): click each toggle not already as asked."""
     for key, particle in (("pi", "π±"), ("e", "e±")):
@@ -2974,8 +2984,8 @@ def test_the_e_view_draws_one_curve_per_series_with_no_band_and_one_pooled_scale
         both = '.main .card[data-panel="res-scaling"] button[data-models-shower="both"]'
         assert page.get_attribute(both, "aria-pressed") == "true", "both showers on show"
         assert requests[before:] == [], f"the view asked the service: {requests[before:]}"
-        seen = {"families": 0, "noise": 0, "curve tips": 0, "ratio tips": 0, "literature tips": 0, "low": 0,
-                "drawers": 0, "tips": 0}
+        seen = {"families": 0, "noise": 0, "curve tips": 0, "ratio tips": 0, "literature tips": 0,
+                "literature ratio tips": 0, "low": 0, "drawers": 0, "tips": 0}
         squeezed = {"literature squeezed": 0}
         for est in RES_ESTIMATORS:
             payload = _fixture_payload(RES_TWO, est)
@@ -3081,6 +3091,15 @@ def test_the_e_view_draws_one_curve_per_series_with_no_band_and_one_pooled_scale
                             assert lines[1] == eq, (where, key, lines[:3])
                             assert f", {REFERENCE_UNITS}; no interval reported;" in _flat(text), (where, key, text[:400])
                             seen["literature tips"] += 1
+                        for (key, panel), text in lit_tips.items():
+                            # The other curve on the ratio panel writes both equations and their units (FX-browser's
+                            # finding, 2026-11-15); its caret, which writes no equation, may be the one hovered.
+                            line = _noise_tip_lines(text)[1]
+                            if panel != "ratio" or line.startswith("It leaves the ratio axis"):
+                                continue
+                            assert line.startswith(f"{LITERATURE[key][1]} divided by σ/E = ") \
+                                and f" (in both, {REFERENCE_UNITS}): " in line, (where, key, line)
+                            seen["literature ratio tips"] += 1
                         assert any(panel == "main" for _, panel in lit_tips), (where, sorted(lit_tips), lit_heads)
                         assert any(panel == "ratio" for _, panel in lit_tips), (where, sorted(lit_tips))
 
@@ -3104,6 +3123,7 @@ def test_the_e_view_draws_one_curve_per_series_with_no_band_and_one_pooled_scale
                     assert _says_exact(texts) == [], (where, _says_exact(texts))
                     assert _hyphen_negatives(texts) == [], (where, _hyphen_negatives(texts))
                     assert _percent_literature(texts) == [], (where, _percent_literature(texts)[:2])
+                    assert _unitless_literature(texts) == [], (where, _unitless_literature(texts)[:2])
                     _assert_capped(page, found, where)
 
                     # The drawer: the no-band sentence once, no envelope, no second scale; the pooled-scale line
