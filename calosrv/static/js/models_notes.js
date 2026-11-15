@@ -718,7 +718,8 @@ function pooledScaleLine(w, model, payload) {
   const e4 = formatNumber(gates.e_min_gev);
   return `The pooled scale, one per series, c over its windows from ${e4} GeV: it cancels in the fitted parameters and sets only their χ², S and errors. `
     + `${parts.join('; ')}. `
-    + `The ${NOISE_FORM} fit weights its windows of ${lowRange} by the same c, se = c·ŷ/√N, which they do not enter.`;
+    + `The ${NOISE_FORM} fit weights its windows of ${lowRange} by the same c, se = c·ŷ/√N, which they do not enter, `
+    + 'so their residuals count in S and the misfit verdict at c·ŷ/√N, not at their own bootstrap errors.';
 }
 
 /**
@@ -1044,7 +1045,7 @@ function literatureLegendLine(model) {
     parts.push(`the ${others.map((l) => l.entry.particle).join(' and ')} curve${others.length > 1 ? 's are' : ' is'} drawn beside it, `
       + 'and on the ratio panel divided by it');
   }
-  const labelled = model.endLabels.main.some((l) => l.literature) ? ', labelled with their particles in the end column' : '';
+  const labelled = model.endLabels.main.some((l) => l.literature) ? ', each labelled in the end column with its particle, in ink, led by a key stroke in the curve\'s own colour, dash, width and strength' : '';
   return `Literature curves are dotted lines in their own colours${labelled}; they are references, not measurements, and never set a range. `
     + `Here ${parts.join('; ')}. ${buttons} ${hues}`;
 }
@@ -1185,7 +1186,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       : `The windows control reads "All windows": every window with N ≥ ${formatInt(gates.report_n)} that has a ${w.symbol} is drawn; the fits use the fittable ones, a₀/√E from ${curveMin} GeV and ${NOISE_FORM} from ${noiseMinText} GeV, and a window below ${noiseMinText} GeV is drawn as a point no fit uses.`}`,
     `${plural(model.nPoints, 'window')} and ${plural(model.nLines, 'fit curve')} are drawn in this view.`,
     `One fitted curve per series is drawn on each panel (Martin's decision, 2026-11-15): its ${NOISE_FORM}, from 0 GeV, or, where the series has none, `
-      + 'its origin-pinned a₀/√E ⊕ 0, from 4 GeV, the thinner line. '
+      + `its origin-pinned a₀/√E ⊕ 0, from ${curveMin} GeV, the thinner line. `
       + `The quadrature a/√E ⊕ b, the affine a/√E + b and, beside a drawn ${NOISE_FORM}, the origin-pinned a₀/√E are in the fit table only; the affine fit is drawn in the 1/√E view.`,
     'No band is drawn round a fitted curve on this view: each curve\'s tooltip and the fit table give its terms with their standard errors, χ²/ν and S, and every window keeps its whisker.',
     ...fallbacks.map(({ s, f }) => `${s.label}: ${sentence(noiseReasonOf(s, mode) ?? `no ${NOISE_FORM} fit in this response`)} `
@@ -1467,7 +1468,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   // ---- Marks and legend
   const extrapolation = model.noteText.extrapolation;
   notes.section(SECTION.legend, [
-    'Colour is the series: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). On two-shower data fill and line strength are the shower: shower A is a filled marker with full-strength lines, shower B a hollow marker with its lines at 70% strength, raised to 3:1 where the card needs it. With both showers drawn, a letter "A" or "B" in the series\' colour at each curve\'s right end, in a column beside the plot, names the shower; a curve that leaves the plot before the axis end has its caret instead. A larger marker is a window of the 3-anchor fit.',
+    'Colour is the series: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). On two-shower data fill and line strength are the shower: shower A is a filled marker with full-strength lines, shower B a hollow marker with its lines at 70% strength, raised to 3:1 where the card needs it. With both showers drawn, a letter "A" or "B" in ink at each curve\'s right end, in a column beside the plot, led by a short key stroke in the curve\'s own colour, dash, width and strength, names the shower; a curve that leaves the plot before the axis end has its caret instead. A larger marker is a window of the 3-anchor fit.',
     `The dash is extrapolation and the width is the form: a solid line is a fit over the windows it was fitted to and a dashed line the same fit beyond them; the thicker line is ${NOISE_FORM}, the thinner the origin-pinned a₀/√E ⊕ 0 a series draws where it has no ${NOISE_FORM} fit. `
       + `A fit drawn fainter, its curve and dashed extrapolation alike, is ${w.name === 'robust' ? '' : 'provisional or '}of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); no fit, faded or not, sets either panel's range.`,
     w.whiskerLegend,
@@ -1574,7 +1575,7 @@ export function resolutionScalingNotes({
   const drawnFits = model.series.flatMap((s) => DRAWN_FORMS.map((form) => ({ s, f: s.fits[form] })).filter(({ f }) => f));
   const misfits = misfitLine(drawnFits, gates, lineName);
   if (misfits) disclosures.push(misfits);
-  // The bands drawn as their edges, as the E view lists them: a band that spans half its axis or more over its fitted windows.
+  // The 1/√E view's bands drawn as their edges: a band that spans half its axis or more over its fitted windows.
   const outlined = drawnFits.filter(({ f }) => f.outlined);
   if (outlined.length) {
     const n = outlined.length;
@@ -1749,7 +1750,7 @@ export function modelsHazards(payload, card, opts = {}) {
     if (model.clipped.markers || model.clipped.whiskers || model.clipped.fits || model.clipped.literature || model.clipped.ratio) {
       out.push('marks clipped at the axis');
     }
-    const fitsOf = (s) => [s.mf?.affine, s.mf?.pinned, s.mf?.quadrature].filter(Boolean);
+    const fitsOf = (s) => [s.mf?.affine, s.mf?.pinned, s.mf?.quadrature, s.mf?.noise].filter(Boolean);
     if (model.series.some((s) => fitsOf(s).some((fit) => fit.converged === false))) out.push('fit not converged');
     // A drawn literature curve is a documented point estimate, reference or not (CLAUDE.md §2's recorded exception).
     if (model.literature.length) out.push('no interval reported');
@@ -1765,7 +1766,7 @@ export function modelsHazards(payload, card, opts = {}) {
     if (model.series.some((s) => s.points.some((p) => p.weak))) out.push('weak windows drawn');
     if (model.y.provisional) out.push('provisional range');
     if (model.clipped.markers || model.clipped.whiskers || model.clipped.fits) out.push('marks clipped at the axis');
-    const fitsOf = (s) => [...DRAWN_FORMS.map((f) => s.mf?.[f]), s.mf?.quadrature].filter(Boolean);
+    const fitsOf = (s) => [...DRAWN_FORMS.map((f) => s.mf?.[f]), s.mf?.quadrature, s.mf?.noise].filter(Boolean);
     if (model.series.some((s) => fitsOf(s).some((fit) => fit.converged === false))) out.push('fit not converged');
     return out;
   }
