@@ -2234,9 +2234,12 @@ def _page(url: str, script: str, *, experiments: bool = True, drop=(), routes=No
     catalogue = json.loads((Path(_path("experiments"))).read_text(encoding="utf-8"))
     if not experiments:
         catalogue = {**catalogue, "experiments": []}
+    # The particle filter block asks for its count on adopt (controls/particle_filter.js).
+    candidates = json.loads(Path(_path("candidates_base_off")).read_text(encoding="utf-8"))
     args = {"html": str(JS.parent / "models.html"), "main": (JS / "models_main.js").as_uri(),
             "url": f"http://calosrv.test{url}", "drop": list(drop),
-            "routes": {"/api/experiments": catalogue, **(routes or {})}, "failures": failures or {}}
+            "routes": {"/api/experiments": catalogue, "/api/event/candidates": candidates, **(routes or {})},
+            "failures": failures or {}}
     return _run(_FAKE_DOM + _PAGE_DOM + _PAGE_BOOT + script + "\nconsole.log(JSON.stringify(out));\n", [args])
 
 

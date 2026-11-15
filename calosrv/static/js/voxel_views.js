@@ -212,11 +212,6 @@ function emptyPick(error) {
   return Number(error?.status) === 404;
 }
 
-/** An event number as an identifier: never digit-grouped. */
-function eventId(n) {
-  return String(Math.trunc(Number(n)));
-}
-
 export const GL_UNAVAILABLE = 'WebGL is not available in this browser (or the 3-D renderer did not load), '
   + 'so the 3-D view is not drawn. The three 2-D projections beside it carry the same cells quantitatively.';
 export const GL_LOST = 'The browser withdrew this view\'s WebGL context (the graphics driver reset, or too many '
@@ -2271,7 +2266,7 @@ export class VoxelSection {
       // A single-shower experiment's one shower needs no name.
       const showers = nShowers === 2 ? (event.showers ?? []).map((s) => s.label).join(' and ') : '';
       const what = payload.voxels?.regime === 'cells' ? 'cells' : 'voxels';
-      let lead = `Event ${eventId(event.event_number)}${showers ? `, shower${(event.showers ?? []).length > 1 ? 's' : ''} ${showers}` : ''}: `
+      let lead = `Event ${formatInt(event.event_number)}${showers ? `, shower${(event.showers ?? []).length > 1 ? 's' : ''} ${showers}` : ''}: `
         + `${formatInt(cap.n_drawn)} of ${formatInt(cap.n_total)} ${what} drawn`;
       const picked = this.picked && this.picked.event === event.event_number ? this.picked : null;
       if (pair.pick && !Number.isInteger(this.value('voxel_event'))) {

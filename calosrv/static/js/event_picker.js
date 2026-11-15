@@ -145,9 +145,13 @@ function count(value) {
   return formatInt(Number(value) || 0);
 }
 
-/** An event number: an identifier, never grouped. */
+/**
+ * An event number, grouped as every client caption writes one (frame_views.js eventRowLabel and
+ * eventSelectionLine, voxel_notes.js, the 3-D card's caption): "Event 20,123". The server's own
+ * sentences keep it ungrouped.
+ */
 function eventId(value) {
-  return typographic(String(Math.trunc(Number(value))));
+  return formatInt(Math.trunc(Number(value)));
 }
 
 /** "1 event" / "107 events". */

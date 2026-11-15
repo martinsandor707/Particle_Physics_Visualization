@@ -655,7 +655,8 @@ def test_match_lines(r):
 def test_the_other_lines_and_titles(r):
     m = r["misc"]
     assert m["replaced"] == "Event 123 left the candidates; event 456 replaces it."
-    assert m["replacedBig"] == "Event 20123 left the candidates; event 4 replaces it.", "event numbers are ids"
+    assert m["replacedBig"] == "Event 20,123 left the candidates; event 4 replaces it.", \
+        "grouped as every client caption writes an event number"
     assert m["ensemble"] == (f"The particle filter (p in 5.00{EN}6.00 GeV and θ in 10.0{EN}15.0°) narrows the event "
                              "pickers only; this view draws the whole selection of E₁, E₂ and D.")
     assert m["ensembleSingle"] == (f"The particle filter (θ in 10.0{EN}15.0°) narrows the event pickers only; this "
