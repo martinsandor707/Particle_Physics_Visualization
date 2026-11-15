@@ -269,10 +269,11 @@ export const MODELS_LABELS = Object.freeze({
   ],
   // The resolution card's two views of one response: the reversed 1/√E axis, or the energy
   // in GeV with the fits extrapolated dashed and a ratio panel. The choice repaints. The E view
-  // draws a₀/√E and a/√E ⊕ b ⊕ c/E (Martin's decisions of 2026-11-13); a/√E ⊕ b is tabled.
+  // draws one fitted curve per series with no band (Martin's directive of 2026-11-15): its
+  // a/√E ⊕ b ⊕ c/E, or a₀/√E where it has none. a₀/√E, a/√E ⊕ b and a/√E + b are tabled.
   res_view: [
     { value: 'linear', label: '1/√E linear', title: 'The error scale against a reversed 1/√E axis: a pure stochastic term is a straight line into the origin' },
-    { value: 'energy', label: 'E (GeV) + ratio', title: 'The error scale against the energy in GeV, the a₀/√E fit from 4 GeV and the a/√E ⊕ b ⊕ c/E fit from 0 GeV, each solid over its windows and dashed beyond, and a ratio panel' },
+    { value: 'energy', label: 'E (GeV) + ratio', title: 'The error scale against the energy in GeV: one fitted curve per series, its a/√E ⊕ b ⊕ c/E from 0 GeV (a₀/√E from 4 GeV where a series has none), solid over its windows and dashed beyond, with no band; and a ratio panel' },
   ],
   // The resolution card's estimator of each window (Martin's decisions of 2026-11-12): the
   // Model Error card's median relative error by default, a robust σ/E (IQR), or the sample
