@@ -32,6 +32,7 @@ import {
 import { figureDisclosure, showersPerEvent } from './export/disclosure.js';
 import { describeSelection, describeView, displayOf } from './export/caption.js';
 import { panelSymbols, CORE_SHIFT_Z_MM } from './axis_symbols.js';
+import { placeLine, matchLine, intervalText, ensembleLine, particleIsActive } from './event_picker.js';
 import { formatSigned } from './format.js';
 import {
   GROUP_COUNT, formatRanges, groupReach, axisEdges, intText, percentText, gevText,
@@ -602,6 +603,45 @@ export function energyNotes({
   return notes.done(hazards(payload, 'energy'));
 }
 
+/** The experiment's shower count for event_picker.js's sentences: 1 or 2, else undefined (it reads the payload). */
+export function showerCount(experiment) {
+  const n = experiment?.capabilities?.n_showers;
+  return n === 1 || n === 2 ? n : undefined;
+}
+
+/**
+ * The particle filter's lines of a drawn event's Selection section (event_picker.js
+ * writes every sentence): where the event stands among the candidates, how the
+ * drawn shower stands against an active filter, and the filter's interval. A
+ * response without `event.candidates` adds nothing; an inactive filter adds the
+ * place line only. `drawn` is 'a' | 'b' | 'both', `showers` the drawn shower
+ * block(s) (the raster's one `event.shower`, the voxels' `event.showers`).
+ */
+export function particleEventLines({ event, drawn, showers, experiment = null }) {
+  const candidates = event?.candidates;
+  if (!candidates) return [];
+  const nShowers = showerCount(experiment);
+  const lines = [placeLine(event, { nShowers })];
+  if (particleIsActive(candidates.particle)) {
+    lines.push(matchLine({ candidates, drawn, showers, nShowers }));
+    lines.push(`Particle filter: ${intervalText(candidates.particle)}.`);
+  }
+  return lines.filter(Boolean);
+}
+
+/** The ensemble views' disclosure: the filter narrows the event pickers only ('' while no bound is set). */
+export function particleEnsembleLine(state, experiment = null) {
+  const params = state?.particleParams?.();
+  if (!params || !Object.keys(params).length) return '';
+  return ensembleLine(params, { nShowers: showerCount(experiment) });
+}
+
+/** Whether a drawn event is in the selection but outside an active filter's pool (the hazard). */
+export function outsideCandidates(event) {
+  const c = event?.candidates;
+  return Boolean(c?.particle?.active && c.in_pool === false && event.in_selection !== false);
+}
+
 /**
  * The notes of one Event Inspector panel: one shower of one event in one
  * frame (`kind`: lab | trans | local), one projection (`panelId`: xy | xz |
@@ -632,6 +672,9 @@ export function eventNotes({
     const [c, r] = EVENT_PANEL_AXES[panelId] ?? ['x', 'y'];
     selection.push(describeView(view, symbols[c] ?? c, symbols[r] ?? r));
   }
+  selection.push(...particleEventLines({
+    event, drawn: event.shower?.key ?? 'a', showers: event.shower, experiment,
+  }));
   notes.section(SECTION.selection, selection);
 
   // A per-axis window (`/api/event?window=per_axis`, the Models page) carries each axis's
@@ -708,6 +751,7 @@ export function hazards(payload, panelId) {
   if (payload.frames && payload.event) {
     // An Event Inspector response: one event, nine panels, one set of hazards.
     if (payload.event.in_selection === false) out.push('event outside the selection');
+    if (outsideCandidates(payload.event)) out.push('event outside the candidates');
     if (payload.coordinates && payload.coordinates.within_tolerance === false) {
       out.push('coordinate residual above tolerance');
     }
