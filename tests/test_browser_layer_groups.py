@@ -288,9 +288,17 @@ def _open(p, base, *, path="/", table=BASELINE_TABLE, fragment="", viewport=(160
         arg=table, timeout=30_000,
     )
     if path == "/":
-        page.wait_for_function("() => document.getElementById('stat-events').textContent !== '—'", timeout=30_000)
+        # The subpage on show fills its own status bar (physics-subpages §9.1): Entire selection its Events
+        # count, the Event viewer (an `event` link) the event's row label.
+        page.wait_for_function(_SUBPAGE_READY, timeout=30_000)
     _quiet(page, requests)
     return browser, page, problems, requests
+
+
+#: The Physics page's subpage on show has drawn: the Event viewer its event, Entire selection its count.
+_SUBPAGE_READY = """() => document.getElementById('stat-mode')?.textContent === 'Event viewer'
+  ? document.getElementById('event-grid-label').textContent !== '—'
+  : document.getElementById('stat-events').textContent !== '—'"""
 
 
 def _quiet(page, requests, settle_ms=700, rounds=40):

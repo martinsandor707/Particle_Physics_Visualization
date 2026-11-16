@@ -465,11 +465,14 @@ PARTICLE_ACTIVE = "particle_p_min=6&particle_p_max=7&particle_theta_min=17&parti
 def test_the_particle_filter_block_fits_the_sidebar(live_server, path, viewport, theme):
     """Brief particle-filter §7: the block, shown with an active filter (both sliders, the count line, the scope
     note and Clear), fits the sidebar with no horizontal overflow of the page, the sidebar or the block, at 1024
-    and 1600 px, in either theme (switched through the header toggle)."""
+    and 1600 px, in either theme (switched through the header toggle).
+
+    On the Physics page the block is the Event viewer's (physics-subpages §9.2): the link opens that subpage."""
+    viewer = "psub=event&" if path == "/" else ""
     with live_server["playwright"].sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
-        page.goto(f"{live_server['base']}{path}#{PARTICLE_ACTIVE}")
+        page.goto(f"{live_server['base']}{path}#{viewer}{PARTICLE_ACTIVE}")
         page.wait_for_function(
             "() => !document.getElementById('group-particle').hidden "
             "&& document.getElementById('particle-count').textContent.startsWith('N = ')", timeout=30_000)

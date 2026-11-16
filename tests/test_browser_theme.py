@@ -1110,7 +1110,7 @@ PARTICLE_ACTIVE = "particle_p_min=6&particle_p_max=7&particle_theta_min=17&parti
 #: What a reader sees there, as `_LEGIBILITY` records it (each text's first 40 characters): the heading and its
 #: "(event pickers)", the labels, the count line, the scope note and the Clear button.
 PARTICLE_TEXTS = ("Particle Filter", "(event pickers)", "p — particle momentum [GeV]", "θ — incident polar angle [°]",
-                  "N = 1 event holds a matching particle", "Narrows only which events the pickers",
+                  "N = 1 event holds a matching particle", "Narrows which events the pickers offer",
                   "Clear particle filter")
 
 
@@ -1132,12 +1132,14 @@ def test_the_particle_filter_block_text_clears_4_5_on_its_card_in_both_themes(li
     count line, the scope note and the Clear button), with an active filter, clears 4.5:1 on its own ground in both
     themes, on both pages. With CALOSRV_PF_SCREENS set, the block is saved there as a PNG per page and theme."""
     measured, screens = {}, _particle_screens()
+    viewer = "psub=event&" if path == "/" else ""
     with live_server["playwright"].sync_playwright() as p:
         browser = p.chromium.launch()
         problems = []
         for scheme in ("dark", "light"):
             _, page, found, _ = _open(p, live_server["base"], path, scheme=scheme, browser=browser,
-                                      fragment=f"#table_name={BASELINE_TABLE}&{PARTICLE_ACTIVE}",
+                                      # On the Physics page the block is the Event viewer's (physics-subpages §9.2).
+                                      fragment=f"#table_name={BASELINE_TABLE}&{viewer}{PARTICLE_ACTIVE}",
                                       ready="() => !document.getElementById('group-particle').hidden && "
                                             "document.getElementById('particle-count').textContent.startsWith('N = ')")
             assert page.evaluate("() => document.documentElement.dataset.theme") == scheme
