@@ -696,26 +696,17 @@ EXPERIMENT_CASES = ["raster_base", "raster_single", "vox"]
 OUTSIDE_CASES = ["raster_base_out", "raster_single_out", "vox_out"]
 
 
-def _is_kinematics(line: str, case: dict) -> bool:
-    """The line `frame_views.js eventSelectionLine` writes (ps-page1 owns its wording)."""
-    return line == case["kinematics"]
-
-
 def _selection_lines(case: dict) -> list[str]:
     return _sec(case["notes"], "Selection")
 
 
 @pytest.mark.parametrize("name", EXPERIMENT_CASES + OUTSIDE_CASES)
 def test_an_experiment_drawer_never_says_the_current_selection(out, name):
-    """Brief 11. The kinematics line is ps-page1's `eventSelectionLine`; until its change is
-    integrated it still ends "inside the current selection", so it alone is excused, and only
-    while it is the unchanged sentence."""
+    """Brief 11: no line of an experiment-basis drawer, the kinematics line included, says
+    "current selection"."""
     case = out["exp"][name]
     for lines in case["notes"]["sections"].values():
         for line in lines:
-            if _is_kinematics(line, case) and CURRENT_SELECTION in line:
-                assert line.endswith("inside the current selection."), line
-                continue
             assert CURRENT_SELECTION not in line, line
     assert "event outside the selection" not in case["notes"]["hazards"]
 
@@ -763,8 +754,6 @@ def test_an_event_outside_the_pool_is_flagged_and_matches_the_active_filter_echo
     assert "whole experiment holding a matching particle" in case["pool"] or "whose shower has" in case["pool"]
     assert "event outside the candidates" in case["notes"]["hazards"]
     assert "event outside the selection" not in case["notes"]["hazards"]
-    assert "event outside the candidates" in case["notes"]["hazards"]
-    assert "event outside the selection" not in case["notes"]["hazards"]
 
 
 def test_the_experiment_drawer_leaves_the_e1_e2_d_filter_line_out(out):
@@ -778,9 +767,9 @@ def test_the_experiment_drawer_leaves_the_e1_e2_d_filter_line_out(out):
 
 def test_the_outside_selection_hazard_cannot_fire_under_the_experiment_basis(out):
     assert out["exp_flipped_hazards"] == []
-    # The kinematics line is ps-page1's `eventSelectionLine`; its own wording is excused here.
-    own = out["exp_flipped_kinematics"]
-    assert not any("outside the current selection" in line for line in out["exp_flipped_text"] if line != own)
+    # The kinematics line too: under the experiment basis it states the kinematics alone.
+    assert CURRENT_SELECTION not in out["exp_flipped_kinematics"]
+    assert not any("outside the current selection" in line for line in out["exp_flipped_text"])
     assert not any("previous / next controls walk" in line for line in out["exp_flipped_text"])
 
 
