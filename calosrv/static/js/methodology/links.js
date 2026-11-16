@@ -110,8 +110,10 @@ export function badgeHref(item, { from = null, section = null, catalogue = null 
   return tabHref(badgeBase(item, { from, section }), viewHash(badgeSet(item), { catalogue }));
 }
 
-/* The Physics view modes that replace the ensemble panels (main.js applyViewMode). */
-const PHYSICS_VIEW_MODES = Object.freeze({ event: null, compare: null });
+/* The Physics view modes that replace the ensemble panels (main.js applyViewMode): the pinned
+ * event and the compare grid, and the Event viewer subpage (`psub`). Leaving all three means a
+ * Physics badge opens Entire selection, the default subpage, whatever the reader's view was. */
+const PHYSICS_VIEW_MODES = Object.freeze({ event: null, compare: null, psub: null });
 
 /** The patch a badge applies: its own `set`, on a Physics badge over leaving the view modes. Pure. */
 export function badgeSet(item) {
