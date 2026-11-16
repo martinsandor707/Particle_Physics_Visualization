@@ -744,6 +744,31 @@ a.action { display: inline-block; text-decoration: none; }
   border-color: var(--border);
   color: var(--muted);
 }
+/* The shut tab's reason as a visible sentence under the tab bar (review U3):
+   a title alone is hover-only. Muted on the sticky head's canvas ground:
+   6.15:1 dark, 5.74:1 light. */
+.psub-shut {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.psub-shut[hidden] { display: none; }
+
+/* Read by assistive technology, never drawn: the standard clip pattern (the
+   Event viewer's live region, #event-live, review U6). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* A subpage not on show takes no room, so its cards neither lay out nor load.
    The wrapper is a plain block: the sections inside keep their own grids and

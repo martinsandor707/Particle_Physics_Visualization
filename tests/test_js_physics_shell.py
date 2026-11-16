@@ -2278,12 +2278,72 @@ if (scenario === 'aggregate') {
       title: t.getAttribute('title') };
   };
   out.agg = { tab: shutTab(), view: view(), hash: location.hash,
-    kind: JSON.parse(byId('kind-banner').dataset.messages ?? '[]') };
+    kind: JSON.parse(byId('kind-banner').dataset.messages ?? '[]'),
+    shut: { hidden: byId('psub-shut').hidden, text: byId('psub-shut').textContent },
+    selectionTitle: byId('psub-tab-selection').getAttribute('title') };
   const at = requests.length;
   await tab('event');
   out.click = { paths: pathsAfter(at), view: view() };
   out.expected = { reason: plan.viewer.reason,
-    line: `The Event viewer is not available for this experiment: ${plan.viewer.reason} Showing Entire selection.` };
+    line: `The Event viewer is not available for this experiment: ${plan.viewer.reason} Showing Entire selection.`,
+    shut: ps.shutLine('event', plan.viewer.reason), selectionTitle: ps.selectionTabTitle(plan) };
+}
+
+if (scenario === 'parkEvent' || scenario === 'parkCount') {
+  // Review R1 = U1: the reader leaves the viewer while a particle commit is still in flight - its pinned
+  // event's reload and replacement (parkEvent), or its count (parkCount) - and comes back after it landed.
+  // The commit is never lost: the way back asks again under the filter in force and the follow policy applies.
+  const pinned = Number(hashOf().event);
+  out.pinned = pinned;
+  out.firstCaption = caption();
+  world.inPool[pinned] = false;            // the commit takes the picked event out of the pool
+  world.pickEvents = [1 - pinned];
+  gatedPaths.clear();
+  if (scenario === 'parkEvent') { gatedPaths.add('/api/event'); gatedPaths.add('/api/event/pick'); }
+  else gatedPaths.add('/api/event/candidates');
+  gateOn = true;
+  let at = requests.length;
+  await commitP(3);
+  out.held = pathsAfter(at);
+  await tab('selection');                  // park while the commit is in flight
+  openGates();
+  await settle();
+  out.whileParked = pathsAfter(at);
+  out.parkedHash = location.hash;
+  at = requests.length;
+  await tab('event');                      // unpark
+  await settle();
+  out.back = { requests: after(at), hash: location.hash, caption: caption(), status: status(), view: view(),
+    count: byId('particle-count').textContent };
+  out.expected.replaced = pf.replacedLine(pinned, 1 - pinned);
+  out.expected.pool = pf.poolLine(world.lastEvent.event, { nShowers: 2 });
+  out.expected.status = expectedStatus(world.lastEvent, 2);
+  out.expected.oldRule = load('pick_base_uniform_experiment').rule;
+  // A second round trip with nothing changed meanwhile: drawn from the response in hand, with no request.
+  await tab('selection');
+  at = requests.length;
+  await tab('event');
+  out.again = { paths: pathsAfter(at), hash: location.hash, caption: caption() };
+}
+
+if (scenario === 'parkStale') {
+  // Review U2: a link that parks event 0 at boot (#psub=selection&event=0). The first visit to the viewer
+  // asks for the parked event; the reader then clears it, leaves and comes back: the cleared viewer draws
+  // nothing by itself.
+  out.bootView = view();
+  let at = requests.length;
+  await tab('event');
+  out.enter = { paths: pathsAfter(at), hash: location.hash, view: view() };
+  const field = byId('event-number');
+  field.value = '';
+  field.dispatch('change');
+  await settle();
+  out.cleared = { view: view(), hash: location.hash };
+  await tab('selection');
+  at = requests.length;
+  await tab('event');
+  out.back = { paths: pathsAfter(at), hash: location.hash, view: view(), live: byId('event-live').textContent };
+  out.expected.cleared = (await import(`${jsRoot}/event_inspector.js`)).CLEARED_LINE;
 }
 
 if (scenario === 'deeplinkSelection' || scenario === 'deeplinkEvent' || scenario === 'deeplinkUnknown') {
@@ -2402,6 +2462,21 @@ def page_aggregate():
 
 
 @pytest.fixture(scope="module")
+def page_park_event():
+    return _particle_run("#psub=event", "parkEvent")
+
+
+@pytest.fixture(scope="module")
+def page_park_count():
+    return _particle_run("#psub=event", "parkCount")
+
+
+@pytest.fixture(scope="module")
+def page_park_stale():
+    return _particle_run("#psub=selection&event=0", "parkStale")
+
+
+@pytest.fixture(scope="module")
 def deeplink_selection():
     return _particle_run("#event=0", "deeplinkSelection")
 
@@ -2419,7 +2494,8 @@ def deeplink_unknown():
 ALL_PAGE_RUNS = ("page_selection", "page_legacy", "particle_pick", "particle_flag", "particle_filters",
                  "particle_focus", "particle_empty", "particle_race", "particle_count_fail", "particle_keep",
                  "particle_open3d", "page_single", "page_aggregate", "deeplink_selection", "deeplink_event",
-                 "deeplink_unknown", "page_pick_fail", "page_switch")
+                 "deeplink_unknown", "page_pick_fail", "page_switch", "page_park_event", "page_park_count",
+                 "page_park_stale")
 
 
 # ------------------------------------------------- the subpages and isolation --
@@ -2691,6 +2767,50 @@ def test_a_replacement_in_flight_never_replaces_an_event_the_reader_typed(partic
     assert "left the candidates" not in race["after"]["caption"]
 
 
+@pytest.mark.parametrize("fixture", ["page_park_event", "page_park_count"])
+def test_leaving_the_viewer_mid_commit_never_loses_the_commit(fixture, request):
+    """Review R1 = U1: parked while a particle commit was in flight, the way back asks again under the filter in
+    force; the picked event that left the pool is replaced, and the caption and status bar describe the new pool."""
+    run = request.getfixturevalue(fixture)
+    pinned = run["pinned"]
+    # Nothing of the viewer's was drawn while parked, and the link carried no event.
+    assert "event=" not in run["parkedHash"] and "psub" not in run["parkedHash"]
+    back = run["back"]
+    paths = [r["path"] for r in back["requests"]]
+    # The pinned event again under p >= 3, then the follow policy's replacement (and a commit landing late may ask
+    # once more); never a request of Entire selection.
+    assert paths[:3] == ["/api/event", "/api/event/pick", "/api/event"], paths
+    assert _only_event_paths(paths), paths
+    first = back["requests"][0]["params"]
+    assert first["event_number"] == str(pinned) and first["particle_p_min"] == "3"
+    pick = back["requests"][1]["params"]
+    assert pick["rule"] == "uniform" and pick["particle_p_min"] == "3"
+    assert f"event={1 - pinned}" in back["hash"] and "particle_p_min=3" in back["hash"]
+    assert back["view"]["eventGrid"] and not back["view"]["empty"]
+    # The caption: the replacement's line, the pool under the filter, never the pre-commit pick's sentence.
+    assert run["expected"]["replaced"] in back["caption"], back["caption"]
+    assert run["expected"]["pool"] in back["caption"]
+    assert run["expected"]["oldRule"] not in back["caption"].replace(run["expected"]["replaced"], "")
+    assert back["status"] == run["expected"]["status"]
+    # With nothing changed since, the next way back draws from hand.
+    assert run["again"]["paths"] == [] and run["again"]["caption"] == back["caption"]
+
+
+def test_a_cleared_viewer_that_was_parked_at_boot_never_draws_by_itself(page_park_stale):
+    """Review U2: `stale.event` no longer survives an unpark, so a return to a cleared viewer asks nothing."""
+    run = page_park_stale
+    assert run["bootView"]["selection"] and not run["bootView"]["event"]
+    assert run["enter"]["paths"] == ["/api/event/candidates", "/api/event"], run["enter"]["paths"]
+    assert "event=0" in run["enter"]["hash"] and run["enter"]["view"]["eventGrid"]
+    assert run["cleared"]["view"]["empty"] and run["cleared"]["view"]["emptyText"] == run["expected"]["cleared"]
+    back = run["back"]
+    assert back["paths"] == [], back["paths"]
+    assert "event=" not in back["hash"].replace("psub=event", "")
+    assert back["view"]["empty"] and back["view"]["emptyText"] == run["expected"]["cleared"]
+    # The empty state's text reaches the always-rendered live region (review U6).
+    assert back["live"] == run["expected"]["cleared"]
+
+
 def test_a_failed_count_after_the_blocks_commit_is_reported_and_drops_the_n_0_lock(particle_count_fail):
     """Review U3, on Page 1: the block says it could not count, the banner says why, the pickers reopen."""
     run = particle_count_fail
@@ -2770,6 +2890,11 @@ def test_an_aggregate_shuts_the_viewer_and_a_viewer_link_falls_back_with_the_ban
     assert _no_event_paths(run["boot"])
     # A click on the shut tab does nothing.
     assert run["click"]["paths"] == [] and run["click"]["view"]["selection"]
+    # Review U3: the reason is a visible sentence under the tab bar; review R3: the selection tab names the kind.
+    assert agg["shut"] == {"hidden": False, "text": run["expected"]["shut"]}
+    assert run["expected"]["shut"] == f"The Event viewer is not available for this experiment: {reason}"
+    assert agg["selectionTitle"] == run["expected"]["selectionTitle"]
+    assert "no hits to project" in agg["selectionTitle"] and "E₁" not in agg["selectionTitle"]
 
 
 # ---------------------------------------------------------------- deep links --
@@ -2816,13 +2941,16 @@ def test_main_mounts_the_particle_filter_and_aborts_its_request_on_a_switch():
         assert f"'{id_}'" not in required, id_
     for id_ in ("physics-head", "psub-tab-selection", "psub-tab-event", "psub-selection", "psub-event",
                 "stat-mode", "stat-event", "stat-shower-item", "stat-place", "event-empty", "event-empty-text",
-                "channel-shut", "group-filters", "group-event", "group-model"):
+                "event-live", "psub-shut", "channel-shut", "group-filters", "group-event", "group-model"):
         assert f"'{id_}'" in required, id_
     # The particle block counts only while the viewer is on show; an E1/E2/D commit refreshes the ensemble alone.
     assert "particle.setShown(subnav.current() === 'event');" in main
     assert "onCommit: () => refreshAll()," in main
     assert "filtersCommitted" not in main and "refreshParticle" not in main
-    assert "import { mountPhysicsSubnav, psubOfCard, eventStatus } from './physics_subpages.js';" in main
+    assert ("import { mountPhysicsSubnav, psubOfCard, eventStatus, selectionTabTitle } from './physics_subpages.js';"
+            in main)
+    # Review R3: the Entire selection tab is titled per experiment, at every activation.
+    assert "subnav.setTitle('selection', selectionTabTitle(pagePlan));" in main
     inspector = (JS / "event_inspector.js").read_text(encoding="utf-8")
     assert "'/api/event/pick'" in inspector and "innerHTML" not in inspector
     # Every pick is asked from the pool (brief §5.2), never with filterParams().

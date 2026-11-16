@@ -548,8 +548,9 @@ def test_two_showers_show_the_shower_item_and_no_shut_line(physics_live_server):
 
 def test_the_aggregate_shuts_the_viewer_tab_with_its_reason(physics_live_server):
     """single_events holds no hits: the Event viewer tab is shut (aria-disabled, `is-disabled`, the server's reason
-    as its title) and ignores a click and the arrows; a default boot says nothing about it on the banner, and no
-    /api/event* request is sent."""
+    as its title) and activates on no click or key; the keyboard still reaches it (review U3), and a visible sentence
+    under the tab bar gives the reason; the banner says nothing about it on a default boot, the Entire selection tab
+    names the aggregate's own view (review R3), and no /api/event* request is sent."""
     base = physics_live_server["base"]
     reason = _experiment(base, SINGLE_EVENTS_TABLE)["capabilities"]["reasons"]["event-inspector"]
     with physics_live_server["playwright"].sync_playwright() as p:
@@ -560,10 +561,28 @@ def test_the_aggregate_shuts_the_viewer_tab_with_its_reason(physics_live_server)
         assert "The Event viewer is not available" not in page.evaluate(_TEXT, "kind-banner-text")
         legible = page.evaluate(_CONTRAST, "psub-tab-event")
         assert legible["ratio"] >= TEXT_FLOOR, legible
+        # The reason as a visible sentence under the tab bar, legible on the head, and the tab described by it.
+        sentence = page.evaluate("""() => { const el = document.getElementById('psub-shut');
+          return { text: el.textContent, hidden: el.hidden, drawn: el.getClientRects().length > 0,
+                   inHead: Boolean(el.closest('#physics-head')),
+                   describedby: document.getElementById('psub-tab-event').getAttribute('aria-describedby') }; }""")
+        assert sentence == {"text": f"The Event viewer is not available for this experiment: {reason}",
+                            "hidden": False, "drawn": True, "inHead": True, "describedby": "psub-shut"}, sentence
+        assert page.evaluate(_CONTRAST, "psub-shut")["ratio"] >= TEXT_FLOOR
+        assert _tabs(page)["selection"]["title"] == (
+            "Every selected event's physics cards, under the p window; this experiment has no hits to project.")
         page.click("#psub-tab-event", force=True)
+        _assert_on(page, "selection")
+        # The keyboard reaches the shut tab (focus only); Enter and Space on it activate nothing; the keys on it
+        # are handled and go back to the open tab.
         page.focus("#psub-tab-selection")
-        page.keyboard.press("ArrowRight")
-        page.keyboard.press("End")
+        focus = []
+        for key in ("ArrowRight", "Enter", " ", "ArrowLeft", "End", "Home", "ArrowLeft"):
+            page.keyboard.press(key)
+            got = _assert_on(page, "selection")
+            focus.append(got["focus"])
+        assert focus == ["psub-tab-event", "psub-tab-event", "psub-tab-event", "psub-tab-selection",
+                         "psub-tab-event", "psub-tab-selection", "psub-tab-event"], focus
         _idle(page, net)
         _assert_on(page, "selection")
         assert "psub" not in _fragment(page)
@@ -587,6 +606,57 @@ def test_a_viewer_link_to_the_aggregate_falls_back_with_the_banner_line(physics_
         assert "psub" not in _fragment(page), page.evaluate(_HASH)
         assert not [u for u in _paths(net["urls"]) if u.startswith("/api/event")], net["urls"]
         assert page.evaluate(_HIDDEN, "banner") is True
+        browser.close()
+    assert problems == [], problems
+
+
+# ------------------------------------------------------------------ drawers --
+
+#: The Details drawer: open or not, and its title.
+_DRAWER = """() => ({ open: document.querySelector('.app').classList.contains('is-inspector-open')
+  && !document.getElementById('inspector').hidden,
+  title: document.getElementById('inspector-title').textContent.trim() })"""
+
+
+def test_a_details_drawer_belongs_to_its_subpage_and_comes_back_with_it(physics_live_server):
+    """Review U4: a drawer open on a card of one subpage is closed by a switch to the other (it would describe what is
+    not on show) and reopened on the way back; the focus stays on the tab."""
+    base = physics_live_server["base"]
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, net = _open(p, base, f"#table_name={BASELINE_TABLE}")
+        page.click('button[data-inspect="xy"]')
+        page.wait_for_function("() => !document.getElementById('inspector').hidden", timeout=10_000)
+        xy = page.evaluate(_DRAWER)
+        assert xy["open"] and xy["title"], xy
+        page.click("#psub-tab-event")
+        _wait_event(page)
+        _idle(page, net)
+        assert page.evaluate(_DRAWER)["open"] is False
+        assert page.evaluate("() => document.querySelectorAll('.card.is-inspected').length") == 0
+        # A drawer of the viewer's own: an Event Inspector cell.
+        page.click('button[data-inspect="event-lab-xy"]')
+        page.wait_for_function("() => !document.getElementById('inspector').hidden", timeout=10_000)
+        cell = page.evaluate(_DRAWER)
+        assert cell["open"] and cell["title"] != xy["title"], cell
+        # Back to Entire selection: the cell's drawer goes, the XY drawer returns, the focus stays on the tab.
+        page.click("#psub-tab-selection")
+        _idle(page, net)
+        assert page.evaluate(_DRAWER) == xy
+        assert page.evaluate("() => document.activeElement?.id") == "psub-tab-selection"
+        # And back to the viewer by the keyboard: the cell's drawer returns.
+        page.keyboard.press("ArrowRight")
+        _assert_on(page, "event")
+        _idle(page, net)
+        assert page.evaluate(_DRAWER) == cell
+        assert page.evaluate("() => document.activeElement?.id") == "psub-tab-event"
+        # Closed by the reader, it stays closed across a round trip.
+        page.click("#inspector-close")
+        page.click("#psub-tab-selection")
+        _idle(page, net)
+        assert page.evaluate(_DRAWER) == xy
+        page.click("#psub-tab-event")
+        _idle(page, net)
+        assert page.evaluate(_DRAWER)["open"] is False
         browser.close()
     assert problems == [], problems
 

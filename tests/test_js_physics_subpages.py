@@ -13,6 +13,10 @@ Brief ``data/dev/design/physics-subpages/brief.md`` §8:
   false returns, the silent apply at mount, ``#stat-mode``, ``.app[data-psub]``,
   the scroll kept per subpage, ``setEnabled`` and its restore, the head-height
   watcher;
+* review U3: a shut tab stays in the arrow keys' order (focused, never
+  activated) and its reason is a visible sentence, ``#psub-shut``;
+* review R3: ``selectionTabTitle`` on every kind of the recorded catalogue
+  (``experiments.json``), and ``setTitle``;
 * ``methodology/links.js``: a Physics badge carries ``psub: null``, so it
   opens Entire selection.
 
@@ -32,11 +36,18 @@ pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 MINUS = "−"
 
 _SCRIPT = _FAKE_DOM + r"""
-const [subUrl, linksUrl, paths] = JSON.parse(process.argv[1]);
+const [subUrl, linksUrl, capsUrl, paths] = JSON.parse(process.argv[1]);
 const P = loadAll(paths);
 const sub = await import(subUrl);
 const links = await import(linksUrl);
+const caps = await import(capsUrl);
 const out = {};
+
+// ---- selectionTabTitle on every kind of the recorded catalogue (review R3)
+out.tabTitles = Object.fromEntries(P.experiments.experiments.map((e) => [e.capabilities.kind,
+  sub.selectionTabTitle(caps.page1Plan(e))]));
+out.tabTitleNone = sub.selectionTabTitle(null);
+out.shutLine = sub.shutLine('event', 'No hits in this experiment.');
 
 // ---- constants and psubOfCard
 out.constants = { default: sub.DEFAULT_PSUB, labels: sub.PSUB_LABELS };
@@ -125,6 +136,8 @@ const page = ({ withChip = true, withHead = true } = {}) => {
   }
   const chip = withChip ? make('span', 'stat-mode') : null;
   if (chip) chip.textContent = 'Entire selection';
+  const shut = withHead ? make('p', 'psub-shut') : null;
+  if (shut) { shut.hidden = true; head.append(shut); }
   return {
     app, main, els, props, chip, head, setHeight: (h) => { headHeight = h; },
     root: {
@@ -151,6 +164,10 @@ const tabSnap = (p, psub) => {
   const t = p.els.get(`psub-tab-${psub}`);
   return { ariaDisabled: t.getAttribute('aria-disabled'), disabled: t.classList.contains('is-disabled'),
     title: t.getAttribute('title') };
+};
+const shutSnap = (p) => {
+  const el = p.els.get('psub-shut');
+  return { hidden: el.hidden, text: el.textContent, describedby: p.els.get('psub-tab-event').getAttribute('aria-describedby') };
 };
 const key = (p, psub, k) => {
   let prevented = false;
@@ -225,36 +242,54 @@ step('event', 'Tab');              // the browser's
 out.keys = seq;
 out.keysAfter = snap(p);
 
-// -- a disabled tab: skipped by the keys, ignored by clicks, restored
+// -- a disabled tab: reached by the keys but never activated, ignored by clicks, restored (review U3)
 st = fakeState('selection');
 p = page();
 switched.length = 0;
 router = sub.mountPhysicsSubnav({ state: st, root: p.root, onSwitch: (m) => switched.push(m) });
 out.beforeDisable = tabSnap(p, 'event');
+out.shutBefore = shutSnap(p);
 router.setEnabled('event', false, 'No hits in this experiment.');
 out.disabled = { event: tabSnap(p, 'event'), selection: tabSnap(p, 'selection') };
+out.shutOn = shutSnap(p);
 calls.focus.length = 0;
 const prevented = [key(p, 'selection', 'ArrowRight'), key(p, 'selection', 'ArrowLeft')];
-out.disabledKeys = { prevented, current: router.current(), focus: [...calls.focus], switched: [...switched], writes: st.writes.length };
-// Home and End land on the one enabled tab, which is the one on show: no switch.
+out.disabledKeys = { prevented, current: router.current(), focus: [...calls.focus], switched: [...switched], writes: st.writes.length,
+  snap: snap(p) };
+// Home lands on the open tab on show (no switch); End on the shut one, focused only.
+calls.focus.length = 0;
 const edge = [key(p, 'selection', 'Home'), key(p, 'selection', 'End')];
-out.disabledEdges = { prevented: edge, current: router.current(), switched: [...switched] };
+out.disabledEdges = { prevented: edge, current: router.current(), switched: [...switched], focus: [...calls.focus] };
 st.writes.length = 0;
 p.els.get('psub-tab-event').click();
 out.disabledClick = { ...snap(p), current: router.current(), switched: [...switched], writes: st.writes.length };
 out.disabledShow = { changed: router.show('event'), writes: st.writes.length, current: router.current() };
-// Keys on the disabled tab itself do nothing either.
-out.disabledOwnKey = { prevented: key(p, 'event', 'Home'), current: router.current() };
-// Re-enabled: the markup's title returns, the tab works.
+// Keys on the focused shut tab itself are handled, never swallowed: the arrows and Home go back to the open tab.
+calls.focus.length = 0;
+out.disabledOwnKey = {
+  prevented: ['ArrowLeft', 'ArrowRight', 'Home', 'End'].map((k) => key(p, 'event', k)),
+  focus: [...calls.focus], current: router.current(), switched: [...switched],
+};
+// Enter and Space on it activate nothing (a button's Enter and Space reach its click, which ignores it).
+out.disabledEnter = { prevented: [key(p, 'event', 'Enter'), key(p, 'event', ' ')], current: router.current() };
+// A title set while the tab is shut is kept for when it opens; the shut tab keeps its reason meanwhile.
+router.setTitle('event', 'One event at a time, again.');
+out.titleWhileShut = tabSnap(p, 'event').title;
+router.setTitle('selection', 'Every selected event: the p window.');
+out.titleOpen = tabSnap(p, 'selection').title;
+// Re-enabled: its own title returns, the sentence goes, the tab works.
 router.setEnabled('event', true);
 out.reenabled = tabSnap(p, 'event');
+out.shutOff = shutSnap(p);
+router.setTitle('event', 'One event at a time.');
 p.els.get('psub-tab-event').click();
 out.reenabledClick = { ...snap(p), current: router.current() };
 // setEnabled on an unknown subpage is harmless.
 router.setEnabled('nowhere', false, 'x');
 // Shutting the tab on show does not switch by itself; keys then have nowhere to go.
 router.setEnabled('selection', false, 'closed');
-out.bothShut = { prevented: key(p, 'event', 'ArrowRight'), current: router.current() };
+calls.focus.length = 0;
+out.bothShut = { prevented: key(p, 'event', 'ArrowRight'), current: router.current(), focus: [...calls.focus] };
 router.setEnabled('selection', true);
 
 // -- the head height: measured at mount, again on a resize, on demand, rounded up
@@ -300,7 +335,9 @@ console.log(JSON.stringify(out));
 def r() -> dict:
     return _run(_SCRIPT, [
         (JS / "physics_subpages.js").as_uri(), (JS / "methodology" / "links.js").as_uri(),
-        {"base": _path("event_raster_base_experiment"), "single": _path("event_raster_single_experiment")},
+        (JS / "capabilities.js").as_uri(),
+        {"base": _path("event_raster_base_experiment"), "single": _path("event_raster_single_experiment"),
+         "experiments": _path("experiments")},
     ])
 
 
@@ -386,7 +423,7 @@ def test_the_router_starts_on_the_states_subpage_silently(r):
     assert m["hidden"] == [False, True] and m["selected"] == ["true", "false"] and m["tabindex"] == ["0", "-1"]
     assert m["app"] == "selection" and m["chip"] == "Entire selection" and m["current"] == "selection"
     assert m["writes"] == 0 and m["switched"] == []
-    assert m["keys"] == ["current", "measureHead", "setEnabled", "show"]
+    assert m["keys"] == ["current", "measureHead", "setEnabled", "setTitle", "show"]
     linked = r["linked"]
     assert linked["hidden"] == [True, False] and linked["selected"] == ["false", "true"]
     assert linked["tabindex"] == ["-1", "0"] and linked["app"] == "event" and linked["chip"] == "Event viewer"
@@ -453,30 +490,70 @@ def test_setenabled_shuts_a_tab_with_its_reason_and_restores_the_markups_title(r
     assert d["event"] == {"ariaDisabled": "true", "disabled": True, "title": "No hits in this experiment."}
     assert d["selection"] == {"ariaDisabled": None, "disabled": False,
                               "title": "Every selected event: the 2 x 2 diagnostic."}
-    assert r["reenabled"] == {"ariaDisabled": None, "disabled": False, "title": "One event at a time."}
+    # Its own title returns: the markup's, or the last setTitle (here one set while it was shut).
+    assert r["reenabled"] == {"ariaDisabled": None, "disabled": False, "title": "One event at a time, again."}
 
 
-def test_a_disabled_tab_is_skipped_by_the_keys_and_ignores_clicks(r):
+def test_a_disabled_tab_is_reached_by_the_keys_but_never_activated_and_ignores_clicks(r):
+    """Review U3: the arrows, Home and End move focus onto a shut tab (so its reason can be read) without
+    activating it; keys on it are handled; Enter, Space and a click activate nothing."""
     k = r["disabledKeys"]
-    # Every navigation key has nowhere to go: no switch, no write, no focus move; the keys are still the tab list's.
     assert k["prevented"] == [True, True]
-    assert k["current"] == "selection" and k["focus"] == [] and k["switched"] == [] and k["writes"] == 0
+    assert k["focus"] == ["psub-tab-event", "psub-tab-event"]
+    assert k["current"] == "selection" and k["switched"] == [] and k["writes"] == 0
+    # The roving order is the selected tab's: the shut tab is focused, never selected.
+    assert k["snap"]["selected"] == ["true", "false"] and k["snap"]["hidden"] == [False, True]
     c = r["disabledClick"]
     assert c["current"] == "selection" and c["hidden"] == [False, True] and c["switched"] == [] and c["writes"] == 0
     s = r["disabledShow"]
     assert s == {"changed": False, "writes": 0, "current": "selection"}
     e = r["disabledEdges"]
-    assert e == {"prevented": [True, True], "current": "selection", "switched": []}
-    assert r["disabledOwnKey"] == {"prevented": False, "current": "selection"}
+    assert e == {"prevented": [True, True], "current": "selection", "switched": [],
+                 "focus": ["psub-tab-selection", "psub-tab-event"]}
+    own = r["disabledOwnKey"]
+    assert own["prevented"] == [True, True, True, True]
+    assert own["focus"] == ["psub-tab-selection", "psub-tab-selection", "psub-tab-selection", "psub-tab-event"]
+    assert own["current"] == "selection" and own["switched"] == []
+    assert r["disabledEnter"] == {"prevented": [False, False], "current": "selection"}
+
+
+def test_a_shut_tab_says_why_in_a_visible_sentence_under_the_tab_bar(r):
+    """Review U3: a title is hover-only, so `#psub-shut` carries the reason while the tab is shut."""
+    assert r["shutBefore"] == {"hidden": True, "text": "", "describedby": None}
+    line = "The Event viewer is not available for this experiment: No hits in this experiment."
+    assert r["shutLine"] == line
+    assert r["shutOn"] == {"hidden": False, "text": line, "describedby": "psub-shut"}
+    assert r["shutOff"] == {"hidden": True, "text": "", "describedby": None}
+
+
+def test_set_title_keeps_a_shut_tabs_reason_and_is_restored_when_it_opens(r):
+    assert r["titleWhileShut"] == "No hits in this experiment."
+    assert r["titleOpen"] == "Every selected event: the p window."
+    assert r["reenabled"]["title"] == "One event at a time, again."
+
+
+def test_the_entire_selection_tab_is_titled_for_each_kind(r):
+    """Review R3: the tab names what the subpage shows on each kind and the filter that selects it."""
+    assert r["tabTitles"] == {
+        "two_shower_hits": "Every selected event: the 2 × 2 diagnostic, the compare-frames view and the physics "
+                           "cards, under E₁, E₂ and D.",
+        "single_shower_hits": "Every selected event: the 2 × 2 diagnostic, the compare-frames view and the physics "
+                              "cards, under the p window.",
+        "single_shower_events": "Every selected event's physics cards, under the p window; this experiment has no "
+                                "hits to project.",
+    }
+    # Without a plan, the markup's own (two-shower) text.
+    assert r["tabTitleNone"] == r["tabTitles"]["two_shower_hits"]
 
 
 def test_an_enabled_tab_works_again(r):
+    assert r["reenabled"]["ariaDisabled"] is None and r["reenabled"]["disabled"] is False
     c = r["reenabledClick"]
     assert c["current"] == "event" and c["hidden"] == [True, False] and c["app"] == "event"
 
 
-def test_with_both_tabs_shut_the_keys_go_nowhere(r):
-    assert r["bothShut"] == {"prevented": True, "current": "event"}
+def test_with_both_tabs_shut_the_keys_move_focus_and_switch_nothing(r):
+    assert r["bothShut"] == {"prevented": True, "current": "event", "focus": ["psub-tab-selection"]}
 
 
 # ----------------------------------------------------------------- the head --

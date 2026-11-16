@@ -1515,6 +1515,9 @@ def test_the_tab_bar_is_a_tablist_of_two_tabs_at_the_top_of_main():
     assert 'aria-selected="true" tabindex="0"' in _tag(head, "psub-tab-selection")
     assert 'aria-selected="false" tabindex="-1"' in _tag(head, "psub-tab-event")
     assert head.index('id="psub-tab-selection"') < head.index('id="psub-tab-event"')
+    # Review U3: the shut tab's reason as a visible sentence, after the tab bar in the sticky head, hidden at first.
+    assert head.count('<p class="psub-shut" id="psub-shut" hidden></p>') == 1
+    assert head.index("</nav>") < head.index('id="psub-shut"')
 
 
 def test_the_subpages_are_tabpanels_in_main_and_only_the_viewer_starts_hidden():
@@ -1532,10 +1535,15 @@ def test_the_subpages_are_tabpanels_in_main_and_only_the_viewer_starts_hidden():
     for kept in ("ensemble-grid", "kind-notice", "physics-grid", "compare-grid"):
         assert f'id="{kept}"' not in event, kept
     assert event.index('id="event-empty"') < event.index('id="event-grid"')
-    empty = re.search(r'<section class="kind-notice" id="event-empty" hidden aria-live="polite">\s*'
+    empty = re.search(r'<section class="kind-notice" id="event-empty" hidden>\s*'
                       r'<h2 id="event-empty-title">No event drawn</h2>\s*<p id="event-empty-text">&mdash;</p>\s*</section>',
                       event)
-    assert empty, "the empty state is a polite kind-notice with its own title and text"
+    assert empty, "the empty state is a kind-notice with its own title and text"
+    # Review U6: the empty state is not itself a live region (it appears with its text, which is not read out);
+    # an always-rendered, visually hidden polite region inside the viewer carries its text.
+    assert "aria-live" not in empty.group(0)
+    assert event.count('<p class="sr-only" id="event-live" role="status" aria-live="polite"></p>') == 1
+    assert html.count('id="event-live"') == 1
     # The status bar and the banners sit outside both subpages: they are the page's.
     for outside in ('id="banner"', 'id="kind-banner"', 'class="statusbar"', 'id="physics-head"'):
         assert outside not in selection and outside not in event, outside
@@ -1544,8 +1552,10 @@ def test_the_subpages_are_tabpanels_in_main_and_only_the_viewer_starts_hidden():
 def test_the_status_bar_names_the_mode_and_each_subpage_owns_its_items():
     html = _html()
     bar = _div_span(html, '<div class="statusbar">')
-    assert bar.index('<span class="mode-chip" id="stat-mode" role="status">Entire selection</span>') \
+    # Review U6: the chip is a label, never a live region (the tab announces the switch).
+    assert bar.index('<span class="mode-chip" id="stat-mode">Entire selection</span>') \
         < bar.index('id="stat-events"')
+    assert "role=" not in _tag(bar, "stat-mode") and "aria-live" not in _tag(bar, "stat-mode")
     def owner(element_id: str):
         """The data-psub-only of the status item that holds `element_id`: its last opening <span> before it."""
         tag = re.findall(r"<span\b[^>]*>", bar[:bar.index(f'id="{element_id}"') + len(element_id)])[-1]
@@ -1566,8 +1576,10 @@ def test_the_status_bar_names_the_mode_and_each_subpage_owns_its_items():
     assert re.search(r'<span id="stat-nod-item" data-psub-only="selection">', bar)
     assert 'data-psub-only="selection">Events <b id="stat-events">' in bar
     for label, element_id in (("Event", "stat-event"), ("p", "stat-p"), ("θ", "stat-theta"), ("Cells", "stat-cells"),
-                              ("Deposited", "stat-ev-edep"), ("Candidate", "stat-place")):
+                              ("Deposited", "stat-ev-edep"), ("Place", "stat-place")):
         assert f'data-psub-only="event">{label} <b id="{element_id}">—</b></span>' in bar, element_id
+    # Review U5 = R5: the item is "Place", so its value "not a candidate" never reads "Candidate not a candidate".
+    assert "Candidate <b" not in bar
     assert bar.index('class="spacer"') > bar.index('id="stat-place"') and bar.index('class="spacer"') < bar.index('id="stat-latency"')
 
 
@@ -1705,7 +1717,7 @@ def test_each_tab_controls_its_own_panel_and_the_panel_names_its_tab():
     assert len(re.findall(r'role="tablist"', main)) == 1
     # Only the selected tab is in the tab order (roving tabindex), and the chip names the selected tab's label.
     assert len(re.findall(r'tabindex="0"', _div_span(main, '<div class="physics-head" id="physics-head">'))) == 1
-    chip = re.search(r'<span class="mode-chip" id="stat-mode" role="status">([^<]*)</span>', main).group(1)
+    chip = re.search(r'<span class="mode-chip" id="stat-mode">([^<]*)</span>', main).group(1)
     assert chip == TAB_TITLES["selection"][0]
 
 

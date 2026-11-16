@@ -444,6 +444,8 @@
                 aria-controls="psub-event" aria-selected="false" tabindex="-1"
                 title="One event at a time, drawn from the whole experiment under the particle filter: one shower in the Absolute, per-shower translated and Local frames.">Event viewer</button>
       </nav>
+      <!-- Why a shut tab is shut, as a sentence (physics_subpages.js setEnabled): a title alone is hover-only. -->
+      <p class="psub-shut" id="psub-shut" hidden></p>
     </div>
 
     <div class="banner" id="banner" hidden>
@@ -465,7 +467,7 @@
          an item's own hidden attribute, which main.js controls. Query and the
          cache note are shared. -->
     <div class="statusbar">
-      <span class="mode-chip" id="stat-mode" role="status">Entire selection</span>
+      <span class="mode-chip" id="stat-mode">Entire selection</span>
       <span data-psub-only="selection">Events <b id="stat-events">—</b></span>
       <span data-psub-only="selection">Hits <b id="stat-hits">—</b></span>
       <span data-psub-only="selection">Deposited <b id="stat-edep">—</b></span>
@@ -480,7 +482,7 @@
       <span data-psub-only="event">θ <b id="stat-theta">—</b></span>
       <span data-psub-only="event">Cells <b id="stat-cells">—</b></span>
       <span data-psub-only="event">Deposited <b id="stat-ev-edep">—</b></span>
-      <span data-psub-only="event">Candidate <b id="stat-place">—</b></span>
+      <span data-psub-only="event">Place <b id="stat-place">—</b></span>
       <span class="spacer"></span>
       <span>Query <b id="stat-latency">—</b></span>
       <span id="stat-cache" class="muted"></span>
@@ -619,7 +621,10 @@
          no event drawn, the empty state says why. There is no button back to
          the ensemble: the Entire selection tab is the way back. -->
     <div class="physics-subpage" id="psub-event" role="tabpanel" aria-labelledby="psub-tab-event" data-psub="event" hidden>
-      <section class="kind-notice" id="event-empty" hidden aria-live="polite">
+      <!-- The empty state's text, announced: a region that appears with its text is not read out, so main.js
+           writes it here, into a region that is always rendered (visually hidden). -->
+      <p class="sr-only" id="event-live" role="status" aria-live="polite"></p>
+      <section class="kind-notice" id="event-empty" hidden>
         <h2 id="event-empty-title">No event drawn</h2>
         <p id="event-empty-text">&mdash;</p>
       </section>

@@ -45,7 +45,7 @@ import { mountParticleFilter } from './controls/particle_filter.js';
 import { ProjectionPanel } from './panels/projection.js';
 import { FrameGrid, GRID_ROWS, GRID_COLS, DEPTH_COLS } from './panels/frame_grid.js';
 import { EventInspector } from './event_inspector.js';
-import { mountPhysicsSubnav, psubOfCard, eventStatus } from './physics_subpages.js';
+import { mountPhysicsSubnav, psubOfCard, eventStatus, selectionTabTitle } from './physics_subpages.js';
 import { depthIsometric, ensembleCellOptions, ensembleLayerOptions } from './event_cells.js';
 import { mountLayerGroupControl, depthContextFromPayload, effectiveMode } from './controls/layer_groups_control.js';
 import { formatCounts } from './layer_groups.js';
@@ -197,6 +197,11 @@ let countPromise = null;
 let windowAxisMissed = false;
 /* The status bar's Query readout of each subpage: its last response's time and cache note. */
 const latency = { selection: { ms: '—', cache: '' }, event: { ms: '—', cache: '' } };
+/* The Details drawer a subpage switch closed, per subpage (`psubOfCard`), with the button that opened it: a
+ * drawer describes a card of its own subpage only, and comes back with it (review U4). In memory only. */
+const drawerOf = { selection: null, event: null };
+/* The text last written to the viewer's live region (`#event-live`), so only new text is announced (review U6). */
+let liveText = '';
 
 /* What the page shows for the active experiment (capabilities.js); before one
  * is adopted, the two-shower page with no physics cards. */
@@ -931,6 +936,13 @@ function syncViewerEmpty() {
   const text = pagePlan.viewer.enabled && !parked ? inspector.emptyText() : '';
   setText('event-empty-text', text || '—');
   setHidden('event-empty', !text);
+  // The empty state is announced through the always-rendered live region: a region that appears with its
+  // text is not read out. New text while it is on show is written there, and '' once it hides (review U6).
+  const live = text && subnav.current() === 'event' ? text : '';
+  if (live !== liveText) {
+    liveText = live;
+    setText('event-live', live);
+  }
 }
 
 /* The viewer's status-bar readouts, by physics_subpages.js `eventStatus` key. */
@@ -964,6 +976,7 @@ function showLatency() {
  */
 function onSubpageSwitch(psub) {
   hidePopover();
+  closeOtherDrawer(psub);
   if (psub === 'selection') {
     const held = inspector.park();
     if (held) parked = held;
@@ -978,14 +991,21 @@ function onSubpageSwitch(psub) {
   if (activating) return;
   if (psub === 'event') {
     if (parked) {
+      // A parked event comes back: from the response in hand when nothing was owed (event_inspector.js
+      // `unpark`), else asked again. A stale viewer (an activation while parked) asks again too, and the
+      // flag is spent here, so a later return to a viewer the reader cleared draws nothing by itself (review U2).
       const held = parked;
       parked = null;
-      inspector.unpark(held);
+      const refresh = stale.event;
+      stale.event = false;
+      inspector.unpark(held, { refresh });
     } else if (stale.event || (inspector.drawPending && !inspector.pinned)) {
       loadViewer();
     }
+    reopenDrawer('event');
     return;
   }
+  reopenDrawer('selection');
   if (stale.selection) {
     refreshAll.flush();
     return;
@@ -998,6 +1018,39 @@ function onSubpageSwitch(psub) {
 }
 
 /**
+ * A Details drawer open on a card of the other subpage (`psubOfCard`: the
+ * Event Inspector's cells are the viewer's; the compare cells and every other
+ * card Entire selection's) describes what is no longer on show: it is closed,
+ * and remembered for its own subpage with the button that opened it. Its
+ * button is on the subpage now hidden, so the focus is not sent back to it.
+ */
+function closeOtherDrawer(psub) {
+  const open = shell.inspected;
+  if (!open || psubOfCard(open) === psub) return;
+  drawerOf[psubOfCard(open)] = { id: open, trigger: shell.returnTo ?? null };
+  shell.returnTo = null;
+  shell.closeInspector();
+}
+
+/**
+ * Back on a subpage whose drawer a switch closed: the drawer opens again, if
+ * no other is open and its card still has notes (an event the viewer no
+ * longer holds has none). The focus stays where the switch left it, on the
+ * tab, so arrowing between the tabs is not pulled into the drawer.
+ */
+function reopenDrawer(psub) {
+  const held = drawerOf[psub];
+  if (!held) return;
+  drawerOf[psub] = null;
+  if (shell.inspected) return;
+  const notes = panelNotes[held.id] ?? buildNotes(held.id);
+  if (!notes) return;
+  const focused = document.activeElement;
+  shell.openInspector(held.id, { trigger: held.trigger });
+  if (focused && focused !== document.body && focused.isConnected) focused.focus?.({ preventScroll: true });
+}
+
+/**
  * The viewer's data: the pinned event, or - entered with none - the first
  * draw, once the particle block's count is in (Pick for me at the current
  * draw; nothing at N = 0, where the empty state says why). Only `/api/event*`
@@ -1007,6 +1060,12 @@ async function loadViewer() {
   stale.event = false;
   if (!pagePlan.viewer.enabled) return null;
   if (state.get('event') !== null) return inspector.refresh();
+  // A viewer the reader cleared never draws by itself: its empty state says how to draw one (review U2).
+  // An experiment switch forgets the clearing (`forget`), so a new experiment still gets its first draw.
+  if (inspector.cleared) {
+    syncViewerEmpty();
+    return null;
+  }
   inspector.armFirstDraw();
   syncViewerEmpty();
   const epoch = inspector.epoch;
@@ -1816,6 +1875,9 @@ async function activateExperiment(experiment) {
     // the new experiment's first (only a link's event, at boot, is kept).
     inspector.forget();
     parked = null;
+    // A drawer a switch closed described the previous experiment: it does not come back.
+    drawerOf.selection = null;
+    drawerOf.event = null;
     // The frame across a change of kind: Local carries over; a frame the new
     // experiment's radios do not offer falls back to Absolute, with one line
     // saying so. A #frame=trans link or a saved default is not a switch, so
@@ -1831,6 +1893,8 @@ async function activateExperiment(experiment) {
   // with the server's reason; a link that opened it falls back to Entire
   // selection (written), and the kind banner says so.
   subnav.setEnabled('event', pagePlan.viewer.enabled, pagePlan.viewer.reason ?? '');
+  // The Entire selection tab names what this kind shows and the filter that selects it (review R3).
+  subnav.setTitle('selection', selectionTabTitle(pagePlan));
   const viewerShut = !pagePlan.viewer.enabled && subnav.current() === 'event';
   if (viewerShut) {
     notices.push(`The Event viewer is not available for this experiment: ${pagePlan.viewer.reason} `
@@ -2252,8 +2316,8 @@ const REQUIRED_IDS = [
   'plot-xy', 'plot-yz', 'plot-xz', 'plot-energy', 'ensemble-grid',
   'event-grid', 'event-grid-rows', 'event-grid-label', 'info-event',
   'event-number', 'event-prev', 'event-next', 'event-pick', 'event-status', 'event-caption',
-  'event-pick-tilted', 'event-open-3d', 'event-empty', 'event-empty-title', 'event-empty-text',
-  'physics-head', 'physics-subnav', 'psub-tab-selection', 'psub-tab-event', 'psub-selection', 'psub-event',
+  'event-pick-tilted', 'event-open-3d', 'event-empty', 'event-empty-title', 'event-empty-text', 'event-live',
+  'physics-head', 'physics-subnav', 'psub-shut', 'psub-tab-selection', 'psub-tab-event', 'psub-selection', 'psub-event',
   'stat-mode', 'stat-event', 'stat-shower-item', 'stat-shower', 'stat-p', 'stat-theta', 'stat-cells',
   'stat-ev-edep', 'stat-place', 'channel-shut', 'group-filters', 'group-event', 'group-model',
   'group-particle', 'particle-heading', 'ctl-particle-p', 'particle-p-label', 'pp-num-lo', 'pp-num-hi', 'pp-fill',

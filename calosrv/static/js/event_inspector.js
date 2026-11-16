@@ -42,9 +42,15 @@
  *
  * While Entire selection is on show the event is parked (`park` / `unpark`):
  * the event, its shower, origin, rule sentence and replacement are kept in
- * memory, never in the link, and the response in hand is drawn again on the
- * way back, with no request. A response that lands after the event was
- * parked or the experiment switched draws nothing (`epoch`).
+ * memory, never in the link. The way back draws the response in hand, with no
+ * request, only when nothing of the event was owed at the park (no load, pick
+ * or follow in flight) and that response was asked under the request the
+ * event would be asked under now (`requestKey` of `state.eventParams()`).
+ * Otherwise - a particle commit whose reload, replacement or count was in
+ * flight when the reader left, or one that landed while parked - the event is
+ * asked again and the follow policy applies, so no commit is lost (review
+ * R1). A response that lands after the event was parked or the experiment
+ * switched draws nothing (`epoch`).
  *
  * Each row's two depth panels draw the Longitudinal Channels from the frame's
  * own `layer_planes`: detector layers in the original frame, relative layers
@@ -55,6 +61,7 @@
  */
 
 import { getJson, isAbort } from './api.js';
+import { requestKey } from './lazy_cards.js';
 import { setText, setHidden } from './dom.js';
 import { eventRowLabel, eventSelectionLine } from './frame_views.js';
 import { wireLiveLinks, describeError } from './page_common.js';
@@ -140,6 +147,10 @@ export class EventInspector {
     this.attempted = false;
     // Bumped when the event is parked or the experiment switches: a response asked before draws nothing.
     this.epoch = 0;
+    // The loads and picks in flight, each `{epoch, follow}`: what a park leaves owed (review R1).
+    this.inflight = new Set();
+    // The request the response in hand was asked under (`requestKey`), so a way back can tell it is still current.
+    this.payloadKey = null;
     this.dom = {
       number: document.getElementById('event-number'),
       prev: document.getElementById('event-prev'),
@@ -226,10 +237,18 @@ export class EventInspector {
    * keep in memory; the state's `event` set to null, so the link carries
    * neither the event nor (Entire selection being the default) the subpage.
    * The response in hand is kept to draw again; anything still in flight is
-   * dropped. A first draw in flight is asked again on the way back. Null when
-   * no event is drawn.
+   * dropped. The parked object also records whether a refresh is owed
+   * (`owed`: a load or a pick in flight, or a follow pending), whether that
+   * refresh follows a commit (`follow`), and the request the response in hand
+   * was asked under (`key`, null when none of this event is in hand). A first
+   * draw in flight is asked again on the way back. Null when no event is
+   * drawn.
    */
   park() {
+    const live = [...this.inflight].filter((token) => token.epoch === this.epoch);
+    const owed = this.followNext || live.length > 0;
+    const follow = this.followNext || live.some((token) => token.follow);
+    const key = this.current ? this.payloadKey : null;
     this.epoch += 1;
     this.followNext = false;
     if (this.firstInFlight) {
@@ -243,6 +262,9 @@ export class EventInspector {
       origin: this.origin,
       pickRule: this.pickRule,
       replaced: this.replaced,
+      owed,
+      follow,
+      key,
     };
     this.state.set({ event: null });
     return parked;
@@ -250,11 +272,18 @@ export class EventInspector {
 
   /**
    * Bring a parked event back (`park`'s object): the state's `event` and
-   * `shower`, its origin, rule sentence and replacement. It is drawn from
-   * the response in hand, with no request; only when no response of it is in
-   * hand (its load failed or was dropped) is it asked for again.
+   * `shower`, its origin, rule sentence and replacement. It is drawn from the
+   * response in hand, with no request, only when nothing was owed at the
+   * park, `refresh` is not asked, and that response's request is the one the
+   * event would be asked under now. Otherwise it is asked for again: as a
+   * follow when a commit's follow was owed or the particle filter changed
+   * while parked (the request differs only by it, the event and shower being
+   * restored and an experiment switch dropping the parked event), so the
+   * follow policy keeps, replaces or flags it; a commit made meanwhile also
+   * drops the pick's rule sentence and a replacement's line, as
+   * `particleCommitted` does.
    */
-  unpark(parked) {
+  unpark(parked, { refresh = false } = {}) {
     if (!parked || parked.event === null || parked.event === undefined) return Promise.resolve(null);
     this.origin = parked.origin ?? 'typed';
     this.pickRule = parked.pickRule ?? null;
@@ -263,12 +292,19 @@ export class EventInspector {
     this.drawPending = false;
     this.cleared = false;
     this.state.set({ event: parked.event, shower: parked.shower ?? this.state.get('shower') });
+    const key = parked.key ?? null;
+    const moved = key !== null && key !== requestKey('/api/event', this.state.eventParams());
+    if (moved) {
+      this.pickRule = null;
+      this.replaced = null;
+    }
     this.onViewMode();
-    if (this.current) {
+    if (!refresh && !parked.owed && !moved && this.current) {
       this.render(this.payload);
       this.onRendered(this.payload);
       return Promise.resolve(this.payload);
     }
+    this.followNext = Boolean(parked.follow || moved);
     return this.refresh();
   }
 
@@ -281,6 +317,7 @@ export class EventInspector {
     this.epoch += 1;
     if (this.state.get('event') !== null) this.state.set({ event: null }, { silent: true });
     this.payload = null;
+    this.payloadKey = null;
     this.origin = null;
     this.pickRule = null;
     this.replaced = null;
@@ -438,10 +475,21 @@ export class EventInspector {
     if (!this.pinned) return null;
     const follow = this.followNext;
     this.followNext = false;
-    const epoch = this.epoch;
+    const token = { epoch: this.epoch, follow };
+    this.inflight.add(token);
+    try {
+      return await this.loadOnce(token);
+    } finally {
+      this.inflight.delete(token);
+    }
+  }
+
+  /** One `load`: the request, then the follow policy, then the draw. `token` is its in-flight record. */
+  async loadOnce({ epoch, follow }) {
+    const params = this.state.eventParams();
     let payload;
     try {
-      payload = await getJson('/api/event', this.state.eventParams(), 'event');
+      payload = await getJson('/api/event', params, 'event');
     } catch (error) {
       // Parked, or another experiment, while it was in flight: nothing to say.
       if (epoch !== this.epoch) return null;
@@ -468,6 +516,7 @@ export class EventInspector {
       if (this.state.get('event') !== old) return replacement;
     }
     this.payload = payload;
+    this.payloadKey = requestKey('/api/event', params);
     this.render(payload);
     this.onRendered(payload);
     return payload;
@@ -508,9 +557,13 @@ export class EventInspector {
     let payload;
     this.attempted = true;
     if (first) this.firstInFlight = true;
+    // In flight until it lands: a park meanwhile leaves the pinned event owed a refresh (review R1).
+    const token = { epoch, follow: replacing !== null && replacing !== undefined };
+    this.inflight.add(token);
     try {
       payload = await getJson('/api/event/pick', params, 'event-pick');
     } catch (error) {
+      this.inflight.delete(token);
       if (epoch !== this.epoch) return null;
       if (first) this.firstInFlight = false;
       if (isAbort(error)) return null;
@@ -531,6 +584,7 @@ export class EventInspector {
       this.onError(error, 'pick an event');
       return null;
     }
+    this.inflight.delete(token);
     // Parked, or another experiment, while it was in flight: nothing is pinned and the draw is not counted.
     if (epoch !== this.epoch) return null;
     if (first) this.firstInFlight = false;

@@ -445,3 +445,26 @@ def test_every_tab_state_and_the_chip_clear_4_5_against_both_card_tokens():
         for state, ratio in measured.items():
             assert ratio >= 4.5, (name, state, ratio)
             assert abs(ratio - expected[name][state]) < 0.02, (name, state, ratio)
+
+
+def test_the_shut_tabs_sentence_is_muted_text_that_clears_4_5_on_the_head_in_both_themes():
+    """Review U3: `#psub-shut` sits in the sticky head, whose ground is the canvas: --muted on --canvas, measured
+    6.15 dark and 5.74 light, tokens only, and hidden by its own attribute."""
+    css = _strip_comments(_read("controls.css"))
+    body = _properties(_block(css, ".psub-shut {"))
+    assert body["color"] == "var(--muted)" and "background" not in body
+    assert re.search(r"\.psub-shut\[hidden\]\s*\{\s*display: none;\s*\}", css)
+    for name, tokens, expected in (("dark", _dark(), 6.15), ("light", _light(), 5.74)):
+        ratio = contrast(tokens["--muted"], tokens["--canvas"])
+        assert ratio >= 4.5, (name, ratio)
+        assert abs(ratio - expected) < 0.02, (name, ratio)
+
+
+def test_the_screen_reader_only_rule_is_the_standard_clip_pattern():
+    """Review U6: `.sr-only` (the viewer's live region) is never drawn but stays rendered, so it is announced."""
+    css = _strip_comments(_read("controls.css"))
+    body = _properties(_block(css, ".sr-only {"))
+    assert body["position"] == "absolute" and body["width"] == "1px" and body["height"] == "1px"
+    assert body["overflow"] == "hidden" and body["clip-path"] == "inset(50%)" and body["white-space"] == "nowrap"
+    # Rendered: neither display: none nor visibility: hidden, which would silence the region.
+    assert "display" not in body and "visibility" not in body

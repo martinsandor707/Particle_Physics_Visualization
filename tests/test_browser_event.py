@@ -633,6 +633,9 @@ def test_an_event_from_a_link_is_kept_and_flagged_when_it_leaves_the_pool(live_s
         caption = _caption(page)
         assert NOT_A_CANDIDATE in caption, caption
         assert "replaces it" not in caption, caption
+        # Review U5 = R5: the status item reads "Place not a candidate", never "Candidate not a candidate".
+        item = page.evaluate("() => document.getElementById('stat-place').parentElement.textContent")
+        assert " ".join(item.split()) == "Place not a candidate", item
         for panel in (f"event-{row}-{col}" for row in ROWS for col in COLS):
             details = _details(page, panel)
             assert details["flagged"] and OUTSIDE_HAZARD in details["title"], (panel, details)
@@ -675,6 +678,15 @@ def test_clearing_the_event_number_takes_its_warning_off_the_banner(live_server)
         page.wait_for_function("() => !document.getElementById('event-empty').hidden", timeout=10_000)
         _idle(page, net)
         assert page.evaluate(_TEXT, "event-empty-text") == CLEARED_LINE
+        # Review U6: the empty state's text is announced through the always-rendered live region, which is
+        # rendered (not display: none) and drawn nowhere; the empty state itself is no live region.
+        live = page.evaluate("""() => { const el = document.getElementById('event-live'); const r = el.getBoundingClientRect();
+          return { text: el.textContent, role: el.getAttribute('role'), live: el.getAttribute('aria-live'),
+                   rendered: getComputedStyle(el).display !== 'none', area: r.width * r.height,
+                   emptyLive: document.getElementById('event-empty').getAttribute('aria-live') }; }""")
+        assert live == {"text": CLEARED_LINE, "role": "status", "live": "polite", "rendered": True,
+                        "area": live["area"], "emptyLive": None}, live
+        assert live["area"] <= 1, live
         banner = page.evaluate("() => ({ hidden: document.getElementById('banner').hidden,"
                                " text: document.getElementById('banner-text').textContent })")
         assert banner["hidden"] or OUTSIDE_WARNING not in banner["text"], banner

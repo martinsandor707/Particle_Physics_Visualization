@@ -23,10 +23,13 @@
  * Modelled on models_subpages.js `mountSubnav`, but deliberately not
  * importing it: that module pulls the Models page's card graph, which the
  * Physics page never loads. The Event viewer tab can be shut with a reason
- * (`setEnabled`), as for an event-level aggregate that holds no hits.
+ * (`setEnabled`), as for an event-level aggregate that holds no hits: the
+ * reason is its title and, since a title is hover-only, a visible sentence
+ * under the tab bar (`#psub-shut`); the shut tab stays in the arrow keys'
+ * order, so the keyboard reaches it, and activates nothing (review U3).
  *
- * Pure helpers (`psubOfCard`, `eventStatus`) are DOM-free, so they run under
- * Node.
+ * Pure helpers (`psubOfCard`, `eventStatus`, `selectionTabTitle`,
+ * `shutLine`) are DOM-free, so they run under Node.
  */
 
 import { formatSigned } from './format.js';
@@ -50,6 +53,32 @@ export const PSUB_LABELS = Object.freeze({ selection: 'Entire selection', event:
  */
 export function psubOfCard(id) {
   return typeof id === 'string' && id.startsWith('event-') ? 'event' : DEFAULT_PSUB;
+}
+
+/**
+ * The Entire selection tab's title for an experiment's page plan
+ * (capabilities.js `page1Plan`): what the subpage shows and the filter that
+ * selects it. Two showers: the 2 × 2, the compare-frames view and the physics
+ * cards under E₁, E₂ and D (the markup's own text); one shower: the same under
+ * the p window; an event-level aggregate, which holds no hits: its physics
+ * cards alone. Pure (review R3).
+ */
+export function selectionTabTitle(plan) {
+  if (plan && plan.spatial === false) {
+    return "Every selected event's physics cards, under the p window; this experiment has no hits to project.";
+  }
+  if (plan?.nShowers === 1) {
+    return 'Every selected event: the 2 × 2 diagnostic, the compare-frames view and the physics cards, '
+      + 'under the p window.';
+  }
+  return 'Every selected event: the 2 × 2 diagnostic, the compare-frames view and the physics cards, '
+    + 'under E₁, E₂ and D.';
+}
+
+/** The visible sentence a shut tab gets (`#psub-shut`): its subpage and the reason. Pure. */
+export function shutLine(psub, reason = '') {
+  const label = PSUB_LABELS[psub] ?? String(psub);
+  return `The ${label} is not available for this experiment: ${reason ?? ''}`.trim();
 }
 
 /** A finite number, or NaN: `Number(null)` is 0, which would print a missing field as a measurement. */
@@ -127,35 +156,26 @@ export function watchHeadHeight({ head, target, property = '--physics-head-h',
 }
 
 /**
- * The tab a key moves to from `index`, skipping disabled tabs (WAI-ARIA tabs,
- * automatic activation): arrows wrap, Home and End jump to the first and last
- * enabled tab. Null for any other key, and when no enabled tab is reachable.
+ * The tab a key moves to from `index` (WAI-ARIA tabs): arrows wrap, Home and
+ * End jump to the first and last tab. A shut tab stays in this order, so the
+ * keyboard reaches it and its reason (review U3); the caller only focuses it,
+ * activating nothing. Null for any other key.
  */
-function targetIndex(key, index, count, enabledAt) {
-  if (key === 'Home') {
-    for (let i = 0; i < count; i += 1) if (enabledAt(i)) return i;
-    return null;
-  }
-  if (key === 'End') {
-    for (let i = count - 1; i >= 0; i -= 1) if (enabledAt(i)) return i;
-    return null;
-  }
+function targetIndex(key, index, count) {
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
   const step = key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0;
   if (!step) return null;
-  for (let hop = 1; hop < count; hop += 1) {
-    const i = (((index + step * hop) % count) + count) % count;
-    if (enabledAt(i)) return i;
-  }
-  return null;
+  return (((index + step) % count) + count) % count;
 }
 
 /**
  * Wire the tab bar and the two wrappers.
  *
  * `root` holds `#psub-tab-<psub>`, `#psub-<psub>`, `#physics-head`,
- * `#stat-mode`, `.app` and `.main` (document by default). The subpage the
- * State holds is applied at once, silently: no write and no `onSwitch`.
- * Returns `{show, current, setEnabled, measureHead}`:
+ * `#psub-shut`, `#stat-mode`, `.app` and `.main` (document by default). The
+ * subpage the State holds is applied at once, silently: no write and no
+ * `onSwitch`. Returns `{show, current, setEnabled, setTitle, measureHead}`:
  *
  * - `show(psub, {write = true})` switches (an unknown value means Entire
  *   selection), writes `psub` to the State unless `write` is false, and calls
@@ -163,10 +183,14 @@ function targetIndex(key, index, count, enabledAt) {
  *   when the subpage is already on show or its tab is disabled;
  * - `current()` is the subpage on show;
  * - `setEnabled(psub, enabled, reason)` shuts or opens a tab: shut, it carries
- *   `aria-disabled="true"`, the class `is-disabled` and the reason as its
- *   title, and ignores clicks and keys; opened again, it gets the title the
- *   markup shipped with. It never switches the subpage itself: a caller that
- *   shuts the tab on show shows Entire selection;
+ *   `aria-disabled="true"`, the class `is-disabled`, the reason as its title
+ *   and `aria-describedby="psub-shut"`, and `#psub-shut` shows `shutLine`;
+ *   the arrows, Home and End still move focus onto it, but no key or click
+ *   activates it. Opened again, it gets its own title back (the markup's, or
+ *   the last `setTitle`) and the sentence goes. It never switches the subpage
+ *   itself: a caller that shuts the tab on show shows Entire selection;
+ * - `setTitle(psub, title)` replaces a tab's own title (shown while it is
+ *   open), as each experiment's `selectionTabTitle`;
  * - `measureHead()` measures the sticky head into `--physics-head-h` at once.
  */
 export function mountPhysicsSubnav({ state = null, root = document, onSwitch = () => {} } = {}) {
@@ -176,8 +200,11 @@ export function mountPhysicsSubnav({ state = null, root = document, onSwitch = (
   const app = root?.querySelector?.('.app') ?? null;
   const main = root?.querySelector?.('.main') ?? null;
   const chip = byId('stat-mode');
+  const shutText = byId('psub-shut');
   const markupTitle = new Map(PSUBS.map((psub) => [psub, tabs.get(psub)?.getAttribute?.('title') ?? tabs.get(psub)?.title ?? '']));
   const disabled = new Set();
+  // Each shut tab's reason, in tab order, for the visible sentence.
+  const reasons = new Map();
   const scrollOf = new Map();
   let current = null;
 
@@ -219,23 +246,41 @@ export function mountPhysicsSubnav({ state = null, root = document, onSwitch = (
     return true;
   }
 
+  /** The visible sentence under the tab bar: one per shut tab, hidden while none is shut. */
+  function writeShut() {
+    if (!shutText) return;
+    const lines = PSUBS.filter((psub) => reasons.has(psub)).map((psub) => shutLine(psub, reasons.get(psub)));
+    shutText.textContent = lines.join(' ');
+    shutText.hidden = lines.length === 0;
+  }
+
   function setEnabled(psub, enabled, reason = '') {
     const tab = tabs.get(psub);
     if (!tab) return;
     if (enabled) {
       disabled.delete(psub);
+      reasons.delete(psub);
       tab.removeAttribute('aria-disabled');
+      tab.removeAttribute('aria-describedby');
       tab.classList.remove('is-disabled');
       tab.setAttribute('title', markupTitle.get(psub) ?? '');
     } else {
       disabled.add(psub);
+      reasons.set(psub, reason ?? '');
       tab.setAttribute('aria-disabled', 'true');
+      if (shutText) tab.setAttribute('aria-describedby', 'psub-shut');
       tab.classList.add('is-disabled');
       tab.setAttribute('title', reason ?? '');
     }
+    writeShut();
   }
 
-  const enabledAt = (i) => !disabled.has(PSUBS[i]);
+  function setTitle(psub, title) {
+    const tab = tabs.get(psub);
+    if (!tab || typeof title !== 'string') return;
+    markupTitle.set(psub, title);
+    if (!disabled.has(psub)) tab.setAttribute('title', title);
+  }
 
   PSUBS.forEach((psub, index) => {
     const tab = tabs.get(psub);
@@ -245,16 +290,13 @@ export function mountPhysicsSubnav({ state = null, root = document, onSwitch = (
       show(psub);
     });
     tab.addEventListener('keydown', (event) => {
-      if (disabled.has(psub)) return;
-      const target = targetIndex(event?.key, index, PSUBS.length, enabledAt);
-      if (target === null) {
-        // A navigation key with nowhere to go is still the tab list's.
-        if (['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event?.key)) event.preventDefault?.();
-        return;
-      }
+      // Handled on a shut tab too (it is reached by the arrows); Enter and Space reach the click, which ignores it.
+      const target = targetIndex(event?.key, index, PSUBS.length);
+      if (target === null) return;
       event.preventDefault?.();
       const next = PSUBS[target];
-      show(next);
+      // An open tab is activated (automatic activation); a shut one is only focused, so its reason can be read.
+      if (!disabled.has(next)) show(next);
       tabs.get(next)?.focus?.();
     });
   });
@@ -264,5 +306,5 @@ export function mountPhysicsSubnav({ state = null, root = document, onSwitch = (
 
   const head = watchHeadHeight({ head: byId('physics-head'), target: main });
 
-  return { show, current: () => current, setEnabled, measureHead: head.measure };
+  return { show, current: () => current, setEnabled, setTitle, measureHead: head.measure };
 }
