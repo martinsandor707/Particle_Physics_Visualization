@@ -475,8 +475,8 @@ export function revealNotice(result, { requested = '', title = '', kind = '' } =
   if (!result || result.ok) return '';
   const name = title ? `the ${title} panel` : 'that panel';
   if (result.reason === 'view') {
-    return `The Methodology linked to ${name}, which the view on screen hides (an event is pinned, or the frames `
-      + 'are compared); go back to the ensemble to see it.';
+    return `The Methodology linked to ${name}, which the view on screen hides (the frames are compared side `
+      + 'by side); go back to the ensemble to see it.';
   }
   if (result.reason === 'hidden') {
     return `The Methodology linked to ${name}, which this experiment${kind ? ` (${kind})` : ''} does not show.`;

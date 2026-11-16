@@ -13,7 +13,9 @@ of each option.
 * the control is mounted, told the experiment's L and fed the depth context;
 * ``depth_groups`` is sent only by the 2 x 2 and the compare grid's
   Absolute and per-shower translated rows, in Pooled; never by Local, the
-  Event Inspector or the profile card (C7);
+  Event Inspector or the profile card (C7); Pooled entered on the Event
+  viewer asks nothing there, and Entire selection asks once, pooled, when it
+  is next shown;
 * Boundaries, Off, a live draft and a theme switch cost no request;
 * entering or leaving Pooled asks once per panel set whose request changed;
 * hovering a channel on YZ spotlights it on XZ too, and leaving clears both;
@@ -439,6 +441,21 @@ if (scenario === 'event') {
     projections: projectionRequests(at),
     labXz: groupsOf('event-lab-xz'),
   };
+  // Entire selection was never shown (the #event=0 link opened the viewer): shown now, it loads once, pooled.
+  const shown = requests.length;
+  byId('psub-tab-selection').click();
+  await settle();
+  out.selection = {
+    events: requests.slice(shown).filter((r) => r.path.startsWith('/api/event')).length,
+    projections: projectionRequests(shown),
+  };
+  // And back to the viewer and to Entire selection again: both fresh, nothing asked.
+  const again = requests.length;
+  byId('psub-tab-event').click();
+  await settle();
+  byId('psub-tab-selection').click();
+  await settle();
+  out.fresh = since(again);
 }
 
 if (scenario === 'fallback') {
@@ -740,12 +757,21 @@ def test_an_inspector_rows_depth_panels_spotlight_together(event):
 
 
 def test_pooled_never_reaches_the_inspector(event):
+    # An #event=0 link opens the Event viewer (brief physics-subpages §4): the boot asks for no projections.
+    assert event["boot"]["projections"] == []
     pool = event["pool"]
     assert pool["events"] == 0
-    # The hidden 2 x 2 is asked once, pooled, so it is right when the event is unpinned.
-    assert len(pool["projections"]) == 1 and pool["projections"][0]["depth_groups"] == UNIFORM_56
+    # The viewer asks for nothing of the ensemble: Entire selection is left stale (brief §10.1).
+    assert pool["projections"] == []
     # One event is drawn at its native layers: the seams stay.
     assert pool["labXz"]["seams"] == 12
+
+
+def test_entire_selection_asks_once_pooled_when_it_is_shown_and_a_fresh_switch_asks_nothing(event):
+    selection = event["selection"]
+    assert selection["events"] == 0
+    assert len(selection["projections"]) == 1 and selection["projections"][0]["depth_groups"] == UNIFORM_56
+    assert event["fresh"] == []
 
 
 # -------------------------------------------------- C7, the profile card --

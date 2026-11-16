@@ -928,6 +928,28 @@ def test_each_entry_point_keeps_the_other_pages_modules_out():
     # The particle filter (2026-11-15): one block and one sentence module, shared by both pages.
     for module in ("controls/particle_filter.js", "event_picker.js"):
         assert module in physics and module in models, module
+    # Each page's subpage tab bar is its own (physics-subpages, 2026-11-16): the Physics page's is
+    # reached from main.js alone, and never pulls the Models page's, which brings its card graph.
+    assert "physics_subpages.js" in physics
+    assert "physics_subpages.js" not in models and "physics_subpages.js" not in methodology
+    assert "models_subpages.js" not in physics
+    # Reached from main.js only (Stage 4, ps-nodetests): main.js is the one module that imports it, statically
+    # or dynamically, and its own graph is DOM-free leaves that never reach either page's entry or the Models
+    # page's tab bar. The Models page's tab bar is imported by models_main.js alone.
+    importers = {}
+    for path in js.rglob("*.js"):
+        if "vendor" in path.parts:
+            continue
+        source = path.read_text(encoding="utf-8")
+        for _, spec in _STATIC_IMPORT.findall(source) + _DYNAMIC_IMPORT.findall(source):
+            target = (path.parent / spec).resolve().relative_to(js.resolve()).as_posix()
+            importers.setdefault(target, set()).add(path.relative_to(js).as_posix())
+    assert importers.get("physics_subpages.js") == {"main.js"}, importers.get("physics_subpages.js")
+    assert importers.get("models_subpages.js") == {"models_main.js"}, importers.get("models_subpages.js")
+    own = {p.relative_to(js).as_posix() for p in _module_graph(js / "physics_subpages.js")}
+    for module in ("main.js", "models_main.js", "models_subpages.js", "models_cards.js", "voxel_views.js",
+                   "event_inspector.js", "physics_section.js"):
+        assert module not in own, module
     # The article draws no panel and holds no experiment: it may share the
     # leaves (the palettes, the scale, the page helpers), never a page's own.
     for module in ("main.js", "models_main.js", "physics_section.js", "models_cards.js", "voxel_views.js",

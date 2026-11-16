@@ -17,6 +17,15 @@ So the predicate always writes ``d IS NOT NULL`` explicitly, even though
 ``BETWEEN`` already implies it. The clause is then self-documenting, it survives
 the next person editing it, and the count of what it removes is reported
 alongside every result rather than left for someone to discover.
+
+**The whole experiment** (:func:`unbounded`) is the one spec that writes no
+clause at all: the event pickers' ``basis=experiment`` (``query/particle.py``)
+draws from every event of the experiment, NULL momenta and undefined D
+included, and only the frame gate and the particle filter narrow it. It is not
+a full-range ``BETWEEN``: a range comparison drops a NULL momentum or
+separation, and a stored bound that drifted from the table by one float ulp
+would drop an edge event, so the invariant would hold only as long as the
+registry did. With no clause it holds by construction.
 """
 
 from __future__ import annotations
@@ -37,6 +46,13 @@ class FilterSpec:
     single-shower kinds. An absent axis is ``None`` and writes no clause and no
     parameter: DuckDB refuses a named parameter the SQL does not use, so the
     two must always be built from the same list.
+
+    ``whole_experiment`` marks the spec :func:`unbounded` builds: every bound
+    ``None``, no clause and no parameter, so it selects every row of the
+    event table. ``include_undefined_d`` then says whether events without a
+    separation are among those rows (two showers: they are). Every spec
+    :func:`build` makes leaves it ``False``, and its SQL, parameters, cache
+    key and echo are exactly what they were before the flag existed.
     """
 
     table_name: str
@@ -48,9 +64,12 @@ class FilterSpec:
     d_max: float | None = None
     include_undefined_d: bool = False
     axes: tuple[str, ...] = ("e1", "e2", "d")
+    whole_experiment: bool = False
 
     def where_sql(self, alias: str = "") -> str:
-        """The ``WHERE`` body for this selection."""
+        """The ``WHERE`` body for this selection; ``TRUE`` for the whole experiment."""
+        if self.whole_experiment:
+            return "TRUE"
         p = f"{alias}." if alias else ""
         clauses = [f"{p}e1 BETWEEN $e1_min AND $e1_max"]
         if "e2" in self.axes:
@@ -66,6 +85,8 @@ class FilterSpec:
         return " AND ".join(clauses)
 
     def params(self) -> dict[str, Any]:
+        if self.whole_experiment:
+            return {}
         out: dict[str, Any] = {"e1_min": self.e1_min, "e1_max": self.e1_max}
         if "e2" in self.axes:
             out.update(e2_min=self.e2_min, e2_max=self.e2_max)
@@ -83,8 +104,10 @@ class FilterSpec:
         0.708-19.999; without clamping, that request and the one the start-up
         warmer issued from the exact bounds would sit in two cache entries, and
         the two-second canonical scan the warmer paid for would be paid again
-        on the first page load.
+        on the first page load. The whole experiment has no bound to clamp.
         """
+        if self.whole_experiment:
+            return self
 
         def clamp_interval(
             lo_req: float | None, hi_req: float | None, lo: float | None, hi: float | None
@@ -117,7 +140,10 @@ class FilterSpec:
         Bounds are rounded to six significant figures so that two slider
         positions a float ulp apart share a cache entry instead of each paying
         for a full scan. Absent axes are ``None``; the tuple keeps its shape and
-        ``table_name`` stays first, which cache invalidation relies on.
+        ``table_name`` stays first, which cache invalidation relies on. The
+        whole experiment's key has ``None`` for E1 too, which no spec of
+        :func:`build` can have (it always resolves E1 to a number), so the
+        two never share an entry.
         """
         return (
             self.table_name,
@@ -134,6 +160,28 @@ class FilterSpec:
             "d": [self.d_min, self.d_max],
             "include_undefined_d": self.include_undefined_d,
         }
+
+
+def unbounded(record: ExperimentRecord) -> FilterSpec:
+    """The whole experiment: no E1, E2 or D clause, so every row of the event table.
+
+    The event pickers' ``basis=experiment`` (``api/deps.py`` ``resolve_basis``,
+    ``query/particle.py``). ``where_sql()`` is ``TRUE`` and ``params()`` empty,
+    so events with a NULL momentum and events whose separation is undefined
+    are all kept; the frame gate is the caller's to add. The echo
+    (:meth:`FilterSpec.as_dict`) has every bound ``null`` and
+    ``include_undefined_d`` true on two showers, whose undefined-D events it
+    holds, false on one, which has no separation.
+    """
+    traits = record.traits
+    axes = tuple(traits.filter_axes if traits is not None else ("e1", "e2", "d"))
+    return FilterSpec(
+        table_name=record.table_name,
+        e1_min=None, e1_max=None,
+        include_undefined_d="d" in axes,
+        axes=axes,
+        whole_experiment=True,
+    )
 
 
 def _round(value: float | None, digits: int) -> float | None:

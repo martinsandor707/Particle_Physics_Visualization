@@ -420,6 +420,8 @@ export const CONSTANTS = Object.freeze({
     'Step of the particle filter’s momentum slider, in GeV.'),
   PARTICLE_THETA_STEP: entry(0.1, 'js:event_picker.js:PARTICLE_STEP.theta',
     'Step of the particle filter’s angle slider, in degrees.'),
+  PSUB_DEFAULT: entry('selection', 'js:state.js:DEFAULTS.psub',
+    'The Physics page’s subpage on a cold boot and in any link without one: Entire selection. It is the one value of the hash key psub that is never written.'),
   READOUT_SHARE: entry(0.2, 'js:panels/tooltip.js:READOUT_SHARE',
     'Largest share of the hovered plot a pointer readout may cover.'),
 });

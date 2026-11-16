@@ -148,6 +148,20 @@ out.store.uniformAt56 = u.layerGroups();
 s = fresh('');
 s.applyDefaults({ lgmode: 'pool', lgroups: custom, frame: 'trans' });
 out.adminDefaults = { lgmode: s.get('lgmode'), lgroups: s.get('lgroups'), frame: s.get('frame') };
+
+// The Physics page's subpage (physics-subpages brief §4) is a key of its own: it rides beside the channels in
+// a link, moves no ensemble request, and the Event viewer's pool request never carries depth_groups.
+s = fresh(`#table_name=t&lgmode=pool&lgroups=${custom}&psub=event&event=3`);
+s.setLayerCount(60);
+out.psub = {
+  read: { psub: s.get('psub'), lgmode: s.get('lgmode'), lgroups: s.get('lgroups') },
+  hash: s.hashString(),
+  pooledEvent: s.projectionParams(false, 'lab', { layerPool: true }),
+  eventParams: s.eventParams(),
+};
+s.set({ psub: 'selection' });
+out.psub.pooledSelection = s.projectionParams(false, 'lab', { layerPool: true });
+out.psub.hashSelection = s.hashString();
 console.log(JSON.stringify(out));
 """
 
@@ -252,6 +266,19 @@ def test_writing_uniform_stores_null(state_out):
 
 def test_no_saved_default_sets_the_channels(state_out):
     assert state_out["adminDefaults"] == {"lgmode": "off", "lgroups": None, "frame": "trans"}
+
+
+def test_the_physics_subpage_rides_beside_the_channels_and_moves_no_request(state_out):
+    """physics-subpages brief §4: psub is its own key; the channels' pooled request is the same on either subpage."""
+    ps = state_out["psub"]
+    assert ps["read"] == {"psub": "event", "lgmode": "pool", "lgroups": _dots(CUSTOM_60)}
+    assert ps["hash"] == f"table_name=t&event=3&psub=event&lgmode=pool&lgroups={_dots(CUSTOM_60)}"
+    assert ps["pooledEvent"]["depth_groups"] == _dots(CUSTOM_60)
+    assert ps["pooledSelection"] == ps["pooledEvent"], "the subpage never enters a projections request"
+    assert "psub" not in ps["pooledEvent"]
+    assert "depth_groups" not in ps["eventParams"] and "psub" not in ps["eventParams"]
+    assert ps["hashSelection"] == f"table_name=t&event=3&lgmode=pool&lgroups={_dots(CUSTOM_60)}", \
+        "Entire selection is never written"
 
 
 # ------------------------------------------------------ the control's helpers --

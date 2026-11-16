@@ -1,0 +1,50 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": []
+ },
+ "basis": "experiment",
+ "event_number": 179,
+ "n_events": 287,
+ "seed": 42,
+ "draw": 0,
+ "entry": 1,
+ "rule": "Drawn uniformly at random from the 287 events of the experiment with an incident direction and an entry point: entry 1 of a seeded shuffle of them in event-number order (seed 42, draw 0), so no event repeats until all 287 have been drawn.",
+ "rule_id": "uniform",
+ "seed_used": true,
+ "matched": [
+  "a"
+ ],
+ "particle": {
+  "active": false,
+  "p_gev": [
+   null,
+   null
+  ],
+  "theta_deg": [
+   null,
+   null
+  ],
+  "theta_rad": [
+   null,
+   null
+  ]
+ },
+ "filter": {
+  "e1": [
+   null,
+   null
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false,
+  "basis": "experiment"
+ }
+}

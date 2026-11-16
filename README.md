@@ -1316,18 +1316,21 @@ peak, or to the dataset peak) appears in the co-registered frames, where it
 replaces the lock-scale checkbox; the **model** selector, which drives both the
 CAM channels of the spatial panels and the metric cards; and the
 [metric cards](#model-performance-cards); under the Reference Frame caption a
-**Compare frames side by side** checkbox, and below it the **Event Inspector**
-picker (an event number, Prev / Next within the candidates, a shower radio,
-*Pick for me*, *Most tilted* and *Back to the ensemble*; see
-[The Event Inspector and the compare-frames view](#the-event-inspector-and-the-compare-frames-view)).
-Above the Event Inspector sits the **Particle Filter** block, on both pages
+**Compare frames side by side** checkbox. The page has two subpages, *Entire
+selection* and *Event viewer*, each with its own sidebar groups, status bar and
+requests (see [The Physics page's two subpages](#the-physics-pages-two-subpages)).
+The **Event Picker** group (an event number, Prev / Next within the candidates, a
+shower radio, *Pick for me* and *Most tilted*; see
+[The Event Inspector and the compare-frames view](#the-event-inspector-and-the-compare-frames-view))
+belongs to the Event viewer, and so does the **Particle Filter** block above it
 (`#group-particle`; see [The particle filter](#the-particle-filter)): a
 momentum slider p in GeV and an incident polar angle slider θ in degrees, which
-narrow only which events the pickers offer.
+narrow only which events the pickers offer. The Models page carries the same
+block on Views.
 Every control travels in the URL
 hash — `frame`, `channel`, `model`, `rho_norm`, `anchor`, the four per-frame display
 modes (`display_lab`, `display_trans`, `display_local`, `display_canonical`),
-`compare`, `event`, `shower` and the four particle keys (`particle_p_min`,
+`compare`, `psub`, `event`, `shower` and the four particle keys (`particle_p_min`,
 `particle_p_max`, `particle_theta_min`, `particle_theta_max`)
 among them — and a link carrying an unknown value for any enumerated control
 falls back to its default rather than to a 422. **Old canonical links:** the
@@ -2330,6 +2333,101 @@ preview; a cached re-render (channel, display mode, R) 23–34 ms. Both are
 pre-warmed after the D-frame at start-up. Bundles are 2.7 MB
 (*Per-shower translated*, 162 × 132 × 60) and 2.9 MB (*Local*, 150 × 128 × 85).
 
+### The Physics page's two subpages
+
+The Physics page (`/`) used to hold the ensemble filters and the event picker in
+one sidebar, and a pinned event silently replaced the 2 × 2 grid, so a reader
+could not tell whether a panel showed the whole selection or one event, nor
+which filter governed which. It now has two subpages on one tab bar
+(`#physics-subnav`, `role="tablist"`, `static/js/physics_subpages.js`), sticky at
+the top of `.main` as the Models page's bar is.
+
+| Subpage | `psub` | Main area | Sidebar | Requests |
+|---|---|---|---|---|
+| **Entire selection** (default) | `selection` | the 2 × 2 diagnostic, the compare-frames view and the physics cards, for every selected event | Filtering Parameters (E₁, E₂, D), Reference Frame, display resolution, Longitudinal Channels, display channel, colour map, Reconstruction Model with its metric cards | the projections, plot 4, performance, the physics cards, compare; never `/api/event*` |
+| **Event viewer** | `event` | the Event Inspector's nine panels for one shower of one event, or the reason none is drawn (`#event-empty`) | Event Picker, Particle Filter, Longitudinal Channels, colour map | `/api/event*` only (the candidates through the Particle Filter block, the pick, the event); no ensemble request |
+
+- **A status chip names the subpage** (`#stat-mode`, "Entire selection" or "Event
+  viewer"; a plain label, since the tab itself announces the switch). The status bar
+  then shows that subpage's own items: the selection's events, hits, deposited
+  energy, mean D, undefined D, ρ_ref and Clipped; or the viewer's event number,
+  shower (hidden on single-shower data), p, θ, cells, deposited energy and Place in
+  the pool ("12 of 107", or "not a candidate"). The Query latency and cache items
+  show the last response of the subpage on show. The Entire selection tab's title
+  is written for the experiment's kind: E₁, E₂ and D on two showers, the p window
+  on one, the physics cards alone on the event-level aggregate.
+- **Two filters, two scopes.** E₁, E₂ and D govern Entire selection and every card;
+  they never narrow the viewer. The particle filter (p, θ) governs the event
+  pickers alone, on both pages. An E₁/E₂/D commit refreshes Entire selection only
+  and no longer touches the pinned event or the particle count. Neither filter's
+  controls are visible on the other's subpage, so what is on screen is what
+  governs the panels.
+- **The hash key `psub`** (`selection` | `event`) is view state, never an Admin
+  default. `selection` is the default and is never written, so a link to Entire
+  selection carries no `psub`. **Legacy rule:** a link that names a valid `event`
+  and no valid `psub` opens the Event viewer, so every `#event=N` link made before
+  the subpages keeps its meaning; an explicit `psub` always wins, and `psub=bogus`
+  names nothing, so the rule applies. A Methodology badge to a Physics card sets
+  no `psub` and opens Entire selection. Setting `event` never changes `psub`:
+  switching subpage is the page's job.
+- **Parking.** Leaving the viewer for Entire selection parks the event (its
+  number, shower, origin, rule sentence and any replacement) in memory and sets
+  `event` to null, so the link carries neither `event` nor `psub`. Coming back
+  restores the parked event from the response in hand, with no request, when
+  nothing was owed at the park and the particle filter has not moved since.
+  Otherwise (a load, a pick or a follow was still in flight when the reader left,
+  or the experiment was re-activated meanwhile) the event is asked for again and
+  the follow policy applies, so the caption, the place line and the status bar
+  always describe the filter in force. An experiment switch drops the parked event.
+  An explicit `#psub=selection&event=N` link parks N at boot instead of drawing it.
+- **The first draw.** Entering the viewer with no event (none parked, none in the
+  link) waits for the Particle Filter block's count; with N > 0 the inspector draws
+  the first *Pick for me* at the current draw (draw 0, seed 42, after an experiment
+  switch) and the caption carries the server's sentence, which names the seed and
+  the draw. With N = 0 `#event-empty` shows the block's empty line and no pick is
+  sent; the first draw stays armed and fires when a particle commit widens the
+  pool. A failed pick says "The first event could not be drawn: …" there. A cleared
+  event-number box shows "No event drawn: type an event number, or press Pick for me
+  or Most tilted.", and a cleared viewer never draws by itself, even after a park.
+  Whatever the empty state says is also written to an always-present, visually
+  hidden live region (`#event-live`), so a screen reader hears it.
+- **A subpage loads when first shown, and again when stale** (after an experiment
+  switch, or, for Entire selection, after a change that needed a request while the
+  viewer was on show, such as Longitudinal Channels' Pooled). A switch to a fresh
+  subpage sends nothing. A response that arrives after a switch or a park is dropped.
+- **Deep links.** `?panel=event-…` opens the viewer first; any other Physics card
+  opens Entire selection first (parking any event) before it scrolls.
+- **A Details drawer belongs to its subpage.** A switch closes a drawer that
+  describes the other subpage's card, and returning reopens it if its card still
+  has notes; an experiment switch forgets both.
+- **The tab is the way back.** The Event Inspector no longer replaces the
+  ensemble grid, so it has no close button of its own; the compare grid's close
+  button stays.
+- **Standalone gating.** On single-shower hit data the viewer is offered with the
+  one shower, and the radios the experiment cannot serve are greyed with the
+  server's reason as their title: every attention channel and model the
+  experiment lacks. `#channel-shut` states it in words ("Grad-CAM and Shap-CAM,
+  raw and energy-weighted, are not available for this experiment: … The panels
+  show the summed energy density."). The Models page's 3-D cards carry the same
+  standing line for the network channels they cannot draw (Grad-CAM, Shap-CAM, the
+  segmentation error), `Unavailable for this experiment: {labels}. {reason}`, in
+  visible text beside their channel select, never a tooltip alone. A shut *Particle
+  species* option, which no two-shower file can serve, keeps its reason as its title
+  only (Martin's decision, 2026-11-16).
+- **The aggregate shuts the tab.** Events-only data holds no hits, so the Event
+  viewer tab is disabled (`aria-disabled`, a dashed border, the server's reason as
+  its title) and activates nothing: the arrow, Home and End keys still reach it, so
+  it is announced, but Enter, Space and clicks switch nothing. A sentence under the
+  tab bar (`#psub-shut`, the tab's `aria-describedby`) says "The Event viewer is
+  not available for this experiment: {reason}" in visible text. A link that asked
+  for the viewer opens Entire selection, written to the hash, and the kind banner
+  says "The Event viewer is not available for this experiment: {reason} Showing
+  Entire selection."
+- **Unchanged:** the 2 × 2's projections, the windowed axis, plot 4, the cards,
+  the compare grid, `/api/selection-cells`, `/api/voxels` and the exports. The
+  3-D view stays on the Models page (Views); the viewer's *Open in 3-D →* opens it
+  on the same event.
+
 ### The particle filter
 
 A reader who wants "a 5–6 GeV particle at 10–15°" and an event of it drawn in 2-D
@@ -2345,14 +2443,18 @@ when any is set. There is no A/B choice.
   own `incoming_momentum` and `incoming_theta` (θ compared in radians; the server
   converts once, and the filter's θ bounds are printed in degrees with the
   radians beside them, "θ in 10.0–15.0° (0.175–0.262 rad)"). An event is a
-  **candidate** when the selection (E₁, E₂, D), the frame gate (a defined D on
-  two-shower data; an incident direction and an entry point on single-shower
-  data) and at least one matching shower all hold. With no bound set the pool is
-  the selection that passes the frame gate, which is the population the pick has
-  always drawn from.
+  **candidate** when it belongs to the experiment, the frame gate holds (a
+  defined D on two-shower data; an incident direction and an entry point on
+  single-shower data) and, only while a bound is set, at least one shower
+  matches. **E₁, E₂ and D do not narrow the pool**, on either page: the pickers
+  draw from every event of the experiment that can be placed (Martin's decision,
+  2026-11-16; before it the pool was narrowed by the selection). The request says
+  so with `basis=experiment` (see the API table), and no E₁/E₂/D key is ever sent
+  with it. With no bound set the pool is the whole experiment that passes the
+  frame gate.
 - **What it narrows, and what it does not.** It narrows only the event pickers:
   *Pick for me*, *Most tilted*, the 3-D view's *Densest*, previous / next and the
-  in-pool flag. It is AND-ed with E₁, E₂ and D. The ensemble panels, every card
+  in-pool flag. The ensemble panels, every card
   and every existing number follow E₁, E₂ and D and do not move; the Models
   page's selection-scope and cloud drawers (and their paired projections) say so
   while the filter is active ("The particle filter
@@ -2361,8 +2463,10 @@ when any is set. There is no A/B choice.
 - **The count is always on screen.** `GET /api/event/candidates` returns N, the
   matching showers per shower, the events matching with both, and the events
   that fail the frame gate; the block prints them ("N = … events hold a matching
-  particle (… matching showers: … A, … B), of the … selected by E₁, E₂ and D").
-  A second line counts the selected events the frame gate refuses and never offers
+  particle (… matching showers: … A, … B[; … match with both]), of the … events of
+  the experiment"; with the filter off, "Particle filter off: the pickers draw from
+  all … events of the experiment.").
+  A second line counts the experiment's events the frame gate refuses and never offers
   (two-shower: "… have no defined separation (shower A deposited no energy) and are
   never offered; to draw one, type its number and choose shower B."; single-shower:
   "… have no incident direction or entry point, so the per-shower frames cannot
@@ -2372,21 +2476,28 @@ when any is set. There is no A/B choice.
   bound a newly chosen experiment's domain cannot hold is dropped, and the block
   says so once.
 - **N = 0 is not an error.** Every picker is disabled with the sentence "N = 0:
-  no selected event with a defined separation holds a shower with … that
-  deposited energy. Widen the particle filter, or E₁, E₂ and D." (single-shower
-  data: "no selected event with an incident direction and an entry point has its
-  shower at …") as its title, no error banner is shown, and
+  no event of the experiment with a defined separation holds a shower with … that
+  deposited energy. Widen the particle filter." (single-shower
+  data: "no event of the experiment with an incident direction and an entry point
+  has its shower at …"; with the filter off, "the experiment holds no event the
+  pickers can place") as its title, no error banner is shown, and
   a pinned event stays, flagged.
-- **Where it shows.** Page 1 where the experiment serves the Event Inspector
-  (hidden on the aggregate kind, which has no event to pick); Page 2 on Views
-  where the 3-D event pair is offered (hidden by CSS on Distillations and
-  Performance). On single-shower data the p control is hidden, because p is the
-  filter block's own axis there, and the block holds θ alone.
+- **Where it shows.** Page 1 on the Event viewer subpage only, where the
+  experiment serves it (the aggregate shuts the tab, and the block with it); it
+  sends no count while hidden, and counts once when shown if its count is stale.
+  Page 2 on Views where the 3-D event pair is offered (hidden by CSS on
+  Distillations and Performance). On single-shower data the block holds p as well
+  as θ: the shower's own `incoming_momentum`, labelled "Incident momentum of the
+  shower (incoming_momentum), in GeV." On two-shower data p matches either
+  shower's momentum.
 - **View state, not an Admin default.** `particle_p_min`, `particle_p_max`,
   `particle_theta_min` and `particle_theta_max` are in the hash, read and written
   by both pages, and are not among the six Admin defaults. `filterParams()`
   does not carry them; `particleParams()` returns only the bounds that are set,
   so a request without a particle filter is the request it always was.
+- **An E₁/E₂/D commit is free.** The pool ignores it, so it neither recounts the
+  block nor reloads, replaces or flags a pinned event; only the Selection scope and
+  the cloud of the Models page reload.
 - **A particle commit is cheap.** It requests `/api/event/candidates` and the
   pinned event (on Page 2, the event pair's own requests) and nothing else: no
   `/api/projections`, no card.
@@ -2460,8 +2571,9 @@ draws:
   in the row label with the event's θ, φ, cell count and P₀, never drawn, and
   is untestable below three cells. No ensemble statistic appears anywhere.
 - **The picker.** An event number, Prev / Next within the candidates, a shower
-  radio, and two draws from one pool (the selection narrowed by the
-  [particle filter](#the-particle-filter)). *Pick for me* is a uniform draw
+  radio, and two draws from one pool (the whole experiment's placeable events,
+  narrowed by the [particle filter](#the-particle-filter) alone; E₁, E₂ and D do not
+  narrow it). *Pick for me* is a uniform draw
   (`GET /api/event/pick?rule=uniform`): the pool's event numbers sorted
   ascending, permuted by a seeded shuffle (`numpy.random.default_rng(seed)`,
   seed 42), and draw k shows entry (k mod N) + 1, so no event repeats until all N
@@ -2475,18 +2587,21 @@ draws:
   the 20 with the most hits are taken instead, and the rule's sentence says so; while the particle filter is active the angle ranked is the
   largest θ among the event's matching showers). Both print their rule. The
   page remembers where its pinned event came from (a link, a typed number, a
-  pick, a step), in memory only: after an E₁/E₂/D or particle commit an event
+  pick, a step), in memory only: after a particle commit an event
   still in the pool is kept, a picked or stepped-to event that left it is
   replaced by a uniform draw and the caption says so ("Event 123 left the
   candidates; event 456 replaces it."), and a typed or linked event outside the
   pool is drawn as asked and flagged (hazard "event outside the candidates").
-  An event outside the current filters is drawn as asked and flagged.
+  An event outside the candidates is drawn as asked and flagged; none is ever
+  flagged as outside the selection, because the selection does not govern the viewer.
   - **Shower focus.** After a pick, a step or a replacement the drawn shower is a
     matching one: the current shower when it matches, else the first matching
     (the server's `matched`, or the neighbour's `prev_matched` / `next_matched`
     for a step). A shower chosen by hand is drawn as asked and the caption says
     it does not match.
-  - **The caption** (`#event-caption`) gives the selection line, the event's
+  - **The caption** (`#event-caption`) gives the kinematics line ("Event 5,019:
+    1,234 hits in all, E₁ = … GeV, E₂ = … GeV, D = … mm."; on single-shower data
+    "Event 12: 345 hits in all, p = … GeV."), the event's
     place ("Candidate 37 of 107, in event-number order."), which shower matches
     and its p and θ, the pick's rule and any replacement.
   - **N = 0** disables every picker with its reason, shows no error, and keeps a
@@ -2507,8 +2622,9 @@ Local frames, one row each, three `/api/projections` requests. Every row is
 exactly that frame's own response — its own display mode (native lattice for
 Absolute, the Continuous Field for the two co-registered frames), window,
 ramp, overlays and Details drawer — so nothing is re-derived for the layout. A
-frame the experiment does not serve is named as missing. A pinned event takes
-precedence over the comparison; closing it returns to whichever view was on.
+frame the experiment does not serve is named as missing. The comparison belongs
+to Entire selection and a pinned event no longer hides it: the two live on
+different subpages.
 
 ### Display channels
 
@@ -2768,8 +2884,8 @@ shows the server's reason, since asking again would only repeat it. A load whose
 card's request changed while it ran (a 3-D pair hidden mid-load on the Models page
 turns its key to null and draws nothing) counts as nothing, so the card is loaded
 again, from the response in hand, when the request is its own again. The section
-is hidden together with the 2 × 2 while the Event Inspector or the compare view
-replaces it.
+is hidden together with the 2 × 2 while the compare view replaces it, and
+with the whole Entire selection subpage while the Event viewer is on show.
 
 | Card id | Title | Request | What it draws |
 |---|---|---|---|
@@ -2877,6 +2993,11 @@ block is the server's (`query/capabilities.py`):
     the undefined-D option are hidden and never sent, and the status bar has no
     separation readouts. The Event Inspector's shower radio offers only the one
     shower of the event.
+  - *Event viewer and gating.* The viewer is offered, with its one shower. The
+    channel and model radios the experiment cannot serve are greyed with the
+    server's reason as their title, and `#channel-shut` says in words that the
+    panels show the summed energy density; the Models page's 3-D cards carry a
+    standing "Unavailable for this experiment: …" line.
   - *Frames and channels.* Absolute, and under *Shower-Aligned* the per-shower
     *Translated* (API `trans`, which here is a radio of its own) and *Local*. The
     D-frame radio is disabled with the server's reason (it needs two showers).
@@ -2900,8 +3021,9 @@ block is the server's (`query/capabilities.py`):
     per-event table.
   - *Controls.* The spatial control groups are hidden rather than left
     disabled: the reference-frame tier with its **Compare frames** checkbox and
-    the Event Inspector picker, the display resolution, the display channel and
-    the colour map. The notice says why.
+    the Event Picker and Particle Filter, the display resolution, the display channel and
+    the colour map. The notice says why. The **Event viewer tab is shut** with the
+    server's reason (see [The Physics page's two subpages](#the-physics-pages-two-subpages)).
   - *Cards.* The four hit-level cards (both profiles, correlations, statistics)
     are not built; B1, B2, the resolution, B3 and the distributions of θ, φ and
     p are. Each carries the aggregate's censored-sample notice into its drawer
@@ -3497,7 +3619,7 @@ interface](#the-interface)). Its own state keys are `feature`, `fclass`,
 `fshower`, `voxel_event`, `voxel_shower`, `voxel_channel`, `ens_channel`,
 `xgb_task`, `xgb_label`, `msub` and `bench_species`; like every key they are written only when they
 differ from the built-in value, and none reuses a Page 1 key (`event` and
-`shower` pin Page 1's Event Inspector and are never read here).
+`shower` pin Page 1's Event viewer, `psub` is Page 1's subpage, and none is read here).
 
 Every card on the page follows the anatomy of a Page 1 card: Details first in
 the toolbar (the same [drawer](#the-interface), with the same four sections plus
@@ -4545,21 +4667,25 @@ refuse a `cap` outside 100 to 15,000 (default 6,000).
   the selection (`GET /api/event/pick?rule=densest`, the High-energy notebook's
   rule: most cells, ties to the lowest number), never written to the link. The
   card has an event box, previous and next, and three draws from the
-  [particle filter](#the-particle-filter)'s pool (the whole selection when no
-  bound is set): **Pick for me**, the uniform seeded draw of Page 1;
+  [particle filter](#the-particle-filter)'s pool (the whole experiment's placeable
+  events; E₁, E₂ and D do not narrow it): **Pick for me**, the uniform seeded draw of Page 1;
   **Most tilted**, seeded from the most tilted of the dense events (the
   local-coords notebook's rule; each click takes the next seed); and
-  **Densest**, the event with the most cells, ties to the lowest event number.
+  **Densest**, the event of the experiment with the most cells, ties to the lowest event number.
   Each states its rule in the drawer, and the shower drawn becomes a matching one.
-  The One event scope's request key carries the particle keys; the Selection
-  scope and the cloud never do, and say so in their drawers while the filter is
+  The One event scope's requests (raster, voxels, pick, Densest, steps,
+  replacement) carry `basis=experiment` and the particle keys and never an
+  E₁/E₂/D key, so an E₁/E₂/D commit neither reloads nor recounts it; the
+  Selection scope and the cloud keep the selection, reload on such a commit, and
+  never carry the particle keys, and say so in their drawers while the filter is
   active. With a particle bound set, an empty pool shows the "N = 0" sentence in place of
   the pair and sends no pick or event request (the card waits for the count);
   with no bound the densest pick is requested at once and its 404 is read as the
   empty state. In the Absolute frame with "Both" and exactly one
   shower matching, the paired projections draw that shower and say so. **2-D ↗**
   (`a[data-voxel-open-2d]`, on the One event scope with an event drawn) opens
-  Page 1's Event Inspector on the same event and shower, keeping every filter;
+  Page 1's Event viewer on the same event and shower, keeping every filter (the
+  link carries `psub=event`);
   the view-state keys stay separate (`voxel_event` and `voxel_shower` on this
   page, `event` and `shower` on Page 1).
   Showers: A, B or both, **both only in the Absolute frame** (each per-shower
@@ -5190,8 +5316,8 @@ Methodology*, which returns to the badge's place in the article with whatever
 view is on screen by then. A card the experiment does not serve says so on the
 banner instead, and so does one the view on screen hides. When a link carries
 no view state, the badges open the view a cold boot of the target page would,
-saved defaults included. A Physics badge clears a pinned event and the compare
-view, which hide the panels it opens, unless the section is about them.
+saved defaults included. A Physics badge clears `psub`, `event` and `compare`, so it opens Entire selection
+with its panels showing, unless the section is about them.
 
 The outline sits in the sidebar's track and collapses with the header's toggle,
 under a key of its own, so folding it does not fold the configuration sidebar of
@@ -5269,9 +5395,9 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `POST /api/admin/experiments/{table_name}/reingest` | Re-ingest a changed source file atomically, or retry a failed experiment, on the ingest worker. Optional body `{"force": false}`; `true` lifts only the "unchanged" reason. **202** `{action: "reingest"\|"retry", job, poll}`; **404** unknown experiment; **409** a job is active, or the experiment is still ingesting; **422** the action is unavailable (`reason`); **400** the file is not an accepted schema, or not the experiment's; **507** too little disk for both copies (it points to Upload → Replace). Every check runs before a job is queued. |
 | `POST /api/admin/experiments/{table_name}/rebuild` | Rebuild an experiment's derived tables from its archive, atomically, on the ingest worker ([Rebuilding derived tables](#rebuilding-derived-tables)). 202 with `{job, poll}`; 404, 409 or 400 as described there. |
 | `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames, `anchor=backprojected\|p0` with `frame=canonical` (the D-frame's entry anchor), `coordinates=file\|computed` with `coord_system=trans\|local` (the file's own per-shower columns, or the SE(3) motions applied to the lattice inside the scan; the residual between the two is reported either way). The `local` frame's response carries `frame.negative_w`, the negative-depth block of the statistics card (`available`, `splits`, `affected`, `summary`); the lab payload is unchanged and has no `frame` key. The D-frame (`frame=canonical`) is a 422 on a single-shower experiment, and the whole route on the events-only kind. Its `frame` block carries `ill_conditioned_share` and `ill_conditioned_majority` (share above 0.5), and every `frame.fit.<panel>.<row\|col>` carries `cap`: null except on the entry panel's x′ columns and the X′Z′ panel's x′ rows, where it states the x′ window cap at the drawn field and the drawn bins left beyond it ([The x′ cap](#separation-aligned-d-frame-the-translated-view-api-canonical)). Unknown values return 422 naming the field. `depth_groups=<13 positive counts joined by '.'>`, summing to the lattice's layer count, pools the YZ and XZ depth axes into the Longitudinal Channels in the Absolute frame, the D-frame and `coord_system=trans` (a 422 naming `depth_groups` otherwise, and always with `coord_system=local`; [Longitudinal Channels](#longitudinal-channels-and-the-z-depth-label)). Every response carries `depth_layers`: the depth axis's numbering (`detector`, `relative` or `none`), its layer count and stored edges, `display_offset_mm` (3649, the Absolute frame only), the selection's per-layer energy and attention, summed over every selected hit (`profile`; marked inexact under the drag-preview sample), the `reach` of relative layers, and, when pooled, the partition's echo (`groups`). The per-layer arrays (`profile.energy_gev`, `profile.attention.*`) travel at 4 significant figures and the edges at 0.001 mm; the scalar totals keep full precision. When the body would pass the 100 KB contract the block is trimmed first: it keeps every scalar, `edges_mm` and `groups`, and becomes `profile: null, reach: null, trimmed: true` with a `trim_note` the drawers quote. **Payload compaction** (so the 900-view matrix stays under the guard, see [Performance](#performance)): `topk[].value` travels at 7 significant figures, rounded toward zero (the float32 source's precision, so a shipped value never exceeds the cell's own and the brightest value never passes the panel's peak); `meta.stagger` is sent **in the Absolute frame only**, the co-registered frames' comb being `frame.comb` (`measured_on` unchanged); and the per-shower frames' `frame.coordinates.note` is no longer copied into `meta.notices`, the client putting it back in the same position (`frame_views.js` `frameNotices`). Together they save 1.6–3.05 KB a response. |
-| `GET /api/event` | The Event Inspector: one shower (`shower=a\|b`) of one event (`event_number`) as nine quantised rasters — original, translated-only and local frames by X–Y, X–Z, Y–Z — with the marks (incident direction, first-layer plane, origin) as 3-D lines and points, the principal-axis tilt, one shared ramp, one window, under the same filters and the 100 KB contract. Each raster frame carries `layer_planes`: the detector layer planes' unit normal in that frame's axes (tilted by the shower's R(θ, φ) in Local), their seams, the shower's energy per layer, the panels where a plane has a line image (u–w only in Local), the tilt, the start layer and the reach. The per-layer energies (`layer_planes.energy_gev`) travel at 4 significant figures and the edges at 0.001 mm; when the body would pass the 100 KB contract a frame's block is trimmed first, to `energy_gev: null, trimmed: true` with a `trim_note` the drawers quote. `coordinates=file\|computed` as above. A 404 names an event the experiment does not hold or a shower with no cell. `format=voxels` is the Models page's 3-D event view instead: the event as cubes in one frame, gate `vox-event`, a body under the same 100 KB contract measured as served. `frame=lab\|trans\|local\|canonical` (default `local`; `canonical` needs two showers), `channel=energy\|gradcam\|shapcam\|segerr\|species` (`gradcam`, `shapcam` and `segerr` need the networks' columns, `species` the single-shower species columns), `model`, `cap` (an integer 100–15,000, default 6,000, read only for the cubes), and `shower=a\|b\|both` (`both` only in the Absolute frame and the D-frame; a single-shower experiment has only `a`). A raster request is never refused over any of these ([The 3-D views](#the-3-d-views)). The voxel body carries `voxels.depth_profile`: per bin of its own depth axis, the energy of every cell or voxel in the window before the cap, the channel's energy-weighted attention (Shap-CAM split by sign), the energy off the axis and the total, the exact sums the slice mode quotes. `window=shared\|per_axis` is the window rule, read by both formats and a 422 naming `window` for any other value: `shared` (the raster's default, and the only rule of the Event Inspector) is one half-width for every axis of every panel, so the body is byte for byte what it was; `per_axis` (the cubes' default, and what the Models page asks for on both its requests) is one half-width per axis of each frame and adds `window.mode`, `window.half_mm_axes` (`lab\|trans\|local`, each `{x, y, z}`) and `frames.<f>.half_mm_axes`, `window.half_mm` then being the largest. Either way the body carries `window.percentiles` (0.1 and 99.9, energy-weighted), `window.rule` naming every half-width and the cells left outside, and each frame's `outside_window` (cells and energy not drawn). The voxel response echoes the rule in `meta.notes.window`. Both formats carry `event.candidates` (the [particle filter](#the-particle-filter)'s pool as seen from this event): `particle` (the echo), `in_pool`, `index` (0-based in event-number order, null outside the pool), `n_events`, `matched` (the keys of its matching showers) and `prev_matched` / `next_matched`. `event.prev` and `event.next` walk the pool, skipping events the frame gate refuses, while `event.in_selection` keeps its meaning (the selection alone). Both formats take `particle_p_min`, `particle_p_max` (GeV) and `particle_theta_min`, `particle_theta_max` (degrees), all optional; the event block is part of the body the 100 KB budget measures. |
-| `GET /api/event/pick` | The reference notebook's event selection rule on the current filters: events with more hits than the pool's (the candidates') mean, the `pool_size` (20) with the largest incident angle, one drawn with `seed` (42). Returns the event, the pool and the rule in words. `rule=tilted` (the default, and the only one a request naming none gets, byte for byte as before) or `densest`: the event with the most cells, ties to the lowest event number, which the 3-D event view opens on; or `rule=uniform`, "Pick for me": the pool's event numbers sorted ascending, a `numpy.random.default_rng(seed)` permutation, and draw `draw` (default 0, ≥ 0, read by `uniform` only) shows entry `draw mod N` + 1, returning `event_number`, `n_events`, `seed`, `draw`, `entry`, `rule` and `matched`. The pool is the selection narrowed by the optional `particle_p_min`, `particle_p_max` (GeV) and `particle_theta_min`, `particle_theta_max` (degrees); every rule draws from it and returns `matched` and the `particle` echo. A bound with no rule is answered as `tilted`, and with no rule and no bound the body is the one it always was. An empty pool is a 404 whose detail names the interval. Bounds are validated (non-negative p, θ from 0° to 180°, a minimum above its maximum is a 422 naming `particle_p` or `particle_theta`). |
-| `GET /api/event/candidates` | The particle filter's counts and slider domains, never reading a hit: `candidates` (`particle`, `n_selection`, `n_unplaceable`, `n_events`, `n_showers`, `by_shower`, `n_both` (null on single-shower data), `showers`), `bounds` (the dataset's p in GeV and θ in degrees over the events the frame gate admits, for the slider domains) and, with `event_number`, `event`: its `in_selection`, `in_pool`, `index`, `n_events`, `prev`, `next` and the three `matched` lists (else null). Same filters and `particle_*` parameters as the pick; gate `event-inspector`. It answers 200 with N = 0; an `event_number` the experiment lacks is a 404. |
+| `GET /api/event` | The Event viewer's Event Inspector: one shower (`shower=a\|b`) of one event (`event_number`) as nine quantised rasters — original, translated-only and local frames by X–Y, X–Z, Y–Z — with the marks (incident direction, first-layer plane, origin) as 3-D lines and points, the principal-axis tilt, one shared ramp, one window, under the same filters and the 100 KB contract. Each raster frame carries `layer_planes`: the detector layer planes' unit normal in that frame's axes (tilted by the shower's R(θ, φ) in Local), their seams, the shower's energy per layer, the panels where a plane has a line image (u–w only in Local), the tilt, the start layer and the reach. The per-layer energies (`layer_planes.energy_gev`) travel at 4 significant figures and the edges at 0.001 mm; when the body would pass the 100 KB contract a frame's block is trimmed first, to `energy_gev: null, trimmed: true` with a `trim_note` the drawers quote. `coordinates=file\|computed` as above. A 404 names an event the experiment does not hold or a shower with no cell. `format=voxels` is the Models page's 3-D event view instead: the event as cubes in one frame, gate `vox-event`, a body under the same 100 KB contract measured as served. `frame=lab\|trans\|local\|canonical` (default `local`; `canonical` needs two showers), `channel=energy\|gradcam\|shapcam\|segerr\|species` (`gradcam`, `shapcam` and `segerr` need the networks' columns, `species` the single-shower species columns), `model`, `cap` (an integer 100–15,000, default 6,000, read only for the cubes), and `shower=a\|b\|both` (`both` only in the Absolute frame and the D-frame; a single-shower experiment has only `a`). A raster request is never refused over any of these ([The 3-D views](#the-3-d-views)). The voxel body carries `voxels.depth_profile`: per bin of its own depth axis, the energy of every cell or voxel in the window before the cap, the channel's energy-weighted attention (Shap-CAM split by sign), the energy off the axis and the total, the exact sums the slice mode quotes. `window=shared\|per_axis` is the window rule, read by both formats and a 422 naming `window` for any other value: `shared` (the raster's default, and the only rule of the Event Inspector) is one half-width for every axis of every panel, so the body is byte for byte what it was; `per_axis` (the cubes' default, and what the Models page asks for on both its requests) is one half-width per axis of each frame and adds `window.mode`, `window.half_mm_axes` (`lab\|trans\|local`, each `{x, y, z}`) and `frames.<f>.half_mm_axes`, `window.half_mm` then being the largest. Either way the body carries `window.percentiles` (0.1 and 99.9, energy-weighted), `window.rule` naming every half-width and the cells left outside, and each frame's `outside_window` (cells and energy not drawn). The voxel response echoes the rule in `meta.notes.window`. Both formats carry `event.candidates` (the [particle filter](#the-particle-filter)'s pool as seen from this event): `particle` (the echo), `in_pool`, `index` (0-based in event-number order, null outside the pool), `n_events`, `matched` (the keys of its matching showers) and `prev_matched` / `next_matched`. `event.prev` and `event.next` walk the pool, skipping events the frame gate refuses, while `event.in_selection` keeps its meaning (the selection alone). **`basis=selection\|experiment`** (default `selection`, byte for byte today's body; the same parameter on the pick and the candidates route) chooses what the pool is drawn from: the selection ∧ frame gate ∧ particle filter, or, under `experiment`, every event of the experiment ∧ frame gate ∧ particle filter, which is what both pages request. Under `experiment` `event.candidates` carries `"basis": "experiment"`, `event.in_selection` is true for every event, `prev` / `next` walk the pool, and the geometry (frames, voxels, window, scale, layer planes) equals the `selection` basis's. Any other value is a 422 naming `basis`, and with `experiment` any of `e1_min`, `e1_max`, `e2_min`, `e2_max`, `d_min`, `d_max` or `include_undefined_d=true` is a 422 naming that field ("… does not apply with basis=experiment: the event pickers draw from the whole experiment, narrowed by the particle filter alone."), since a silently ignored cut is a selection the reader believes was made. Both formats take `particle_p_min`, `particle_p_max` (GeV) and `particle_theta_min`, `particle_theta_max` (degrees), all optional; the event block is part of the body the 100 KB budget measures. |
+| `GET /api/event/pick` | The reference notebook's event selection rule on the current filters (or, under `basis=experiment`, on the whole experiment): events with more hits than the pool's (the candidates') mean, the `pool_size` (20) with the largest incident angle, one drawn with `seed` (42). Returns the event, the pool and the rule in words. `rule=tilted` (the default, and the only one a request naming none gets, byte for byte as before) or `densest`: the event with the most cells, ties to the lowest event number, which the 3-D event view opens on; or `rule=uniform`, "Pick for me": the pool's event numbers sorted ascending, a `numpy.random.default_rng(seed)` permutation, and draw `draw` (default 0, ≥ 0, read by `uniform` only) shows entry `draw mod N` + 1, returning `event_number`, `n_events`, `seed`, `draw`, `entry`, `rule` and `matched`. Under `basis=experiment` the body also carries `"basis": "experiment"` and always `rule_id`, `seed_used`, `matched` and `particle`, and the empty-pool 404 speaks of the experiment ("The experiment holds no event with a defined separation to pick from."). The pool is the selection (or, under `basis=experiment`, the whole experiment) narrowed by the optional `particle_p_min`, `particle_p_max` (GeV) and `particle_theta_min`, `particle_theta_max` (degrees); every rule draws from it and returns `matched` and the `particle` echo. A bound with no rule is answered as `tilted`, and with no rule and no bound the body is the one it always was. An empty pool is a 404 whose detail names the interval. Bounds are validated (non-negative p, θ from 0° to 180°, a minimum above its maximum is a 422 naming `particle_p` or `particle_theta`). |
+| `GET /api/event/candidates` | The particle filter's counts and slider domains, never reading a hit: `candidates` (`particle`, `n_selection`, `n_unplaceable`, `n_events`, `n_showers`, `by_shower`, `n_both` (null on single-shower data), `showers`), `bounds` (the dataset's p in GeV and θ in degrees over the events the frame gate admits, for the slider domains) and, with `event_number`, `event`: its `in_selection`, `in_pool`, `index`, `n_events`, `prev`, `next` and the three `matched` lists (else null). Same filters, `basis` (under `experiment`, `candidates.basis` is `"experiment"`, `n_selection` is the experiment's event count and `n_unplaceable` its events the frame gate refuses) and `particle_*` parameters as the pick, with the same 422s; gate `event-inspector`. It answers 200 with N = 0; an `event_number` the experiment lacks is a 404. |
 | `GET /api/window-axis` | The windowed ensemble axis of an absolute-frame depth panel: `panel=yz\|xz`, `t_min`, `t_max` (the displayed transverse window, mm) under the same filters. Per shower the mean trajectory of the events whose entry point lies in the window, the exact dispersion band and the 95 % t-envelope at nine depth stations, the lean / fan gate, the azimuth resultant and its Rayleigh p, and the notes the drawer prints. |
 | `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks. `slice_by=d` (the default on two-shower data) slices by the A–B separation, with `d_edges`, from the `coord_system`'s segmentation network (`meta.network`). `slice_by=momentum` (the only slicing of a single-shower experiment, and the B3 card's) places each shower by its own incident momentum: `p_slices=notebook` (default: windows 1, 2, 5, 10, 15 and 19 GeV), `bins` (the producer's 1 GeV bins) or comma-separated window centres in GeV; `p_half_width` (0.5 GeV, up to 10, refused with `bins`); `series=truth\|model\|all` on two-shower data (the deposit split by the true segmentation fraction, the network's, or both). Each slice carries its own axis (`slice_axes`). A parameter of the other slicing is a 422 naming it. **Two-shower `p_slices=bins` with `series=all` is refused (422 on `series`)**: 80 fitted series measured 148,703 B on the synthetic two-shower fixture and about 167 KB on a constructed production-sized sample, over the 100 KB contract at the coarsest rendering the guard reaches; truth or model alone fits, and the notebook windows with `series=all` still serve. More than 40 fitted series (slices × series) on two-shower data is a 422 on `p_slices`. The default `slice_by=d` payload is byte-identical to the one before momentum slicing (pinned by `tests/golden/energy_default.json`). |
 | `GET /api/profiles` | C7, the longitudinal and radial profile cards. `shower=a\|b\|both`, `depth=w\|native`, `notebook=false\|true` (the notebook convention is defined along w: a 422 with `depth=native`). Per-bin sums come from `profiles_` and `layers_`, so the response is about 15 KB on every selection. `depth_layers` gives the reach of relative layers for `depth=native` and says that w has no layer grid. A stale experiment is refused with the rebuild it needs. |
@@ -5628,8 +5754,10 @@ others in `tests/`):
   candidate once, the same seed and draw give the same event, a draw of N or more
   wraps), tilted and densest inside the pool and unchanged with no bound,
   `prev` / `next` / `index` / `matched`, geometry identical with and without a
-  filter for one event and shower, every 422 with its field, the empty-pool 404
-  and the budget with the event block measured. `test_js_event_picker.py` runs
+  filter for one event and shower, every 422 with its field (the `basis` ones
+  included), the empty-pool 404 and the budget with the event block measured, all
+  again under `basis=experiment` (the pool against a brute-force pass over the whole
+  event table, `in_selection` always true, geometry equal across bases). `test_js_event_picker.py` runs
   `event_picker.js` under Node: request parameters, the follow policy, the shower
   focus and every sentence, including the grouped numbers and the U+2212 minus.
 - **The Node tests.** `test_js_voxels.py`: no opaque cube or raster colour is
@@ -5915,12 +6043,13 @@ file. The two tables below are Page 1's.
 | `static/js/panels/tooltip.js` | the one tooltip option (mounted on the fixed `#tooltip-layer`) and `placeTooltip`: the bin readout at the pointer where it covers at most 20% of the plot (`READOUT_SHARE`), every other tip off the hovered chart |
 | `static/js/scale.js` | the colour scale of a payload (`visualMap`) and the legible ramp: `legibleSpan` and `rampTable` re-index a palette onto its 3:1 run, and the legend stops and `decode.js`'s `codeTable` read the same table; print keeps the full ramp |
 | `static/js/panels/frame_grid.js` | the 3 × 3 grid of cards and projection panels the Event Inspector and the compare-frames view share; charts created on first show |
-| `static/js/event_inspector.js` | the Event Inspector's controller: the picker, the pinned event in the link, the nine cells' options and the export meta |
+| `static/js/event_inspector.js` | the Event Inspector's controller: the picker, the pinned event in the link, parking and the first draw, the nine cells' options and the export meta |
+| `static/js/physics_subpages.js` | the Physics page's tab bar (Entire selection, Event viewer): `mountPhysicsSubnav` (WAI-ARIA tabs, the `psub` key, a disabled tab, per-subpage scroll, the sticky head's height), `psubOfCard` and `eventStatus`, the viewer's status items; the helpers are DOM-free and tested under Node |
 | `static/js/capabilities.js` | the Physics page's plan from the capability block: which cards show and which are shut with the server's reason, the frames offered, the missing-predictions banner, the stale notice and the frame carried across a change of kind; pure, tested under Node against the recorded catalogue of all three kinds |
 | `static/js/lazy_cards.js` | when a card loads: visible, and its request key differs from the one it holds; pure |
 | `static/js/physics_section.js` | the nine physics cards: their anatomy and controls, the requests they share, and the shut state with its Rebuild offer |
 | `static/js/page_common.js` | what the pages share: the banner, error wording, the experiment picker, runtime relabelling, the page tabs that carry the hash (`wirePageTabs`, `wireLiveLinks`, `hashWith`), and the landing of a Methodology badge (`readDeepLink`, `revealPanel`, `returnLink`) |
-| `static/js/event_picker.js` | the pure, DOM-free picker vocabulary: request parameters for the pick and the candidates, the follow policy, the shower focus, every sentence (counts, N = 0, place, match, replacement, ensemble line) and the 3-D ↔ 2-D link hrefs |
+| `static/js/event_picker.js` | the pure, DOM-free picker vocabulary: request parameters for the pick and the candidates, the follow policy, the shower focus, every sentence (counts, N = 0, place, match, replacement, ensemble line, the whole-experiment pool line) and the 3-D ↔ 2-D link hrefs |
 | `static/js/controls/particle_filter.js` | the Particle Filter sidebar block on both pages: the two sliders, the one owner of the `/api/event/candidates` request, Clear, and the drop of a bound a new experiment's domain cannot hold |
 | `static/js/controls/filter_block.js` | the sidebar's filter block adopted per kind: E₁, E₂ and D, or the single-shower p alone |
 | `static/js/panels/chart_panel.js` | the base of every 2-D physics panel and the helpers they share; each panel is a pure option builder plus a thin subclass |

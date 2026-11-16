@@ -30,6 +30,10 @@ two-shower copy whose registry claims derived tables v1
   viewport and on top; a bin readout sits beside the pointer, and an
   explanation leaves the hovered plot wherever there is room;
 * every negative number drawn on a canvas or set as text uses U+2212;
+* a Methodology badge lands on its card's subpage: an ensemble card on Entire
+  selection (parking an event the link carried), an Event Inspector cell on
+  the Event viewer, and on the aggregate, whose viewer is shut, the banner
+  says the experiment does not show the cell;
 * a series switched off on a legend (plot 4's energy card, and a physics card)
   stays off across a theme switch and a control that draws fewer series, is
   drawn in a legible ink, is named in the open drawer and left out of the
@@ -1255,6 +1259,86 @@ def test_a_card_the_view_hides_is_the_views_doing(physics_live_server):
                                         outcome="banner")
         text = page.inner_text("#kind-banner-text")
         assert "which the view on screen hides" in text and "does not show" not in text, text
+        assert not _drawer_open(page)
+        browser.close()
+    assert problems == [], problems
+
+
+# ---------------------------------------------- a badge link and the subpages --
+#
+# physics-subpages §10.1, Deep links: a link to an Event Inspector cell switches to the Event viewer first; a link
+# to any other Physics card switches to Entire selection first, parking any event; then the card is revealed as
+# before. A Physics badge itself writes no `psub` (§8), so it opens Entire selection.
+
+
+def _subpage(page):
+    return page.evaluate("() => document.getElementById('stat-mode').textContent")
+
+
+def test_a_badge_link_lands_on_entire_selection(physics_live_server):
+    """A badge to an ensemble card opens Entire selection, writing no `psub`."""
+    base = physics_live_server["base"]
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _land(p, base, "panel=yz&from=lnk-results-spatial&from_sec=3.1", BASELINE_TABLE)
+        assert _subpage(page) == "Entire selection"
+        assert "psub" not in page.evaluate("() => location.hash")
+        assert page.get_attribute('button[data-inspect="yz"]', "aria-expanded") == "true"
+        browser.close()
+    assert problems == [], problems
+
+
+def test_a_link_to_an_event_cell_switches_to_the_event_viewer(physics_live_server):
+    """`?panel=event-lab-xy` with no event: the viewer is shown (its first draw pins an event, written with
+    `psub=event`) and the cell's drawer opens."""
+    base = physics_live_server["base"]
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _land(p, base, "panel=event-lab-xy", BASELINE_TABLE)
+        assert _subpage(page) == "Event viewer"
+        assert page.get_attribute('button[data-inspect="event-lab-xy"]', "aria-expanded") == "true"
+        view = {k: v[0] for k, v in parse_qs(urlparse(page.url).fragment).items()}
+        assert view.get("psub") == "event" and "event" in view, view
+        browser.close()
+    assert problems == [], problems
+
+
+def test_a_link_to_an_ensemble_card_from_the_viewer_parks_its_event(physics_live_server):
+    """`?panel=xy` on a hash that opens the viewer on an event: Entire selection is shown, the event parked (gone
+    from the link) and the XY drawer open; the Event viewer tab brings the event back."""
+    base = physics_live_server["base"]
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _land(p, base, "panel=xy", BASELINE_TABLE, fragment="&psub=event&event=0")
+        assert _subpage(page) == "Entire selection"
+        assert page.get_attribute('button[data-inspect="xy"]', "aria-expanded") == "true"
+        hash_ = page.evaluate("() => location.hash")
+        assert "event=" not in hash_ and "psub=" not in hash_, hash_
+        page.keyboard.press("Escape")
+        page.click("#psub-tab-event")
+        page.wait_for_function("() => document.getElementById('event-grid-label').textContent.startsWith('Event 0,')",
+                               timeout=30_000)
+        assert "event=0" in page.evaluate("() => location.hash")
+        browser.close()
+    assert problems == [], problems
+
+
+def test_a_link_to_an_event_cell_of_the_aggregate_says_it_does_not_show(physics_live_server):
+    """The aggregate shuts the Event viewer: a link to one of its cells stays on Entire selection and the banner
+    says the experiment does not show it, at once: `landDeepLink` does not wait for a row the shut viewer never
+    draws (it waited out `rowDrawn`'s 20 s before the lead's fix after Stage 4). The 10 s bound is half of that
+    20 s, so the old wait would fail this test."""
+    base = physics_live_server["base"]
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(color_scheme="dark", viewport={"width": 1600, "height": 900})
+        problems = []
+        page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
+        page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
+        page.goto(f"{base}/?panel=event-lab-xy#table_name={SINGLE_EVENTS_TABLE}")
+        page.wait_for_function(
+            "() => (document.getElementById('kind-banner-text')?.textContent ?? '').includes('The Methodology linked')",
+            timeout=10_000)
+        assert _subpage(page) == "Entire selection"
+        text = page.inner_text("#kind-banner-text")
+        assert "does not show." in text, text
         assert not _drawer_open(page)
         browser.close()
     assert problems == [], problems

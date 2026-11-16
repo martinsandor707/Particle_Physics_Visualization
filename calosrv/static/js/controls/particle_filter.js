@@ -13,17 +13,25 @@
  * and asks for the pool again; a bound left at its domain's edge is stored as
  * null, so a link carries only a bound that narrows. A drag previews nothing:
  * the count is cheap and is asked for on release. After its own commit the
- * block refreshes itself, then calls `onCommit()`; the page calls `refresh()`
- * after a filter (E₁, E₂, D) commit, since that moves the pool too. A count
- * that fails leaves no stale line or pool behind: the block says it could not
- * count, the pages are told there is no count, and a failure after the
- * block's own commit is reported through `onError` (the pages' banner).
+ * block refreshes itself, then calls `onCommit()`. The pool is the whole
+ * experiment's (`State.eventPoolParams()`, `basis=experiment`), so an E₁, E₂
+ * or D commit does not move it and needs no `refresh()`; it stays callable. A
+ * count that fails leaves no stale line or pool behind: the block says it
+ * could not count, the pages are told there is no count, and a failure after
+ * the block's own commit is reported through `onError` (the pages' banner).
+ *
+ * Counted only while shown (`setShown`): the Physics page shows the block on
+ * its Event viewer alone, and while it is not shown `adopt` and `refresh`
+ * send nothing and mark the count stale; `setShown(true)` then counts once.
+ * The block is shown by default, so a page that never calls `setShown`
+ * counts as before.
  *
  * On an experiment switch (`adopt`) a bound that no longer fits the new
  * domain is dropped, with its axis's other bound, as E₁'s is, and the block
- * says so once. A single-shower experiment filters on θ alone: p is its
- * selection already, so the p control is hidden and its keys cleared
- * silently. The event-level kind has no event to pick, and the block hides.
+ * says so once. On a single-shower experiment both sliders stay: the pool
+ * ignores the ensemble views' p window, so p narrows the pickers as θ does,
+ * and its hint names the one shower's own column. The event-level kind has no
+ * event to pick, and the block hides.
  *
  * Text nodes only: a line holds payload numbers and is never parsed as markup.
  */
@@ -59,10 +67,13 @@ export const PARTICLE_IDS = Object.freeze({
   count: 'particle-count',
   scope: 'particle-scope',
   clear: 'particle-clear',
+  pHint: 'particle-p-hint',
   thetaHint: 'particle-theta-hint',
 });
 
-/** The θ hint on single-shower data, whose one shower has its own column (the markup names A and B). */
+/** The p hint on single-shower data, whose one shower has its own column (the markup names A and B). */
+export const SINGLE_P_HINT = 'Incident momentum of the shower (incoming_momentum), in GeV.';
+/** The θ hint on single-shower data, likewise. */
 export const SINGLE_THETA_HINT = 'Incident polar angle of the shower (incoming_theta), in degrees.';
 
 /* ------------------------------------------------------------ pure parts -- */
@@ -186,6 +197,9 @@ export class ParticleFilter {
     this.onError = onError;
     this.abortKey = abortKey;
     this.enabled = false;
+    // Counted only while shown (setShown); a count skipped while hidden leaves the block stale.
+    this.shown = true;
+    this.stale = false;
     this.nShowers = 2;
     this.reason = null;
     this.domains = { p: null, theta: null };
@@ -218,10 +232,10 @@ export class ParticleFilter {
 
   /**
    * Adopt an experiment: shown when `enabled` (the Event Inspector, or the
-   * 3-D event pair, is offered), on one shower θ alone, hidden for the
-   * event-level kind. Returns the first refresh (null when disabled), which
-   * resolves once the domains are known and any bound they cannot hold is
-   * dropped.
+   * 3-D event pair, is offered), hidden for the event-level kind. Returns the
+   * first refresh (null when disabled, or while not shown, when the count
+   * waits for `setShown(true)`), which resolves once the domains are known and
+   * any bound they cannot hold is dropped.
    */
   adopt(experiment, { enabled, nShowers, reason = null } = {}) {
     this.experiment = experiment ?? null;
@@ -232,17 +246,17 @@ export class ParticleFilter {
     this.notice = '';
     this.domains = { p: null, theta: null };
     this.adopting = true;
+    this.stale = false;
     if (this.el.group) this.el.group.hidden = !this.enabled;
-    const pControl = this.doc?.getElementById?.(PARTICLE_AXES.p.ids.control);
-    if (pControl) pControl.hidden = this.nShowers === 1;
-    if (this.nShowers === 1) {
-      const { min, max } = PARTICLE_AXES.p;
-      if (this.state.set({ [min]: null, [max]: null }, { silent: true })) this.state.writeHash?.();
-    }
     if (this.el.scope) this.el.scope.textContent = scopeNote({ nShowers: this.nShowers });
-    // One shower: the θ hint names its own column; two showers get the markup's back.
-    if (this.nShowers === 1) relabel(this.el.thetaHint, SINGLE_THETA_HINT);
-    else restoreLabel(this.el.thetaHint);
+    // One shower: the hints name its own columns; two showers get the markup's back.
+    if (this.nShowers === 1) {
+      relabel(this.el.pHint, SINGLE_P_HINT);
+      relabel(this.el.thetaHint, SINGLE_THETA_HINT);
+    } else {
+      restoreLabel(this.el.pHint);
+      restoreLabel(this.el.thetaHint);
+    }
     for (const key of Object.keys(this.sliders)) this.disableAxis(key);
     this.syncClear();
     this.writeLines(['—']);
@@ -251,14 +265,38 @@ export class ParticleFilter {
   }
 
   /**
-   * GET /api/event/candidates under the filters and the particle filter:
-   * the slider domains from its `bounds`, the block's lines, then
-   * `onCandidates(payload)`. Null when the block is disabled or the request
-   * was superseded; any other error leaves no stale count behind (`failed`)
-   * and is rethrown.
+   * Whether the block counts: the page shows it (true) or not. While not
+   * shown, `adopt` and `refresh` send nothing and mark the count stale;
+   * showing it again counts once if stale, and resolves to that payload (null
+   * otherwise). A failed count is reported through `onError`, never rethrown,
+   * since a tab switch does not wait on it.
+   */
+  async setShown(shown) {
+    this.shown = Boolean(shown);
+    if (!this.shown || !this.stale) return null;
+    try {
+      return await this.refresh();
+    } catch (error) {
+      this.onError(error, 'particle filter');
+      return null;
+    }
+  }
+
+  /**
+   * GET /api/event/candidates under the pickers' pool (the whole experiment
+   * and the particle filter): the slider domains from its `bounds`, the
+   * block's lines, then `onCandidates(payload)`. Null when the block is
+   * disabled, not shown (the count is then stale) or the request was
+   * superseded; any other error leaves no stale count behind (`failed`) and
+   * is rethrown.
    */
   async refresh() {
     if (!this.enabled) return null;
+    if (!this.shown) {
+      this.stale = true;
+      return null;
+    }
+    this.stale = false;
     let payload;
     try {
       payload = await getJson(CANDIDATES_ROUTE, this.params(), this.abortKey);
@@ -288,9 +326,9 @@ export class ParticleFilter {
     return payload;
   }
 
-  /** The candidates request's query: the filters and the set particle bounds. */
+  /** The candidates request's query: the pickers' pool (the experiment, `basis=experiment`, the set bounds). */
   params() {
-    return { ...this.state.filterParams(), ...this.state.particleParams() };
+    return this.state.eventPoolParams();
   }
 
   /** Every bound to null, then a refresh and `onCommit()`. */

@@ -1508,6 +1508,9 @@ def build(
     (no direction or entry point; no D-frame columns) are 404s. ``particle``
     is the particle filter: the event block's ``candidates`` say whether the
     event is one of the pickers' candidates, and ``prev`` / ``next`` walk them.
+    Under the experiment basis (``spec`` is ``filters.unbounded``) they walk
+    the whole experiment's candidates, ``in_selection`` is true and
+    ``candidates`` carries ``"basis": "experiment"``; the cubes never move.
     """
     assert record.lattice is not None
     event_inspector.check_window(window)
@@ -1619,7 +1622,7 @@ def build(
         record=record, frame=frame, shower=shower, channel=channel, model=model, source=source,
         footprint=(float(fp[0]), float(fp[1])), pitch_z=pitch_z, event=event,
         in_selection=member["in_selection"], prev_event=member["prev"], next_event=member["next"],
-        infos=infos, candidates=particle_mod.event_candidates(particle, member),
+        infos=infos, candidates=particle_mod.event_candidates(particle, member, particle_mod.basis_of(spec)),
         rows=rows, cells=cells, centres=centres, rotation=rotation, half=half, windows=windows,
         outside_cells=outside_cells, window_mode=window, halves=halves,
         floor=floor, residual=residual, canonical=canonical_info, started=started,

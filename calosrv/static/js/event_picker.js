@@ -8,12 +8,22 @@
  * incident momentum p in GeV and the incident polar angle θ in degrees
  * (`state.js` `particle_p_min` … `particle_theta_max`). A shower matches when
  * it deposited energy and every set bound holds for its own p and θ. The
- * pool - the candidates - is the selection (E₁, E₂ and D, or p on one
- * shower), AND the frame gate (a defined separation; on one shower an
- * incident direction and an entry point), AND, while any bound is set, at
- * least one matching shower (calosrv/query/particle.py). Pick for me, Most
- * tilted, Densest and previous / next all draw from it; the ensemble panels
- * never read it.
+ * pool - the candidates - is the basis's events, AND the frame gate (a
+ * defined separation; on one shower an incident direction and an entry
+ * point), AND, while any bound is set, at least one matching shower
+ * (calosrv/query/particle.py). Pick for me, Most tilted, Densest and
+ * previous / next all draw from it; the ensemble panels never read it.
+ *
+ * ## The basis
+ *
+ * Both pages ask with `basis=experiment` (`State.eventPoolParams()`; Martin's
+ * decision of 2026-11-16): the pool is drawn from every event of the
+ * experiment, and E₁, E₂ and D, which steer the ensemble views, do not narrow
+ * it. The server echoes the basis in the candidates block (`basis:
+ * 'experiment'`), and every sentence here reads it from the payload: with it,
+ * the experiment is named; without it (the API default `selection`, and
+ * every recording made before the change) each sentence keeps its earlier
+ * wording exactly, naming the selection.
  *
  * ## Why here
  *
@@ -235,6 +245,21 @@ function selectionWords(two) {
   return two ? 'E₁, E₂ and D' : 'p';
 }
 
+/** Whether a candidates block was drawn from the whole experiment (`basis=experiment`). */
+function wholeExperiment(c) {
+  return c?.basis === 'experiment';
+}
+
+/** The frame gate's words: what an event needs for the pickers to place it. */
+function gateWords(two) {
+  return two ? 'with a defined separation' : 'with an incident direction and an entry point';
+}
+
+/** "of the 20,325 events of the experiment" ("of the 1 event …" for one). */
+function ofExperiment(n) {
+  return `of the ${plural(n, 'event')} of the experiment`;
+}
+
 /**
  * Whether a drawn event's shower blocks say it has two showers: a
  * single-shower block is labelled "Shower", a two-shower one "A" or "B". An
@@ -259,6 +284,7 @@ export function countLine(payload, { nShowers } = {}) {
   const c = payload?.candidates ?? payload ?? {};
   const two = twoShowers(nShowers, c);
   const n = Number(c.n_events ?? 0);
+  if (wholeExperiment(c)) return experimentCountLine(c, n, two);
   if (!particleIsActive(c.particle)) {
     if (n === 0) return 'Particle filter off: the selection holds no event the pickers can draw.';
     // Some selected events fail the frame gate: the pickers draw from the others, never "all".
@@ -275,12 +301,34 @@ export function countLine(payload, { nShowers } = {}) {
     return `N = ${plural(n, 'event')} whose shower has ${intervalText(c.particle)}, ${of}`;
   }
   const verb = n === 1 ? 'holds' : 'hold';
+  return `N = ${plural(n, 'event')} ${verb} a matching particle (${matchingShowers(c)}), ${of}`;
+}
+
+/** The two-shower count's parenthesis: "108 matching showers: 43 A, 65 B; 1 event matches with both". */
+function matchingShowers(c) {
   const keys = Array.isArray(c.showers) && c.showers.length ? c.showers : Object.keys(c.by_shower ?? {});
   const per = keys.map((key) => `${count(c.by_shower?.[key] ?? 0)} ${letter(key)}`).join(', ');
   const both = Number(c.n_both ?? 0);
   const bothText = both > 0 ? `; ${plural(both, 'event')} ${both === 1 ? 'matches' : 'match'} with both` : '';
-  return `N = ${plural(n, 'event')} ${verb} a matching particle `
-    + `(${plural(c.n_showers ?? 0, 'matching shower')}: ${per}${bothText}), ${of}`;
+  return `${plural(c.n_showers ?? 0, 'matching shower')}: ${per}${bothText}`;
+}
+
+/** countLine under `basis=experiment`: the pool counted against the whole experiment. */
+function experimentCountLine(c, n, two) {
+  const total = Number(c.n_selection ?? 0);
+  if (!particleIsActive(c.particle)) {
+    if (n === 0) return 'Particle filter off: the experiment holds no event the pickers can place.';
+    // Some events fail the frame gate: the pickers draw from the others, never "all".
+    if (Number(c.n_unplaceable ?? 0) > 0) {
+      return `Particle filter off: the pickers draw from the ${count(n)} of the experiment's ${count(total)} `
+        + `events ${gateWords(two)}.`;
+    }
+    if (n === 1) return 'Particle filter off: the pickers draw from the 1 event of the experiment.';
+    return `Particle filter off: the pickers draw from all ${count(n)} events of the experiment.`;
+  }
+  if (!two) return `N = ${plural(n, 'event')} whose shower has ${intervalText(c.particle)}, ${ofExperiment(total)}.`;
+  return `N = ${plural(n, 'event')} ${n === 1 ? 'holds' : 'hold'} a matching particle (${matchingShowers(c)}), `
+    + `${ofExperiment(total)}.`;
 }
 
 /** The empty pool's line ('' unless N = 0): what holds nothing, and what to widen. */
@@ -288,6 +336,15 @@ export function emptyLine(payload, { nShowers } = {}) {
   const c = payload?.candidates ?? payload ?? {};
   if (Number(c.n_events ?? 0) !== 0) return '';
   const two = twoShowers(nShowers, c);
+  if (wholeExperiment(c)) {
+    if (!particleIsActive(c.particle)) return 'N = 0: the experiment holds no event the pickers can place.';
+    const text = intervalText(c.particle);
+    return two
+      ? `N = 0: no event of the experiment with a defined separation holds a shower with ${text} that deposited `
+        + 'energy. Widen the particle filter.'
+      : `N = 0: no event of the experiment with an incident direction and an entry point has its shower at ${text}. `
+        + 'Widen the particle filter.';
+  }
   if (!particleIsActive(c.particle)) {
     return `N = 0: the selection holds no event to draw. Widen ${two ? 'E₁, E₂ or D' : 'p'}.`;
   }
@@ -311,13 +368,37 @@ export function unplaceableLine(payload, { nShowers } = {}) {
   if (!(n > 0)) return '';
   const two = twoShowers(nShowers, c);
   const one = n === 1;
+  const events = wholeExperiment(c) ? `${plural(n, 'event')} of the experiment` : plural(n, 'selected event');
   if (two) {
-    return `${plural(n, 'selected event')} ${one ? 'has' : 'have'} no defined separation (shower A deposited no `
+    return `${events} ${one ? 'has' : 'have'} no defined separation (shower A deposited no `
       + `energy) and ${one ? 'is' : 'are'} never offered; to draw ${one ? 'it' : 'one'}, type its number and `
       + 'choose shower B.';
   }
-  return `${plural(n, 'selected event')} ${one ? 'has' : 'have'} no incident direction or entry point, so the `
+  return `${events} ${one ? 'has' : 'have'} no incident direction or entry point, so the `
     + `per-shower frames cannot place ${one ? 'it' : 'them'} and ${one ? 'it is' : 'they are'} never offered.`;
+}
+
+/**
+ * What the candidates are drawn from, for captions and drawers ('' unless the
+ * payload says `basis=experiment`): the whole experiment, narrowed by the
+ * particle filter alone. `source` is a candidates payload, its `candidates`
+ * block, or the event block of GET /api/event (whose `candidates` is read,
+ * and whose shower blocks tell one shower from two when `nShowers` is not
+ * given).
+ */
+export function poolLine(source, { nShowers } = {}) {
+  const c = source?.candidates ?? source;
+  if (!wholeExperiment(c)) return '';
+  const two = nShowers === 1 || nShowers === 2 || Array.isArray(c.showers) ? twoShowers(nShowers, c)
+    : twoFromShowers(nShowers, source?.showers ?? source?.shower);
+  const notNarrowed = two ? 'E₁, E₂ and D do not narrow them.' : "the ensemble views' p window does not narrow them.";
+  if (!particleIsActive(c.particle)) {
+    return `The candidates are the events of the whole experiment that the pickers can place; ${notNarrowed}`;
+  }
+  const text = intervalText(c.particle);
+  return two
+    ? `The candidates are the events of the whole experiment holding a matching particle (${text}); ${notNarrowed}`
+    : `The candidates are the events of the whole experiment whose shower has ${text}; ${notNarrowed}`;
 }
 
 /**
@@ -410,17 +491,20 @@ export function ensembleLine(particle, { nShowers } = {}) {
     + `this view draws the whole selection of ${words}.`;
 }
 
-/** The sidebar block's hint. */
+/** The sidebar block's hint: the pickers draw from the whole experiment, which E₁, E₂ and D (or p) do not narrow. */
 export function scopeNote({ nShowers } = {}) {
-  const words = nShowers === 1 ? 'p' : 'E₁, E₂ and D';
-  return 'Narrows only which events the pickers offer (Pick for me, Most tilted, previous / next, '
-    + `and the 3-D view's Densest). The ensemble panels follow ${words}.`;
+  const tail = nShowers === 1
+    ? "The ensemble views' p window does not narrow them."
+    : 'E₁, E₂ and D do not narrow them; they steer the ensemble views alone.';
+  return 'Narrows which events the pickers offer (Pick for me, Most tilted, previous / next, '
+    + `and the 3-D view's Densest), drawn from the whole experiment. ${tail}`;
 }
 
 /* --------------------------------------------------------------- titles -- */
 
-export const PICK_TITLE = 'A candidate event drawn uniformly at random under the filters and the particle '
-  + 'filter: a seeded shuffle, so no event repeats until all have been drawn. Each click takes the next draw.';
+export const PICK_TITLE = 'A candidate event drawn uniformly at random from the whole experiment under the '
+  + 'particle filter: a seeded shuffle, so no event repeats until all have been drawn. Each click takes the next '
+  + 'draw.';
 export const TILTED_TITLE = "The reference notebook's showcase rule on the candidates: events with more hits "
   + 'than the mean, the 20 with the largest incident angle of a matching shower, one drawn at random. '
   + 'Each click takes the next seed.';
@@ -436,8 +520,8 @@ export const STEP_TITLES = Object.freeze({
 export const OPEN_3D_TITLE = "Open this event and shower in the Models page's 3-D view, with every filter; "
   + 'the Physics page keeps its own event.';
 export const OPEN_3D_DFRAME_NOTE = ' The D-frame draws no single event, so the 3-D view opens in the Absolute frame.';
-export const OPEN_2D_TITLE = "Open this event in the Physics page's Event Inspector: one shower in the Absolute, "
-  + 'per-shower translated and Local frames, with every filter.';
+export const OPEN_2D_TITLE = "Open this event in the Physics page's Event viewer: one shower in the Absolute, "
+  + 'per-shower translated and Local frames, with the particle filter.';
 
 /**
  * A picker button's title: at N = 0 the emptyLine (every picker), else the
@@ -478,11 +562,11 @@ export function eventIn3dHref({ hash = '', event, shower = 'a', frame } = {}) {
 }
 
 /**
- * Page 2 → Page 1: the Physics page's Event Inspector on this event, drawing
- * one shower: the given one, or for 'both' its match (the first of
- * `matched`), else A. Shower A, the built-in, is left out.
+ * Page 2 → Page 1: the Physics page's Event viewer (`psub=event`) on this
+ * event, drawing one shower: the given one, or for 'both' its match (the
+ * first of `matched`), else A. Shower A, the built-in, is left out.
  */
 export function eventIn2dHref({ hash = '', event, shower = 'a', matched = [] } = {}) {
   const single = shower === 'both' ? ((Array.isArray(matched) && matched[0]) || 'a') : (shower || 'a');
-  return tabHref('/', hashWith(hash, { event, shower: single === 'a' ? null : single }));
+  return tabHref('/', hashWith(hash, { event, shower: single === 'a' ? null : single, psub: 'event' }));
 }

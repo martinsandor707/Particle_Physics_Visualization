@@ -364,7 +364,9 @@ def test_the_models_defaults_are_never_written(state_results):
 
 def test_neither_page_strips_the_others_keys(state_results):
     written = dict(part.split("=") for part in state_results["mixed"].lstrip("#").split("&"))
-    assert written == {"event": "3", "compare": "true", "feature": "width", "fclass": "label"}
+    # The Physics keys survive a Models write. A link naming `event` and no `psub` opens the Physics page's Event
+    # viewer (state.js's legacy rule, brief physics-subpages section 4), so `psub=event` is written beside it.
+    assert written == {"event": "3", "psub": "event", "compare": "true", "feature": "width", "fclass": "label"}
 
 
 def test_the_feature_names_follow_the_states_feature_keys(state_results):
@@ -1544,7 +1546,7 @@ def test_reveal_panel_lands_on_a_shown_card_and_says_why_not_otherwise(deep_resu
     hidden, unknown, hostile, landed, view = deep_results["notices"]
     # A card the view on screen hides is the view's doing, never blamed on the experiment.
     assert view == ("The Methodology linked to the XY Projection — Shower Entry panel, which the view on screen hides "
-                    "(an event is pinned, or the frames are compared); go back to the ensemble to see it.")
+                    "(the frames are compared side by side); go back to the ensemble to see it.")
     assert hidden == ("The Methodology linked to the Sampling Fraction — Per-Event Distribution panel, "
                       "which this experiment (single-shower events) does not show.")
     assert unknown == "The Methodology linked to a panel this page does not have (zz)."
@@ -1623,7 +1625,8 @@ def test_an_invalid_subpage_or_species_keeps_its_default(subpage_state):
 def test_neither_page_strips_the_subpage_keys_and_admin_defaults_never_set_them(subpage_state):
     r = subpage_state
     written = dict(part.split("=") for part in r["mixed"].lstrip("#").split("&"))
-    assert written == {"event": "3", "compare": "true", "msub": "perf", "bench_species": "pion",
+    # `psub=event`: the legacy rule for a link naming `event` and no `psub` (brief physics-subpages section 4).
+    assert written == {"event": "3", "psub": "event", "compare": "true", "msub": "perf", "bench_species": "pion",
                        "channel": "gradcam"}
     assert r["applied"] is True
     assert r["afterDefaults"] == {"msub": "views", "bench": None, "frame": "trans"}
@@ -2450,6 +2453,7 @@ const candidatesAsked = () => requests.filter((r) => r.path.startsWith('/api/eve
 const particleView = () => ({
   groupHidden: document.getElementById('group-particle').hidden,
   pHidden: document.getElementById('ctl-particle-p').hidden,
+  pHint: text('particle-p-hint'),
   thetaHidden: document.getElementById('ctl-particle-theta').hidden,
   count: text('particle-count'),
   scope: text('particle-scope'),
@@ -2464,6 +2468,7 @@ out.expected = {
   count: block.blockLines(answered, { nShowers: 2 }).join(''),
   scope: picker.scopeNote({ nShowers: 2 }),
   scopeSingle: picker.scopeNote({ nShowers: 1 }),
+  singlePHint: block.SINGLE_P_HINT,
 };
 out.particleBoot = particleView();
 // The subpages: the block's hidden attribute is the plan's; Distillations and Performance hide it by CSS.
@@ -2500,6 +2505,8 @@ def test_the_particle_filter_is_adopted_where_the_3d_event_pair_is_offered(page_
     asked = boot["asked"][0]
     assert asked.startswith("/api/event/candidates?") and "table_name=experiment_baseline" in asked
     assert "particle_" not in asked
+    # The pickers' pool: the whole experiment, never an E1, E2 or D key (brief physics-subpages section 4).
+    assert "basis=experiment" in asked and not re.search(r"[?&](e1|e2|d)_(min|max)=", asked)
     assert boot["count"] == p["expected"]["count"] and boot["count"].startswith("Particle filter off:")
     assert boot["scope"] == p["expected"]["scope"]
     assert boot["clearDisabled"] is True
@@ -2521,14 +2528,19 @@ def test_the_particle_filter_answer_is_the_only_request_it_sends_and_its_css_kee
     assert '.app[data-msub="views"] #group-particle' not in css
 
 
-def test_the_particle_filter_hides_where_no_event_is_offered_and_is_theta_alone_on_one_shower(page_particle):
+def test_the_particle_filter_hides_where_no_event_is_offered_and_shows_p_and_theta_on_one_shower(page_particle):
     aggregate, single = page_particle["particleAggregate"], page_particle["particleSingle"]
     # The event-level aggregate offers no 3-D event: hidden, with no request.
     assert aggregate["groupHidden"] is True and aggregate["newRequests"] == 0
-    # One shower of hits: shown, the momentum control hidden, the count asked for once on that experiment.
-    assert single["groupHidden"] is False and single["pHidden"] is True and single["thetaHidden"] is False
+    # One shower of hits (brief physics-subpages section 6): shown with p and θ, p's hint naming the shower's own
+    # momentum, the count asked for once on that experiment, from the whole experiment.
+    assert single["groupHidden"] is False and single["pHidden"] is False and single["thetaHidden"] is False
+    assert single["pHint"] == page_particle["expected"]["singlePHint"]
     assert single["newRequests"] == 1 and "table_name=single_hits" in single["asked"][-1]
+    assert "basis=experiment" in single["asked"][-1]
     assert single["scope"] == page_particle["expected"]["scopeSingle"]
+    # Two showers restore the markup's hint, which names either shower's momentum.
+    assert "incoming_momentum_A" in page_particle["particleBoot"]["pHint"]
 
 
 def test_the_page_audits_its_markup_for_every_id_it_writes():

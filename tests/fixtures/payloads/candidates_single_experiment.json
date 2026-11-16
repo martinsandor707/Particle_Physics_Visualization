@@ -1,0 +1,81 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "notes": {}
+ },
+ "candidates": {
+  "basis": "experiment",
+  "particle": {
+   "active": false,
+   "p_gev": [
+    null,
+    null
+   ],
+   "theta_deg": [
+    null,
+    null
+   ],
+   "theta_rad": [
+    null,
+    null
+   ]
+  },
+  "n_selection": 287,
+  "n_unplaceable": 0,
+  "n_events": 287,
+  "n_showers": 287,
+  "by_shower": {
+   "a": 287
+  },
+  "n_both": null,
+  "showers": [
+   "a"
+  ]
+ },
+ "bounds": {
+  "p_gev": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "theta_deg": [
+   16.27368384855325,
+   26.40377475567282
+  ]
+ },
+ "event": {
+  "event_number": 3,
+  "in_selection": true,
+  "in_pool": true,
+  "index": 2,
+  "n_events": 287,
+  "prev": 2,
+  "next": 4,
+  "matched": [
+   "a"
+  ],
+  "prev_matched": [
+   "a"
+  ],
+  "next_matched": [
+   "a"
+  ]
+ },
+ "filter": {
+  "e1": [
+   null,
+   null
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false,
+  "basis": "experiment"
+ }
+}

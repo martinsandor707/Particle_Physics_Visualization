@@ -352,3 +352,119 @@ def test_the_disabled_choice_dimming_is_scoped_to_the_channels_group():
         if "opacity" in match.group(2) and any(s.endswith(".choice.is-disabled") for s in selectors):
             assert all(s.startswith("#group-lgroups ") for s in selectors if s.endswith(".choice.is-disabled")), selectors
     assert re.search(r"#group-lgroups \.choice\.is-disabled\s*\{[^}]*opacity", css)
+
+
+# ------------------------------------------ the Physics page's subpages --
+# The mode chip and the tab labels are text: 4.5:1 on the ground each is drawn on,
+# in both themes (physics-subpages, brief 9.2).
+
+
+def _wash(tokens: dict[str, str], ground: str) -> str:
+    """The accent wash composited over `ground`: what a chip's or a selected tab's fill is, as drawn."""
+    alpha = float(re.search(r"rgba\([^)]*,\s*([\d.]+)\)", tokens["--accent-wash"]).group(1))
+    return _composite(tokens["--accent"], ground, alpha)
+
+
+def test_the_mode_chip_text_clears_4_5_on_its_wash_over_the_card_in_both_themes():
+    """The chip sits in the status bar, whose ground is the card: accent on accent-wash over card,
+    measured 4.94:1 dark and 5.18:1 light."""
+    for tokens, expected in ((_dark(), 4.94), (_light(), 5.18)):
+        ratio = contrast(tokens["--accent"], _wash(tokens, tokens["--card"]))
+        assert ratio >= 4.5, ratio
+        assert abs(ratio - expected) < 0.02, ratio
+    css = _strip_comments(_read("controls.css"))
+    chip = _block(css, ".mode-chip {")
+    assert "color: var(--accent)" in chip and "background: var(--accent-wash)" in chip
+
+
+def test_the_selected_tab_text_clears_4_5_on_its_wash_over_the_canvas_in_both_themes():
+    """The tab bar sits on the canvas; a selected tab is accent on accent-wash. Measured 5.98 dark, 4.89 light."""
+    for tokens in (_dark(), _light()):
+        ratio = contrast(tokens["--accent"], _wash(tokens, tokens["--canvas"]))
+        assert ratio >= 4.5, ratio
+
+
+def test_a_disabled_tab_is_text_on_the_control_ground_so_it_takes_muted_not_the_disabled_token():
+    """--disabled is 1.84:1 (dark) and 1.89:1 (light) on the control: a placeholder tone, not text. The disabled tab's
+    reason is in its title but its label is read, so it takes --muted: 4.95:1 and 5.74:1 on the control."""
+    for tokens, disabled_floor, muted_floor in ((_dark(), 1.84, 4.95), (_light(), 1.89, 5.74)):
+        assert abs(contrast(tokens["--disabled"], tokens["--control-bg"]) - disabled_floor) < 0.02
+        assert abs(contrast(tokens["--muted"], tokens["--control-bg"]) - muted_floor) < 0.02
+        assert contrast(tokens["--muted"], tokens["--control-bg"]) >= 4.5
+        assert contrast(tokens["--muted"], tokens["--canvas"]) >= 4.5
+    css = _strip_comments(_read("controls.css"))
+    body = _block(css, '.physics-subtab.is-disabled,\n.physics-subtab[aria-disabled="true"] {')
+    assert "color: var(--muted)" in body and "--disabled" not in body
+
+
+def test_the_subpage_rules_are_tokens_only_and_never_animate():
+    css = _strip_comments(_read("controls.css"))
+    section = css[css.index(".physics-head {"):css.index("#group-lgroups[hidden]")]
+    assert not COLOUR_LITERAL.findall(section), COLOUR_LITERAL.findall(section)
+    assert "transition" not in section and "animation" not in section
+
+
+def _properties(body: str) -> dict[str, str]:
+    """Every declaration of a rule body (properties and custom properties), whitespace collapsed."""
+    return {name: " ".join(value.split()) for name, value in re.findall(r"([\w-]+)\s*:\s*([^;]+);", body)}
+
+
+def test_every_tab_state_and_the_chip_clear_4_5_against_both_card_tokens():
+    """Stage 4 (ps-nodetests): each text state of the tab bar and the chip, measured from tokens.css in both themes
+    and pinned to two decimals, with the declarations read from controls.css so a change of either side is caught.
+
+    - an unselected tab: --control-text on --control-bg, 9.86 dark, 13.76 light;
+    - a hovered tab: --accent on --control-hover, 5.04 dark, 5.31 light;
+    - the selected tab: --accent on the accent wash over the canvas (the sticky head's ground), 5.98 dark, 4.89 light,
+      and over the card, should the head ever sit on one, 4.94 dark, 5.18 light (the chip's ground);
+    - a disabled tab: --muted on --control-bg (pinned above), and on the card 5.26 dark, 6.11 light.
+    """
+    css = _strip_comments(_read("controls.css"))
+    base = _properties(_block(css, ".physics-subtab {"))
+    hover = _properties(_block(css, ".physics-subtab:hover {"))
+    selected = _properties(_block(css, '.physics-subtab[aria-selected="true"] {'))
+    chip = _properties(_block(css, ".mode-chip {"))
+    head = _properties(_block(css, ".physics-head {"))
+    assert (base["background"], base["color"]) == ("var(--control-bg)", "var(--control-text)")
+    assert (hover["background"], hover["color"]) == ("var(--control-hover)", "var(--accent)")
+    assert (selected["background"], selected["color"]) == ("var(--accent-wash)", "var(--accent)")
+    assert (chip["background"], chip["color"]) == ("var(--accent-wash)", "var(--accent)")
+    assert head["background"] == "var(--canvas)"
+    expected = {
+        "dark": {"unselected": 9.86, "hover": 5.04, "selected_canvas": 5.98, "selected_card": 4.94, "muted_card": 5.26},
+        "light": {"unselected": 13.76, "hover": 5.31, "selected_canvas": 4.89, "selected_card": 5.18, "muted_card": 6.11},
+    }
+    for name, tokens in (("dark", _dark()), ("light", _light())):
+        measured = {
+            "unselected": contrast(tokens["--control-text"], tokens["--control-bg"]),
+            "hover": contrast(tokens["--accent"], tokens["--control-hover"]),
+            "selected_canvas": contrast(tokens["--accent"], _wash(tokens, tokens["--canvas"])),
+            "selected_card": contrast(tokens["--accent"], _wash(tokens, tokens["--card"])),
+            "muted_card": contrast(tokens["--muted"], tokens["--card"]),
+        }
+        for state, ratio in measured.items():
+            assert ratio >= 4.5, (name, state, ratio)
+            assert abs(ratio - expected[name][state]) < 0.02, (name, state, ratio)
+
+
+def test_the_shut_tabs_sentence_is_muted_text_that_clears_4_5_on_the_head_in_both_themes():
+    """Review U3: `#psub-shut` sits in the sticky head, whose ground is the canvas: --muted on --canvas, measured
+    6.15 dark and 5.74 light, tokens only, and hidden by its own attribute."""
+    css = _strip_comments(_read("controls.css"))
+    body = _properties(_block(css, ".psub-shut {"))
+    assert body["color"] == "var(--muted)" and "background" not in body
+    assert re.search(r"\.psub-shut\[hidden\]\s*\{\s*display: none;\s*\}", css)
+    for name, tokens, expected in (("dark", _dark(), 6.15), ("light", _light(), 5.74)):
+        ratio = contrast(tokens["--muted"], tokens["--canvas"])
+        assert ratio >= 4.5, (name, ratio)
+        assert abs(ratio - expected) < 0.02, (name, ratio)
+
+
+def test_the_screen_reader_only_rule_is_the_standard_clip_pattern():
+    """Review U6: `.sr-only` (the viewer's live region) is never drawn but stays rendered, so it is announced."""
+    css = _strip_comments(_read("controls.css"))
+    body = _properties(_block(css, ".sr-only {"))
+    assert body["position"] == "absolute" and body["width"] == "1px" and body["height"] == "1px"
+    assert body["overflow"] == "hidden" and body["clip-path"] == "inset(50%)" and body["white-space"] == "nowrap"
+    # Rendered: neither display: none nor visibility: hidden, which would silence the region.
+    assert "display" not in body and "visibility" not in body

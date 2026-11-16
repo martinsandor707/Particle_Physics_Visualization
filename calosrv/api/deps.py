@@ -1,4 +1,4 @@
-"""Shared request dependencies: the database cursor, the kinematic filter and the particle filter."""
+"""Shared request dependencies: the cursor, the kinematic filter, the pickers' basis and the particle filter."""
 
 from __future__ import annotations
 
@@ -11,10 +11,11 @@ from fastapi import Depends, Query, Request
 from ..config import Settings
 from ..db.connection import Database
 from ..db.registry import ExperimentRecord, require_ready
-from ..errors import UnknownTableError
+from ..errors import UnknownTableError, ValidationError
 from ..query import capabilities, filters, particle
 from ..query.filters import FilterSpec
 from ..query.particle import ParticleSpec
+from ..text import typographic
 
 
 def get_settings(request: Request) -> Settings:
@@ -125,6 +126,88 @@ def resolve_filter(
 
 
 FilterDep = Annotated[FilterSpec, Depends(resolve_filter)]
+
+
+#: The raw kinematic parameters a request under ``basis=experiment`` must not carry, in order.
+_SELECTION_PARAMS: tuple[str, ...] = ("e1_min", "e1_max", "e2_min", "e2_max", "d_min", "d_max")
+
+
+def resolve_basis(
+    record: RecordDep,
+    basis: str = Query(
+        particle.BASIS_SELECTION,
+        description=(
+            "What the event pickers' candidates are drawn from. selection (default): the E1/E2/D "
+            "selection, as every request that names no basis has always been answered. experiment: "
+            "every event of the experiment, narrowed by the frame gate and the particle filter alone; "
+            "an E1, E2 or D bound, or any include_undefined_d, is then refused naming the parameter, "
+            "never ignored."),
+    ),
+    e1_min: float | None = Query(
+        None, description="Lower bound on incoming_momentum_A, or on the single shower's "
+                          "incoming_momentum (GeV). basis=selection only."),
+    e1_max: float | None = Query(
+        None, description="Upper bound on incoming_momentum_A, or on the single shower's "
+                          "incoming_momentum (GeV). basis=selection only."),
+    e2_min: float | None = Query(
+        None, description="Lower bound on incoming_momentum_B (GeV); two-shower data and "
+                          "basis=selection only."),
+    e2_max: float | None = Query(
+        None, description="Upper bound on incoming_momentum_B (GeV); two-shower data and "
+                          "basis=selection only."),
+    d_min: float | None = Query(
+        None, description="Lower bound on centroid_AB_distance (mm); two-shower data and "
+                          "basis=selection only."),
+    d_max: float | None = Query(
+        None, description="Upper bound on centroid_AB_distance (mm); two-shower data and "
+                          "basis=selection only."),
+    include_undefined_d: bool | None = Query(
+        None,
+        description=(
+            "Include events whose A-B separation is undefined because shower A deposited no "
+            "energy. Excluded by default (absent is false), and always counted. basis=selection "
+            "only: the experiment basis holds them, and the frame gate keeps them out of the "
+            "candidates, so any explicit value, false included, is refused there."
+        ),
+    ),
+) -> FilterSpec:
+    """The spec the event pickers' routes draw their pool from: the request's selection or the experiment.
+
+    ``basis=selection`` (the default) is :func:`resolve_filter` on the same
+    parameters, so a request that names no basis is answered exactly as
+    before. ``basis=experiment`` is ``filters.unbounded``: every event of the
+    experiment, NULL momenta and undefined D included; a bound sent with it
+    is a 422 naming that parameter, because a silently ignored cut is a
+    selection the reader believes was made. Any other basis is a 422 naming
+    ``basis``. :func:`resolve_filter` itself does not change.
+    """
+    if basis not in particle.BASES:
+        # A value such as '-1' is quoted with the typographic minus, as every rendered negative is.
+        raise ValidationError(typographic(f"basis must be selection or experiment; got {basis!r}."),
+                              field="basis")
+    if basis == particle.BASIS_EXPERIMENT:
+        given = dict(zip(_SELECTION_PARAMS, (e1_min, e1_max, e2_min, e2_max, d_min, d_max)))
+        # Any explicit value is refused, false included: the echo of the experiment basis says true on
+        # two showers, so an accepted false would be contradicted by the response it was sent with.
+        given["include_undefined_d"] = include_undefined_d
+        for name, value in given.items():
+            if value is not None:
+                raise ValidationError(
+                    f"{name} does not apply with basis=experiment: the event pickers draw from the "
+                    "whole experiment, narrowed by the particle filter alone.",
+                    field=name,
+                )
+        return filters.unbounded(record)
+    return resolve_filter(
+        record,
+        e1_min=e1_min, e1_max=e1_max,
+        e2_min=e2_min, e2_max=e2_max,
+        d_min=d_min, d_max=d_max,
+        include_undefined_d=bool(include_undefined_d),
+    )
+
+
+PoolFilterDep = Annotated[FilterSpec, Depends(resolve_basis)]
 
 
 def resolve_particle(

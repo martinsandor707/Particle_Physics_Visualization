@@ -88,6 +88,9 @@ me), entry ``draw mod N`` of a seeded shuffle of the candidates. All three
 draw from one pool - the selection, the events the per-shower frames can
 place and, when the particle filter is set, the events holding a matching
 shower (``query/particle.py``) - and previous / next walk the same pool.
+Under ``basis=experiment`` the whole experiment replaces the selection
+(``filters.unbounded``); the sentences then say "events of the experiment",
+the bodies carry ``"basis": "experiment"`` and the geometry is untouched.
 """
 
 from __future__ import annotations
@@ -273,11 +276,15 @@ def pick(con, record, spec: FilterSpec, seed: int = DEFAULT_SEED, pool_size: int
     sorted ascending, with ``numpy.random.default_rng(seed).permutation`` and
     takes entry ``draw mod N``, so N consecutive draws visit every candidate
     once. Every body names the chosen event's matching showers (``matched``)
-    and echoes the particle filter.
+    and echoes the particle filter. Under the experiment basis (``spec`` is
+    ``filters.unbounded``) the pool is the whole experiment's, the sentences
+    and the empty pool's 404 say so, and the body carries
+    ``"basis": "experiment"``.
     """
     if rule not in RULES:
         raise ValidationError(f"rule must be one of {', '.join(RULES)}; got {rule!r}.", field="rule")
     particle = particle_mod.INACTIVE if particle is None else particle
+    basis = particle_mod.basis_of(spec)
     table = quote(naming.event_table(record.table_name))
     where = spec.where_sql()
     showers = showers_mod.of(record)
@@ -287,33 +294,38 @@ def pick(con, record, spec: FilterSpec, seed: int = DEFAULT_SEED, pool_size: int
     narrow = f" AND ({particle.pool_sql(record)})" if particle.active else ""
     params = particle_mod.pool_params(spec, particle)
     if rule == RULE_UNIFORM:
-        return _pick_uniform(con, record, spec, particle, int(seed), int(draw))
+        body = _pick_uniform(con, record, spec, particle, int(seed), int(draw))
+        return particle_mod.with_basis(body, basis)
     mean_hits, n = con.execute(
         f"SELECT avg(n_hits), count(*) FROM {table} WHERE {where} AND {gate}{narrow}", params,
     ).fetchone()
     if not n:
-        raise NotFoundError(particle_mod.empty_pool_detail(record, particle))
+        raise NotFoundError(particle_mod.empty_pool_detail(record, particle, basis))
     if rule == RULE_DENSEST:
         body = _pick_densest(con, table, where + narrow, params, gate, two, int(n), float(mean_hits),
-                             int(seed), int(pool_size), _population(record, particle))
+                             int(seed), int(pool_size), _population(record, particle, basis))
     else:
         body = _pick_tilted(con, record, table, where + narrow, params, gate, particle, int(n),
-                            float(mean_hits), int(seed), int(pool_size))
+                            float(mean_hits), int(seed), int(pool_size), basis)
     body["matched"] = particle_mod.matched(con, record, particle, [body["event_number"]])[body["event_number"]]
     body["particle"] = particle.as_dict()
-    return body
+    return particle_mod.with_basis(body, basis)
 
 
-def _population(record, particle: particle_mod.ParticleSpec) -> str:
-    """The pick sentences' population words: today's, or the particle filter's phrase when active."""
+def _population(record, particle: particle_mod.ParticleSpec,
+                basis: str = particle_mod.BASIS_SELECTION) -> str:
+    """The pick sentences' population words: today's, or the particle filter's phrase when active.
+
+    Under the experiment basis, 'events of the experiment' for 'selected events'.
+    """
     if not particle.active:
-        return f"selected events {particle_mod.placed_words(record)}"
-    return particle_mod.population_phrase(record, particle)
+        return f"{particle_mod.population_words(basis)} {particle_mod.placed_words(record)}"
+    return particle_mod.population_phrase(record, particle, basis)
 
 
 def _pick_tilted(con, record, table: str, where: str, params: dict, gate: str,
                  particle: particle_mod.ParticleSpec, n: int, mean_hits: float, seed: int,
-                 pool_size: int) -> dict[str, Any]:
+                 pool_size: int, basis: str = particle_mod.BASIS_SELECTION) -> dict[str, Any]:
     """The local-coords notebook's seeded draw from the densest, most tilted events of the pool."""
     showers = showers_mod.of(record)
     two = len(showers) == 2
@@ -338,7 +350,7 @@ def _pick_tilted(con, record, table: str, where: str, params: dict, gate: str,
         pool = [int(r[0]) for r in rows]
     rng = np.random.default_rng(int(seed))
     chosen = int(rng.choice(np.asarray(pool)))
-    population = _population(record, particle)
+    population = _population(record, particle, basis)
     if n == 1:
         # One candidate: none can have more hits than the mean, and there is nothing to rank.
         sentence = (f"The only one of the {population}: the reference notebook's selection rule has "
@@ -417,13 +429,14 @@ def _pick_uniform(con, record, spec: FilterSpec, particle: particle_mod.Particle
     seed and pool, so the draws ``0 .. N - 1`` visit every candidate once and
     ``draw >= N`` wraps round to the start of the same shuffle.
     """
+    basis = particle_mod.basis_of(spec)
     events = particle_mod.pool_events(con, record, spec, particle)
     n = int(events.size)
     if not n:
-        raise NotFoundError(particle_mod.empty_pool_detail(record, particle))
+        raise NotFoundError(particle_mod.empty_pool_detail(record, particle, basis))
     k = int(draw) % n
     chosen = int(events[np.random.default_rng(int(seed)).permutation(n)[k]])
-    population = particle_mod.population_phrase(record, particle)
+    population = particle_mod.population_phrase(record, particle, basis)
     if n == 1:
         sentence = f"The only one of the {population} (seed {int(seed)}, draw {int(draw)})."
     else:
@@ -876,7 +889,10 @@ def inspect(
     ``particle`` is the particle filter: ``event.candidates`` says whether the
     event is one of the pickers' candidates, and ``event.prev`` / ``event.next``
     walk the candidates (``query/particle.py``). The event block is part of
-    the body the budget measures.
+    the body the budget measures. Under the experiment basis (``spec`` is
+    ``filters.unbounded``) ``in_selection`` is true for every event of the
+    experiment and ``event.candidates`` carries ``"basis": "experiment"``;
+    nothing else moves.
     """
     assert record.lattice is not None and record.frame_bounds is not None
     if shower not in SHOWERS:
@@ -1063,7 +1079,7 @@ def inspect(
             "direction": [float(v) for v in direction],
             "principal_axis": tilt,
         },
-        "candidates": particle_mod.event_candidates(particle, member),
+        "candidates": particle_mod.event_candidates(particle, member, particle_mod.basis_of(spec)),
     }
 
     def measured(pitch: float, notes: list[str]) -> dict[str, Any]:

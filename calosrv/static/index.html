@@ -11,7 +11,7 @@
 </head>
 <body>
 
-<div class="app">
+<div class="app" data-psub="selection">
 
   <!-- ============================================================= header -->
   <!-- Two rows. The application bar is the same on every page: the sidebar
@@ -77,6 +77,9 @@
   <!-- ============================================================ sidebar -->
   <aside class="sidebar" id="sidebar">
 
+    <!-- The Selection filter (E1, E2, D). It steers Entire selection and every
+         card; the Event viewer never reads it, so the group is hidden there. -->
+    <div class="sidebar-group" id="group-filters">
     <h2>Filtering Parameters</h2>
 
     <div class="control" id="ctl-e1">
@@ -137,6 +140,7 @@
     <label class="choice" id="ctl-undefined-d" title="Events where shower A deposited no energy have no defined separation. They are excluded by default and always counted.">
       <input type="checkbox" id="opt-undefined-d"> Include events with undefined D
     </label>
+    </div>
 
     <!-- The sidebar groups that steer only the spatial panels (frame tier,
          display resolution, channels, colour map) are wrapped so main.js can
@@ -212,8 +216,9 @@
     </div>
 
     <!-- The particle filter: narrows which events the pickers offer (Pick for
-         me, Most tilted, previous / next, Densest), never the ensemble
-         panels. Built by js/controls/particle_filter.js. -->
+         me, Most tilted, previous / next, Densest), drawn from the whole
+         experiment, never the ensemble panels. Shown on the Event viewer
+         subpage. Built by js/controls/particle_filter.js. -->
     <div class="sidebar-group" id="group-particle" hidden>
     <h2><span id="particle-heading">Particle Filter</span> <span class="muted">(event pickers)</span></h2>
 
@@ -231,7 +236,7 @@
         <div class="track"></div><div class="fill" id="pp-fill"></div>
         <input type="range" id="pp-lo" aria-label="Particle momentum minimum slider"><input type="range" id="pp-hi" aria-label="Particle momentum maximum slider">
       </div>
-      <div class="hint" id="particle-p-hint">Incident momentum of either shower (<span class="mono">incoming_momentum_A</span> or <span class="mono">_B</span>).</div>
+      <div class="hint" id="particle-p-hint">Incident momentum of either shower (<span class="mono">incoming_momentum_A</span> or <span class="mono">_B</span>), in GeV.</div>
     </div>
 
     <div class="control" id="ctl-particle-theta">
@@ -252,19 +257,20 @@
     </div>
 
     <div class="caption" id="particle-count" role="status" aria-live="polite">&mdash;</div>
-    <div class="hint" id="particle-scope">Narrows only which events the pickers offer (Pick for me, Most tilted, previous / next, and the 3-D view&rsquo;s Densest). The ensemble panels follow E<sub>1</sub>, E<sub>2</sub> and D.</div>
+    <div class="hint" id="particle-scope">Narrows which events the pickers offer (Pick for me, Most tilted, previous / next, and the 3-D view's Densest), drawn from the whole experiment. E₁, E₂ and D do not narrow them; they steer the ensemble views alone.</div>
     <button class="mini" id="particle-clear" type="button" disabled>Clear particle filter</button>
     </div>
 
+    <!-- The Event picker: one shower of one event in the original, translated
+         and local frames - the reference notebook's comparison figure - on the
+         Event viewer subpage (js/event_inspector.js). The event and the shower
+         are view state: #event=...&shower=... -->
+    <div class="sidebar-group" id="group-event">
     <h2>
-      Event Inspector
+      Event Picker
       <button class="info-dot" id="info-event" type="button" hidden
               aria-label="Event Inspector notices">i</button>
     </h2>
-    <!-- One shower of one event in the original, translated and local frames
-         - the reference notebook's comparison figure - in place of the
-         ensemble panels while an event is pinned (js/event_inspector.js). The
-         event and the shower are view state: #event=…&shower=…. -->
     <div class="control" id="ctl-event">
       <div class="control-head">
         <label for="event-number">Event number</label>
@@ -272,7 +278,7 @@
       </div>
       <div class="numeric-pair">
         <input class="numeric" type="number" id="event-number" min="0" step="1" placeholder="&mdash;"
-               aria-label="Event number to pin" title="Type an event number and press Enter; clear it to return to the ensemble panels">
+               aria-label="Event number to pin" title="Type an event number and press Enter">
         <button class="mini" id="event-prev" type="button" disabled
                 title="The previous candidate event, in event-number order">&lsaquo; Prev</button>
         <button class="mini" id="event-next" type="button" disabled
@@ -286,16 +292,14 @@
       </label>
       <div class="event-actions">
         <button class="action" id="event-pick" type="button"
-                title="A candidate event drawn uniformly at random under the filters and the particle filter: a seeded shuffle, so no event repeats until all have been drawn. Each click takes the next draw.">Pick for me</button>
+                title="A candidate event drawn uniformly at random from the whole experiment under the particle filter: a seeded shuffle, so no event repeats until all have been drawn. Each click takes the next draw.">Pick for me</button>
         <button class="action" id="event-pick-tilted" type="button"
                 title="The reference notebook's showcase rule on the candidates: events with more hits than the mean, the 20 with the largest incident angle of a matching shower, one drawn at random. Each click takes the next seed.">Most tilted</button>
-        <button class="action" id="event-close" type="button" hidden
-                title="Return to the ensemble panels; the link loses its event">Back to the ensemble</button>
       </div>
-      <div class="hint">Pins one event and draws one of its showers in all three frames &mdash; original,
-        translated only, and local &mdash; with the incident direction, the first-layer plane and the
-        origin, one shared colour ramp and one window on all nine panels.</div>
+      <div class="hint">Draws one shower of one event in all three frames &mdash; original, translated only, and local &mdash; with the incident direction, the first-layer plane and the
+        origin, one shared colour ramp and one window on all nine panels. The candidates are the whole experiment's, narrowed by the particle filter.</div>
       <div class="caption" id="event-caption" hidden>&mdash;</div>
+    </div>
     </div>
 
     <div class="sidebar-group" id="group-resolution">
@@ -380,6 +384,10 @@
       Energy-weighted Shap-CAM <span class="muted">(Σ E·CAM, signed)</span>
     </label>
     <div class="caption" id="channel-caption">—</div>
+    <!-- Set by main.js when the experiment offers fewer channels than these
+         five (a standalone hit file has no network): says which are shut and
+         why, as visible text. -->
+    <div class="hint" id="channel-shut" hidden></div>
     </div>
 
     <div class="sidebar-group" id="group-colormap">
@@ -407,6 +415,7 @@
     </div>
     </div>
 
+    <div class="sidebar-group" id="group-model">
     <h2>Reconstruction Model</h2>
     <label class="choice"><input type="radio" name="model" value="segmentation" checked> Segmentation Model</label>
     <label class="choice"><input type="radio" name="model" value="energy"> Energy Estimation Model</label>
@@ -415,11 +424,29 @@
 
     <h2>Model Performance</h2>
     <div class="metrics" id="metrics"></div>
+    </div>
 
   </aside>
 
   <!-- =============================================================== main -->
   <main class="main">
+
+    <!-- The Physics page's two subpages (js/physics_subpages.js): Entire
+         selection, the ensemble under E1, E2 and D, and the Event viewer, one
+         event at a time. Sticky at the top of .main, as the Models page's
+         tab bar is; its height is measured into --physics-head-h. -->
+    <div class="physics-head" id="physics-head">
+      <nav class="physics-subnav" id="physics-subnav" role="tablist" aria-label="Physics page views">
+        <button class="physics-subtab" id="psub-tab-selection" data-psub="selection" role="tab" type="button"
+                aria-controls="psub-selection" aria-selected="true" tabindex="0"
+                title="Every selected event: the 2 × 2 diagnostic, the compare-frames view and the physics cards, under E₁, E₂ and D.">Entire selection</button>
+        <button class="physics-subtab" id="psub-tab-event" data-psub="event" role="tab" type="button"
+                aria-controls="psub-event" aria-selected="false" tabindex="-1"
+                title="One event at a time, drawn from the whole experiment under the particle filter: one shower in the Absolute, per-shower translated and Local frames.">Event viewer</button>
+      </nav>
+      <!-- Why a shut tab is shut, as a sentence (physics_subpages.js setEnabled): a title alone is hover-only. -->
+      <p class="psub-shut" id="psub-shut" hidden></p>
+    </div>
 
     <div class="banner" id="banner" hidden>
       <span class="banner-text" id="banner-text"></span>
@@ -435,19 +462,34 @@
       <button class="banner-close" id="kind-banner-close" type="button" aria-label="Dismiss">&times;</button>
     </div>
 
+    <!-- The mode chip names the subpage on show. Each subpage owns its items:
+         data-psub-only hides the other's by CSS (controls.css), never through
+         an item's own hidden attribute, which main.js controls. Query and the
+         cache note are shared. -->
     <div class="statusbar">
-      <span>Events <b id="stat-events">—</b></span>
-      <span>Hits <b id="stat-hits">—</b></span>
-      <span>Deposited <b id="stat-edep">—</b></span>
-      <span id="stat-d-item">Mean D <b id="stat-d">—</b></span>
-      <span id="stat-nod-item">Undefined D <b id="stat-nod">—</b></span>
-      <span title="Reference peak of the co-registered density ramp: this selection's own peak (autoscaled) or the whole dataset's">ρ<sub>ref</sub> <b id="stat-rho">—</b></span>
-      <span title="Entry panel: cells clipped to the ends of the colour ramp (absolute frame) or bins below the display floor (co-registered frames); the Details drawer states the rest">Clipped <b id="stat-clipped">—</b></span>
-      <span id="stat-wneg-item" hidden title="Hits behind their shower's entry plane, w = z_local &lt; −10⁻⁶ mm (the notebook's tolerance), in the current selection">w &lt; 0 <b id="stat-wneg">—</b></span>
+      <span class="mode-chip" id="stat-mode">Entire selection</span>
+      <span data-psub-only="selection">Events <b id="stat-events">—</b></span>
+      <span data-psub-only="selection">Hits <b id="stat-hits">—</b></span>
+      <span data-psub-only="selection">Deposited <b id="stat-edep">—</b></span>
+      <span id="stat-d-item" data-psub-only="selection">Mean D <b id="stat-d">—</b></span>
+      <span id="stat-nod-item" data-psub-only="selection">Undefined D <b id="stat-nod">—</b></span>
+      <span data-psub-only="selection" title="Reference peak of the co-registered density ramp: this selection's own peak (autoscaled) or the whole dataset's">ρ<sub>ref</sub> <b id="stat-rho">—</b></span>
+      <span data-psub-only="selection" title="Entry panel: cells clipped to the ends of the colour ramp (absolute frame) or bins below the display floor (co-registered frames); the Details drawer states the rest">Clipped <b id="stat-clipped">—</b></span>
+      <span id="stat-wneg-item" data-psub-only="selection" hidden title="Hits behind their shower's entry plane, w = z_local &lt; −10⁻⁶ mm (the notebook's tolerance), in the current selection">w &lt; 0 <b id="stat-wneg">—</b></span>
+      <span data-psub-only="event">Event <b id="stat-event">—</b></span>
+      <span id="stat-shower-item" data-psub-only="event">Shower <b id="stat-shower">—</b></span>
+      <span data-psub-only="event">p <b id="stat-p">—</b></span>
+      <span data-psub-only="event">θ <b id="stat-theta">—</b></span>
+      <span data-psub-only="event">Cells <b id="stat-cells">—</b></span>
+      <span data-psub-only="event">Deposited <b id="stat-ev-edep">—</b></span>
+      <span data-psub-only="event">Place <b id="stat-place">—</b></span>
       <span class="spacer"></span>
       <span>Query <b id="stat-latency">—</b></span>
       <span id="stat-cache" class="muted"></span>
     </div>
+
+    <!-- Entire selection: the ensemble, the physics cards and the compare grid. -->
+    <div class="physics-subpage" id="psub-selection" role="tabpanel" aria-labelledby="psub-tab-selection" data-psub="selection">
 
     <section class="grid" id="ensemble-grid">
 
@@ -571,22 +613,33 @@
       <div id="compare-grid-rows"></div>
     </section>
 
-    <!-- The Event Inspector: one shower of one event in the original,
-         translated and local frames - the reference notebook's comparison
-         figure - in place of the ensemble grid while an event is pinned.
-         Drawn by js/event_inspector.js from one GET /api/event response. -->
-    <section class="frame-grid" id="event-grid" hidden aria-labelledby="event-grid-title">
-      <div class="frame-grid-head">
-        <h2 id="event-grid-title">Event Inspector</h2>
-        <span class="frame-grid-label" id="event-grid-label">&mdash;</span>
-        <span class="spacer"></span>
-        <a class="mini" id="event-open-3d" href="/models" hidden
-           title="Open this event and shower in the Models page's 3-D view, with every filter; the Physics page keeps its own event.">Open in 3-D &rarr;</a>
-        <button class="mini" id="event-grid-close" type="button"
-                title="Return to the ensemble panels; the link loses its event">Back to the ensemble</button>
-      </div>
-      <div id="event-grid-rows"></div>
-    </section>
+    </div>
+
+    <!-- The Event viewer: one shower of one event in the original, translated
+         and local frames - the reference notebook's comparison figure.
+         Drawn by js/event_inspector.js from one GET /api/event response. With
+         no event drawn, the empty state says why. There is no button back to
+         the ensemble: the Entire selection tab is the way back. -->
+    <div class="physics-subpage" id="psub-event" role="tabpanel" aria-labelledby="psub-tab-event" data-psub="event" hidden>
+      <!-- The empty state's text, announced: a region that appears with its text is not read out, so main.js
+           writes it here, into a region that is always rendered (visually hidden). -->
+      <p class="sr-only" id="event-live" role="status" aria-live="polite"></p>
+      <section class="kind-notice" id="event-empty" hidden>
+        <h2 id="event-empty-title">No event drawn</h2>
+        <p id="event-empty-text">&mdash;</p>
+      </section>
+
+      <section class="frame-grid" id="event-grid" hidden aria-labelledby="event-grid-title">
+        <div class="frame-grid-head">
+          <h2 id="event-grid-title">Event Inspector</h2>
+          <span class="frame-grid-label" id="event-grid-label">&mdash;</span>
+          <span class="spacer"></span>
+          <a class="mini" id="event-open-3d" href="/models" hidden
+             title="Open this event and shower in the Models page's 3-D view, with every filter; the Physics page keeps its own event.">Open in 3-D &rarr;</a>
+        </div>
+        <div id="event-grid-rows"></div>
+      </section>
+    </div>
   </main>
 
   <!-- ============================================================ drawer -->

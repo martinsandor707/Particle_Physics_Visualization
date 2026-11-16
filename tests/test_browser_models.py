@@ -73,9 +73,21 @@ page is checked as a reader meets it:
   open drawer names it in Marks and legend until it is switched back on;
 * the particle filter on Views (brief particle-filter §8): the 3-D event card's
   Pick for me, Most tilted and Densest drawing from the pool, the densest
-  candidate drawn with its matching shower, "2-D ↗" opening the Event
-  Inspector on the same event and shower; N = 0 showing the empty line on
-  the event pair with no pick or event request; the block on Views only;
+  candidate drawn with its matching shower, "2-D ↗" opening the Physics page's
+  Event viewer (``psub=event``) on the same event and shower; N = 0 showing the
+  empty line on the event pair with no pick or event request; the block on
+  Views only;
+* the pool of the whole experiment (brief physics-subpages §10.2, Martin's
+  decision of 2026-11-16): every One event request (raster, cubes, Pick for
+  me, Most tilted, Densest, the steps) carries ``basis=experiment`` and no E₁,
+  E₂ or D key; an E₁ commit on Views asks nothing of ``/api/event*`` and leaves
+  the 3-D event, its caption and the draw counter, while the Selection scope
+  and the cloud reload under the cut; "Open in 3-D →" from the Physics Event
+  viewer and "2-D ↗" back land on the same event and shower, both drawn;
+* the standing "Unavailable for this experiment" line of the channels an
+  experiment cannot serve, visible on the 3-D cards of the single-shower hits
+  (event and cloud) and on the two-shower baseline's event card, in both
+  themes, its text at 4.5:1 or more on the card;
 * the 3-D cards' slice mode: K slices stepped with Previous, Next and the
   scrubber, K clamped to the volume's depth, the slices' cubes adding up to
   the whole volume's, the paired depth projections bracketing the slice drawn,
@@ -3894,7 +3906,56 @@ def test_the_absolute_3d_card_opens_on_the_selection_and_one_event_is_a_click_aw
 # ------------------------------------------------- the particle filter, 3-D --
 #
 # The particle filter on the 3-D event card (brief particle-filter §8.3-§8.5, as built at c14f9a2), on the
-# two-event demonstration file: p 6-7 GeV selects event 1 through its shower B, p 7-8 GeV nothing.
+# two-event demonstration file: p 6-7 GeV selects event 1 through its shower B, p 7-8 GeV nothing. Since the
+# physics-subpages change (Martin's decision of 2026-11-16) the pickers draw from the whole experiment, narrowed
+# by the particle filter alone: every One event request carries basis=experiment and never an E₁, E₂ or D key.
+
+#: The block's sentences under basis=experiment (brief physics-subpages §5.1) on the demonstration file: both of
+#: its events have a defined separation; event 0's showers carry p = 2.71 and 12.54 GeV, event 1's 17.88 and 6.39.
+POOL_COUNT_OFF = "Particle filter off: the pickers draw from all 2 events of the experiment."
+POOL_COUNT_P67 = ("N = 1 event holds a matching particle (1 matching shower: 0 A, 1 B), "
+                  "of the 2 events of the experiment.")
+POOL_EMPTY_P78 = ("N = 0: no event of the experiment with a defined separation holds a shower with p in "
+                  "7.00–8.00 GeV that deposited energy. Widen the particle filter.")
+#: The E₁/E₂/D selection's keys: no event-picker request may carry one under basis=experiment (brief §3.1: the
+#: server refuses them with a 422).
+SELECTION_KEYS = ("e1_min", "e1_max", "e2_min", "e2_max", "d_min", "d_max", "include_undefined_d")
+#: The 3-D event card's caption: the key counts under its plot (voxel_views.js `renderSparse`), which name the
+#: event, its place among the candidates, the pool and the pick's rule sentence (seed and draw).
+_EVENT_CAPTION = """() => document.querySelector('.main .card[data-panel="vox-event"] .sparse-note')?.textContent ?? null"""
+
+
+def _event_urls(urls):
+    """The /api/event* requests among `urls`: the raster, the cubes, the picks and the candidates."""
+    return [u for u in urls if urlparse(u).path.startswith("/api/event")]
+
+
+def _assert_pool(urls, where):
+    """Every /api/event* request among `urls` draws on the whole experiment: basis=experiment and no E₁/E₂/D key.
+    Returns those requests as (path, query), in order."""
+    sent = []
+    for url in _event_urls(urls):
+        q = {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
+        assert q.get("basis") == "experiment", f"{where}: {url}"
+        assert not [k for k in SELECTION_KEYS if k in q], f"{where}: {url}"
+        sent.append((urlparse(url).path, q))
+    return sent
+
+
+#: The Physics page's Event viewer has drawn its event: the subpage on show, the grid's label in and every one of
+#: its nine panels holding a canvas (the waits of data/dev/design/physics-subpages/smoke_ps-page1.py).
+_VIEWER_DRAWN = """(label) => document.querySelector('.app')?.dataset.psub === 'event'
+  && !document.getElementById('psub-event').hidden && document.getElementById('psub-selection').hidden
+  && (document.getElementById('event-grid-label')?.textContent ?? '').startsWith(label)
+  && ['lab', 'trans', 'local'].every((r) => ['xy', 'xz', 'yz'].every((c) =>
+       document.getElementById(`plot-event-${r}-${c}`)?.querySelector('canvas')))"""
+
+
+def _wait_viewer(page, event, shower):
+    """Wait until the Physics page's Event viewer draws `event` with `shower` ('A' or 'B'); return its status bar."""
+    page.wait_for_function(_VIEWER_DRAWN, arg=f"Event {event}, shower {shower}:", timeout=30_000)
+    return page.evaluate("""() => Object.fromEntries(['stat-mode', 'stat-event', 'stat-shower']
+      .map((id) => [id, document.getElementById(id).textContent.trim()]))""")
 
 #: The 3-D event card's "2-D ↗" link, by the selector the brief fixes (particle-filter §3.6c and §7).
 OPEN_2D = 'a[data-voxel-open-2d]'
@@ -3918,12 +3979,14 @@ _PARTICLE_SHOWN = """() => { const g = document.getElementById('group-particle')
   return Boolean(g) && !g.hidden && getComputedStyle(g).display !== 'none' && g.getClientRects().length > 0; }"""
 
 
-def test_the_3d_event_card_picks_from_the_particle_pool_and_links_to_the_event_inspector(models_live_server):
-    """On Views, with the One event scope and a p interval in the link: the block shows its count; Densest (the
-    scope's default) draws the densest candidate, event 1, with its matching shower B asked for in the cubes'
-    request; the toolbar carries Pick for me, Most tilted and Densest; Pick for me sends a uniform draw under the
-    particle keys; "2-D ↗" carries the drawn event and shower, and followed it opens the Event Inspector on them."""
-    from test_browser_event import COUNT_P67, _fragment, _idle, _query, _wait_count, _watch
+def test_the_3d_event_card_picks_from_the_particle_pool_and_links_to_the_event_viewer(models_live_server):
+    """On Views, with the One event scope and a p interval in the link: the block shows its count of the whole
+    experiment; Densest (the scope's default) draws the densest candidate, event 1, with its matching shower B
+    asked for in the cubes' request; the toolbar carries Pick for me, Most tilted and Densest; Pick for me sends a
+    uniform draw under the particle keys; every /api/event* request carries basis=experiment and no E₁/E₂/D key
+    (brief physics-subpages §10.2); "2-D ↗" carries the drawn event and shower with psub=event, and followed it
+    opens the Physics page's Event viewer on them (§5.2)."""
+    from test_browser_event import _fragment, _idle, _query, _wait_count, _watch
 
     base = models_live_server["base"]
     theme = _theme_module()
@@ -3931,9 +3994,9 @@ def test_the_3d_event_card_picks_from_the_particle_pool_and_links_to_the_event_i
         browser, page, problems, requests = _open(
             p, base, BASELINE_TABLE, fragment="&model=energy&voxel_scope=event&particle_p_min=6&particle_p_max=7")
         net = _watch(page)
-        _wait_count(page, COUNT_P67)
+        _wait_count(page, POOL_COUNT_P67)
         assert page.evaluate(_PARTICLE_SHOWN)
-        assert page.evaluate("() => document.getElementById('particle-count').textContent") == COUNT_P67
+        assert page.evaluate("() => document.getElementById('particle-count').textContent") == POOL_COUNT_P67
         _scroll_to(page, "vox-event")
         page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
         for card in ("vproj-xy", "vproj-xz", "vproj-yz"):
@@ -3948,6 +4011,7 @@ def test_the_3d_event_card_picks_from_the_particle_pool_and_links_to_the_event_i
         assert float(voxels[-1]["particle_p_min"]) == 6, voxels[-1]
         rasters = [q for q in _requests_of(requests, "/api/event") if "format" not in q]
         assert rasters and rasters[-1]["event_number"] == "1" and rasters[-1]["shower"] == "b", rasters
+        _assert_pool(_urls(requests), "the densest event's requests")
 
         tools = page.evaluate(_VOXEL_PICKERS, OPEN_2D)
         for name, label in (("pick", "Pick for me"), ("tilted", "Most tilted"), ("densest", "Densest")):
@@ -3975,28 +4039,30 @@ def test_the_3d_event_card_picks_from_the_particle_pool_and_links_to_the_event_i
         assert all(q["rule"] == "densest" and float(q["particle_p_min"]) == 6 for q in sent), sent
         assert "voxel_event" not in _hash(page) and _hash(page).get("voxel_shower") == "b", _hash(page)
         page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        sent = _assert_pool(_urls(requests), "the pickers' requests")
+        assert {path for path, _ in sent} >= {"/api/event", "/api/event/pick", "/api/event/candidates"}, sent
 
-        # "2-D ↗": the live link carries the drawn event and shower, the particle keys kept.
+        # "2-D ↗": the live link carries the drawn event and shower, the particle keys kept, and the viewer.
         link = f'.main .card[data-panel="vox-event"] {OPEN_2D}'
         tools = page.evaluate(_VOXEL_PICKERS, OPEN_2D)
         assert tools["open2d"], f"no {OPEN_2D} on the 3-D event card"
         assert tools["open2d"]["visible"] and tools["open2d"]["text"] == "2-D ↗", tools
-        assert tools["open2d"]["title"].startswith("Open this event in the Physics page's Event Inspector"), tools
+        assert tools["open2d"]["title"].startswith("Open this event in the Physics page's Event viewer"), tools
         page.hover(link)
         href = page.get_attribute(link, "href")
         assert urlparse(href).path == "/", href
         target = _fragment(href)
-        assert target["event"] == "1" and target["shower"] == "b", target
+        assert target["event"] == "1" and target["shower"] == "b" and target["psub"] == "event", target
         assert float(target["particle_p_min"]) == 6 and float(target["particle_p_max"]) == 7, target
         page.click(link)
         page.wait_for_url(re.compile(r"/#"), timeout=30_000)
-        page.wait_for_function("() => document.getElementById('event-grid-label')?.textContent.startsWith('Event 1,')",
-                               timeout=30_000)
+        status = _wait_viewer(page, 1, "B")
+        assert status == {"stat-mode": "Event viewer", "stat-event": "1", "stat-shower": "B"}, status
         assert page.input_value("#event-number") == "1"
         assert page.is_checked('input[name="event-shower"][value="b"]')
-        assert page.evaluate("() => document.getElementById('event-grid-label').textContent").startswith(
-            "Event 1, shower B:")
-        _wait_count(page, COUNT_P67)
+        _wait_count(page, POOL_COUNT_P67)
+        # The viewer's own requests draw on the whole experiment too.
+        _assert_pool(_urls(requests), "the Physics page's Event viewer")
         browser.close()
     assert problems == [], problems
 
@@ -4020,7 +4086,7 @@ def test_an_empty_pool_shows_the_empty_line_on_the_3d_event_pair_and_asks_for_no
     pair show the empty line as a notice (not an error), the pickers are shut with that line as their title, and
     the commit sends no /api/event/pick or /api/event request: the pool's request alone. No banner, no failed
     response."""
-    from test_browser_event import EMPTY_P78, _commit, _idle, _paths, _watch
+    from test_browser_event import _commit, _idle, _paths, _watch
 
     theme = _theme_module()
     with models_live_server["playwright"].sync_playwright() as p:
@@ -4034,10 +4100,11 @@ def test_an_empty_pool_shows_the_empty_line_on_the_3d_event_pair_and_asks_for_no
         _commit(page, net, [("pp-num-hi", 8)], wait_for="N = 2 events")
         # The commit that empties the pool asks for the pool alone: no pick, no event.
         sent = _commit(page, net, [("pp-num-lo", 7)], wait_for="N = 0")
-        _assert_empty_pair(page, EMPTY_P78)
+        _assert_empty_pair(page, POOL_EMPTY_P78)
         _idle(page, net)
         assert _paths(sent) == ["/api/event/candidates"], sent
-        assert page.evaluate("() => document.getElementById('particle-count').textContent") == EMPTY_P78
+        _assert_pool(sent, "the pool's count")
+        assert page.evaluate("() => document.getElementById('particle-count').textContent") == POOL_EMPTY_P78
         assert page.evaluate("() => document.getElementById('banner').hidden")
         browser.close()
     assert problems == [], problems
@@ -4047,15 +4114,15 @@ def test_a_link_opened_on_an_empty_pool_asks_for_no_pick_and_no_event(models_liv
     """Brief particle-filter §8.3: "Page 2 with no voxel_event shows the emptyLine in place of the event pair's
     plots and requests neither /api/event/pick nor /api/event", here for a link that opens the One event scope on
     an empty pool (p 7-8 GeV): the same line, no event drawn, no pick asked for, and so no failed response."""
-    from test_browser_event import EMPTY_P78, _wait_count
+    from test_browser_event import _wait_count
 
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(
             p, models_live_server["base"], BASELINE_TABLE,
             fragment="&model=energy&voxel_scope=event&particle_p_min=7&particle_p_max=8")
-        _wait_count(page, EMPTY_P78)
+        _wait_count(page, POOL_EMPTY_P78)
         _scroll_to(page, "vox-event")
-        _assert_empty_pair(page, EMPTY_P78)
+        _assert_empty_pair(page, POOL_EMPTY_P78)
         _quiet(page)
         assert not _requests_of(requests, "/api/event"), _urls(requests)
         assert page.evaluate("() => document.getElementById('banner').hidden")
@@ -4067,18 +4134,335 @@ def test_a_link_opened_on_an_empty_pool_asks_for_no_pick_and_no_event(models_liv
 def test_the_particle_block_shows_on_views_only(models_live_server):
     """The block belongs to the 3-D event pair's pickers: shown on Views, hidden (by CSS) on Distillations and
     Performance, and shown again on Views with its count kept."""
-    from test_browser_event import COUNT_OFF, _wait_count
+    from test_browser_event import _wait_count
 
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, _ = _open(p, models_live_server["base"], BASELINE_TABLE)
-        _wait_count(page, COUNT_OFF)
+        _wait_count(page, POOL_COUNT_OFF)
         assert page.evaluate(_PARTICLE_SHOWN)
         for msub in ("distill", "perf"):
             _show_subpage(page, msub)
             assert not page.evaluate(_PARTICLE_SHOWN), msub
         _show_subpage(page, "views")
         assert page.evaluate(_PARTICLE_SHOWN)
-        assert page.evaluate("() => document.getElementById('particle-count').textContent") == COUNT_OFF
+        assert page.evaluate("() => document.getElementById('particle-count').textContent") == POOL_COUNT_OFF
+        browser.close()
+    assert problems == [], problems
+
+
+# ------------------------------------------- the pool of the whole experiment --
+#
+# Brief physics-subpages §10.2 (Martin's decision of 2026-11-16): the 3-D event's pickers draw from every event of
+# the experiment, narrowed by the particle filter alone. An E₁/E₂/D commit steers the Selection scope and the cloud
+# and never touches the One event scope.
+
+def _commit_e1(page, net, value):
+    """Type E₁'s lower bound and press Enter: one commit. Wait until the link carries a new `e1_min`, then until the
+    page has asked and answered everything the commit caused. The requests it sent."""
+    from test_browser_event import _idle
+
+    before = page.evaluate("() => new URLSearchParams(location.hash.slice(1)).get('e1_min')")
+    start = len(net["urls"])
+    page.fill("#e1-num-lo", f"{value:.2f}")
+    page.press("#e1-num-lo", "Enter")
+    page.wait_for_function("(prev) => { const v = new URLSearchParams(location.hash.slice(1)).get('e1_min');"
+                           " return v !== null && v !== prev; }", arg=before, timeout=10_000)
+    _idle(page, net)
+    _quiet(page)
+    _idle(page, net)
+    return net["urls"][start:]
+
+
+def _paths_of(urls, path):
+    return [{k: v[0] for k, v in parse_qs(urlparse(u).query).items()} for u in urls if urlparse(u).path == path]
+
+
+def test_an_e1_commit_on_views_leaves_the_3d_event_and_reloads_the_selection_and_the_cloud(models_live_server):
+    """On the One event scope, two Pick for me draws (seed 42, draws 0 and 1: events 1 then 0 on this file) leave
+    event 0, whose E₁ = 2.71 GeV a cut at 4 GeV takes out of the selection. The commit sends no /api/event*
+    request: the event, its shower, its caption and the drawn cubes stay, and the next Pick for me is draw 2 with
+    no E₁ key (the counter is carried). The Selection scope then draws under the cut and reloads on the next
+    commit, and so does the D-frame's cloud: their requests carry e1_min, and still no /api/event* request is
+    sent. Every One event request carries basis=experiment and no E₁/E₂/D key."""
+    from test_browser_event import _idle, _watch
+
+    theme = _theme_module()
+    card = '.main .card[data-panel="vox-event"]'
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE,
+                                                  fragment="&model=energy&voxel_scope=event")
+        net = _watch(page)
+        _scroll_to(page, "vox-event")
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        _idle(page, net)
+        for _ in range(2):
+            page.click(f"{card} [data-voxel-pick]")
+            _idle(page, net)
+            page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        picks = [q for path, q in _assert_pool(net["urls"], "the two picks") if path == "/api/event/pick"]
+        assert [(q["rule"], q["seed"], q["draw"]) for q in picks] == [("uniform", "42", "0"), ("uniform", "42", "1")]
+        pinned = _hash(page)
+        assert pinned.get("voxel_event") == "0", pinned
+        caption = page.evaluate(_EVENT_CAPTION)
+        assert caption and "draw 1" in caption, caption
+
+        # E₁ ≥ 4 GeV: event 0 leaves the selection, but not the pool; nothing of the One event scope moves.
+        sent = _commit_e1(page, net, 4.0)
+        assert _event_urls(sent) == [], sent
+        kept = _hash(page)
+        assert kept.get("e1_min") and float(kept["e1_min"]) == pytest.approx(4.0, abs=0.05), kept
+        assert (kept.get("voxel_event"), kept.get("voxel_shower")) == (pinned.get("voxel_event"),
+                                                                     pinned.get("voxel_shower")), kept
+        assert page.evaluate(_EVENT_CAPTION) == caption
+        assert page.evaluate(_SCOPE)["title"] == "One Event in 3-D — Detector Cells"
+        assert page.evaluate(_CARD, "vox-event")["message"] is None
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+
+        # The draw counter is carried: the next Pick for me is draw 2, from the whole experiment.
+        start = len(net["urls"])
+        page.click(f"{card} [data-voxel-pick]")
+        _idle(page, net)
+        picks = [q for path, q in _assert_pool(net["urls"][start:], "the pick after the commit")
+                 if path == "/api/event/pick"]
+        assert [(q["rule"], q["draw"]) for q in picks] == [("uniform", "2")], picks
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+
+        # The Selection scope draws under the cut, and reloads on the next commit.
+        start = len(net["urls"])
+        page.click(f'{card} [data-voxel-scope="selection"]')
+        page.wait_for_function(f"() => document.querySelector('{card} .title')?.textContent"
+                               " === 'The Selection in 3-D — Detector Cells'", timeout=30_000)
+        _idle(page, net)
+        _settled(page, "vox-event")
+        cells = _paths_of(net["urls"][start:], "/api/selection-cells")
+        assert cells and all(float(q["e1_min"]) == pytest.approx(4.0, abs=0.05) for q in cells), cells
+        sent = _commit_e1(page, net, 3.5)
+        cells = _paths_of(sent, "/api/selection-cells")
+        assert cells and all(float(q["e1_min"]) == pytest.approx(3.5, abs=0.05) for q in cells), sent
+        assert _event_urls(sent) == [], sent
+
+        # The D-frame's cloud reloads on a commit; the One event scope still asks for nothing.
+        _choose_frame(page, "canonical")
+        _scroll_to(page, "vox-ensemble")
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-ensemble", timeout=30_000)
+        _idle(page, net)
+        sent = _commit_e1(page, net, 3.0)
+        cloud = _paths_of(sent, "/api/voxels")
+        assert cloud and all(float(q["e1_min"]) == pytest.approx(3.0, abs=0.05) for q in cloud), sent
+        assert _event_urls(sent) == [], sent
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-ensemble", timeout=30_000)
+
+        _assert_pool(_urls(requests), "every One event request")
+        browser.close()
+    assert problems == [], problems
+
+
+def test_every_one_event_request_draws_on_the_whole_experiment(models_live_server):
+    """With an E₁/E₂/D cut and a p bound in the link, the One event scope's every request - the Densest pick, the
+    raster and the cubes, Pick for me, Most tilted, Densest again, previous / next - carries basis=experiment, the
+    particle keys and no E₁/E₂/D key (a 422 otherwise, brief §3.1), and none of them fails. The link's cut keeps
+    event 1 alone in the selection; the pool (p ≤ 13 GeV: every event, through a shower of each) holds both."""
+    from test_browser_event import _idle, _watch
+
+    theme = _theme_module()
+    card = '.main .card[data-panel="vox-event"]'
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(
+            p, models_live_server["base"], BASELINE_TABLE,
+            fragment="&model=energy&voxel_scope=event&e1_min=4&particle_p_max=13")
+        net = _watch(page)
+        _scroll_to(page, "vox-event")
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        _idle(page, net)
+        for button in ("[data-voxel-pick]", "[data-voxel-tilted]", "[data-voxel-densest]", "[data-voxel-pick]"):
+            page.click(f"{card} {button}")
+            _idle(page, net)
+            page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        for step in ("next", "prev"):
+            if page.evaluate(f"() => !document.querySelector('{card} [data-voxel-step=\"{step}\"]').disabled"):
+                page.click(f'{card} [data-voxel-step="{step}"]')
+                _idle(page, net)
+                page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        sent = _assert_pool(_urls(requests), "the One event scope")
+        rules = [q["rule"] for path, q in sent if path == "/api/event/pick"]
+        assert {"densest", "uniform", "tilted"} <= set(rules), rules
+        events = [q for path, q in sent if path == "/api/event"]
+        assert any(q.get("format") == "voxels" for q in events) and any("format" not in q for q in events), events
+        assert all(q.get("particle_p_max") and float(q["particle_p_max"]) == 13 for _, q in sent), sent
+        # Both events were drawn at some point: the E₁ cut, which holds event 0 out of the selection, did not
+        # narrow the pickers.
+        assert {q["event_number"] for q in events} == {"0", "1"}, events
+        # The Physics-page key the link brought stays a selection key: the cut is still in the hash.
+        assert float(_hash(page).get("e1_min", "nan")) == pytest.approx(4.0, abs=0.05), _hash(page)
+        browser.close()
+    assert problems == [], problems
+
+
+#: A text's contrast against the ground it is drawn on, read off the computed styles: its colour (alpha blended)
+#: against the first opaque background among its ancestors (the card), as WCAG 2 defines the ratio.
+_TEXT_CONTRAST = """(el) => {
+  // Any CSS colour syntax (rgb, color(srgb ...), oklch ...) resolved by painting it on a 1 x 1 canvas.
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+  const g = canvas.getContext('2d', { willReadFrequently: true });
+  const paint = (colour, alpha = 1) => { g.globalAlpha = alpha; g.fillStyle = '#000'; g.fillStyle = colour;
+    g.fillRect(0, 0, 1, 1); g.globalAlpha = 1; };
+  const read = () => [...g.getImageData(0, 0, 1, 1).data];
+  let ground = null;
+  for (let a = el; a && !ground; a = a.parentElement) {
+    g.clearRect(0, 0, 1, 1); paint(getComputedStyle(a).backgroundColor);
+    const c = read(); if (c[3] === 255) ground = getComputedStyle(a).backgroundColor;
+  }
+  ground = ground || '#ffffff';
+  let opacity = 1;
+  for (let a = el; a; a = a.parentElement) opacity *= Number(getComputedStyle(a).opacity);
+  g.clearRect(0, 0, 1, 1); paint(ground); const bg = read().slice(0, 3);
+  paint(getComputedStyle(el).color, opacity); const ink = read().slice(0, 3);
+  const lum = (rgb) => rgb.map((c) => { const s = c / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; })
+    .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const [hi, lo] = [lum(ink), lum(bg)].sort((a, b) => b - a);
+  return { ratio: (hi + 0.05) / (lo + 0.05), ink: `rgb(${ink})`, ground: `rgb(${bg})` };
+}"""
+
+#: A 3-D card's standing line of the channels the experiment cannot serve (voxel_views.js `syncShutLines`): its
+#: text, whether it is laid out, its box against the card's plot, and its contrast.
+_SHUT_LINE = """(id) => {
+  const card = document.querySelector(`.main .card[data-panel="${id}"]`);
+  const el = card?.querySelector('[data-voxel-shut]');
+  if (!el) return null;
+  const box = el.getBoundingClientRect();
+  const plot = card.querySelector('.plot-frame').getBoundingClientRect();
+  return { text: el.textContent, hidden: el.hidden, laidOut: el.offsetParent !== null && box.height > 0 && box.width > 0,
+           abovePlot: box.bottom <= plot.top + 0.5 };
+}"""
+
+#: The standing lines brief physics-subpages §10.2 fixes, by experiment and card: the labels in menu order, then
+#: the reason (labels.js labels; the reason is the server's, pinned by the Node tests, and read as a sentence here).
+#: They name the network channels alone (Martin's decision of 2026-11-16), so the two-shower baseline, which lacks
+#: only the species columns, has none (`test_a_two_shower_card_has_no_line_and_the_species_option_its_title`).
+SHUT_LINES = [
+    (SINGLE_HITS_TABLE, "&voxel_scope=event", "vox-event",
+     "Unavailable for this experiment: Grad-CAM Model Attention, Shap-CAM Attribution, Segmentation error. "),
+    (SINGLE_HITS_TABLE, "&frame=local", "vox-ensemble", "Unavailable for this experiment: Energy-weighted Grad-CAM"),
+]
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+@pytest.mark.parametrize(("table", "fragment", "card", "prefix"), SHUT_LINES, ids=["single-event", "single-cloud"])
+def test_the_3d_card_states_the_channels_the_experiment_cannot_serve(models_live_server, table, fragment, card,
+                                                                     prefix, scheme):
+    """The standing "Unavailable for this experiment" line (brief §10.2): visible text between the caption and the
+    plot, never a tooltip alone, on the single-shower hits' event and cloud cards, in both themes, its text at 4.5:1
+    or more on the card."""
+    theme = _theme_module()
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, _ = _open(p, models_live_server["base"], table, fragment=fragment, scheme=scheme)
+        _scroll_to(page, card)
+        page.wait_for_function(theme._GL_DRAWN, arg=card, timeout=30_000)
+        page.wait_for_function("(id) => (document.querySelector(`.main .card[data-panel=\"${id}\"] [data-voxel-shut]`)"
+                               "?.textContent ?? '').startsWith('Unavailable')", arg=card, timeout=10_000)
+        line = page.evaluate(_SHUT_LINE, card)
+        if line is not None:
+            line.update(page.eval_on_selector(f'.main .card[data-panel="{card}"] [data-voxel-shut]', _TEXT_CONTRAST))
+        browser.close()
+    assert problems == [], problems
+    assert line is not None, f"no standing line on {card}"
+    assert line["text"].startswith(prefix), line["text"]
+    # One sentence per reason: the labels, then a reason of its own, closed by a full stop.
+    reason = line["text"][len("Unavailable for this experiment: "):].split(". ", 1)
+    assert len(reason) == 2 and reason[1].strip().endswith("."), line["text"]
+    assert not line["hidden"] and line["laidOut"] and line["abovePlot"], line
+    assert line["ratio"] >= 4.5, (scheme, line)
+
+
+def test_a_two_shower_card_has_no_line_and_the_species_option_its_title(models_live_server):
+    """Martin's decision of 2026-11-16: the standing line names the network channels alone. The two-shower baseline
+    serves every network channel and lacks only the species columns, so its 3-D event card shows no line, and the
+    species option stays in the menu, disabled, with the server's reason as its title, as before the line existed."""
+    theme = _theme_module()
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, _ = _open(p, models_live_server["base"], BASELINE_TABLE,
+                                           fragment="&model=energy&voxel_scope=event")
+        _scroll_to(page, "vox-event")
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        line = page.evaluate(_SHUT_LINE, "vox-event")
+        species = page.evaluate("""() => { const o = document.querySelector(
+          '.main .card[data-panel="vox-event"] select option[value="species"]');
+          return o ? { disabled: o.disabled, title: o.title } : null; }""")
+        browser.close()
+    assert problems == [], problems
+    assert line is not None and line["hidden"] and line["text"] == "", line
+    assert species is not None and species["disabled"], species
+    assert species["title"].startswith("Needs the particle_type and is_secondary columns"), species
+
+
+def test_open_in_3d_from_the_event_viewer_and_2d_back_land_on_the_same_event_and_shower(models_live_server):
+    """The round trip of brief physics-subpages §5.2 and §13: the Physics page's Event viewer on event 1, shower B;
+    its "Open in 3-D →" carries the event and shower as voxel_event / voxel_shower with the One event scope, and
+    followed lands on Views with the 3-D event card drawing event 1 (no pick: a linked event is drawn as asked),
+    its raster and cubes asked for under basis=experiment. That card's "2-D ↗" carries event 1, shower B and
+    psub=event, and followed lands in the Physics page's Event viewer on them, its nine panels drawn."""
+    from test_browser_event import _fragment
+
+    base = models_live_server["base"]
+    theme = _theme_module()
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch(args=GL_ARGS)
+        page = browser.new_page(color_scheme="dark", viewport={"width": 1600, "height": 900})
+        problems, requests = [], []
+        page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
+        page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
+        page.on("response", lambda r: problems.append(f"HTTP {r.status} {r.url}") if r.status >= 400 else None)
+        page.on("request", lambda r: requests.append((r.method, r.url)) if "/api/" in r.url else None)
+        page.goto(f"{base}/#table_name={BASELINE_TABLE}&psub=event&event=1&shower=b")
+        status = _wait_viewer(page, 1, "B")
+        assert status == {"stat-mode": "Event viewer", "stat-event": "1", "stat-shower": "B"}, status
+        _assert_pool(_urls(requests), "the Event viewer")
+
+        # "Open in 3-D →": a live link to Views, the event and shower in the Models page's own keys.
+        page.wait_for_function("() => { const a = document.getElementById('event-open-3d');"
+                               " return a && !a.hidden && a.getClientRects().length > 0; }", timeout=10_000)
+        page.hover("#event-open-3d")
+        href = page.get_attribute("#event-open-3d", "href")
+        assert urlparse(href).path == "/models", href
+        target = _fragment(href)
+        assert (target.get("voxel_event"), target.get("voxel_shower"), target.get("voxel_scope")) == ("1", "b", "event"), \
+            target
+        assert "msub" not in target, target
+        start = len(requests)
+        page.click("#event-open-3d")
+        page.wait_for_url(re.compile(r"/models#"), timeout=30_000)
+        page.wait_for_function(
+            "(t) => document.getElementById('experiment-select')?.value === t "
+            "&& document.getElementById('stat-kind')?.textContent.trim() !== '—'", arg=BASELINE_TABLE, timeout=30_000)
+        _wait_subpage(page, "views")
+        _scroll_to(page, "vox-event")
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        for card in ("vproj-xy", "vproj-xz", "vproj-yz"):
+            _scroll_to(page, card)
+        scope = page.evaluate(_SCOPE)
+        assert scope["title"] == "One Event in 3-D — Detector Cells" and scope["event"]["pressed"] == "true", scope
+        landed = _hash(page)
+        assert (landed.get("voxel_event"), landed.get("voxel_shower")) == ("1", "b"), landed
+        sent = _assert_pool([u for m, u in requests[start:] if m == "GET"], "the 3-D event's requests")
+        rasters = [q for path, q in sent if path == "/api/event" and "format" not in q]
+        cubes = [q for path, q in sent if path == "/api/event" and q.get("format") == "voxels"]
+        assert rasters and all((q["event_number"], q["shower"]) == ("1", "b") for q in rasters), rasters
+        assert cubes and all(q["event_number"] == "1" for q in cubes), cubes
+        assert not [q for path, q in sent if path == "/api/event/pick"], sent
+
+        # "2-D ↗": back to the Physics page's Event viewer on the same event and shower.
+        link = f'.main .card[data-panel="vox-event"] {OPEN_2D}'
+        page.hover(link)
+        back = page.get_attribute(link, "href")
+        assert urlparse(back).path == "/", back
+        fragment = _fragment(back)
+        assert (fragment.get("event"), fragment.get("shower"), fragment.get("psub")) == ("1", "b", "event"), fragment
+        page.click(link)
+        page.wait_for_url(re.compile(r"^[^#]*/#"), timeout=30_000)
+        status = _wait_viewer(page, 1, "B")
+        assert status == {"stat-mode": "Event viewer", "stat-event": "1", "stat-shower": "B"}, status
+        assert page.input_value("#event-number") == "1"
+        _assert_pool(_urls(requests), "the round trip")
         browser.close()
     assert problems == [], problems
 

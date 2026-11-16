@@ -21,12 +21,22 @@ which is the backend's payload and so the contract. Around it:
   card and the rebuild offer on a stale one;
 * ``frame_views.js`` / ``export/disclosure.js``: single-shower wording keyed
   off the experiment's showers per event, and the Local frame's C9 sentence;
-* ``main.js`` / ``event_inspector.js`` with the Particle Filter, the page
-  booted whole: a particle commit asks for the candidates and the pinned event
-  only; the follow policy replaces a picked event that left the pool and
-  flags a linked one; Pick for me's draws and Most tilted's seeds; the shower
-  focus of a pick and a step; N = 0 shutting the pickers with the empty line;
-  the "Open in 3-D" link's href and title.
+* ``main.js`` / ``event_inspector.js`` with the subpages and the Particle
+  Filter, the page booted whole (brief physics-subpages §10.1): a cold boot on
+  Entire selection sends no /api/event* request and the viewer no ensemble
+  one; an E₁ commit refreshes the ensemble alone and leaves the viewer's event
+  and N; entering the viewer draws Pick for me at draw 0, or at N = 0 shows the
+  empty line and sends no pick; leaving it parks the event with no request and
+  coming back draws it from the response in hand; an old ``#event=N`` link
+  opens the viewer; ``psub`` is never written for Entire selection; the
+  viewer's status bar and Query readout; a particle commit asks for the
+  candidates and the pinned event only; the follow policy replaces a picked
+  event that left the pool and flags a linked one; Pick for me's draws and
+  Most tilted's seeds; the shower focus of a pick and a step; the "Open in
+  3-D" link's href and title; the standalone viewer with its greyed, titled
+  channels and models and the ``#channel-shut`` line; the aggregate's shut tab
+  and fallback; a deep link switching to its card's subpage. Every pool
+  request is checked for ``basis=experiment`` and no E₁/E₂/D key.
 
 The DOM-bound modules run against a minimal fake document (below): enough of
 createElement, text nodes, attributes, classes and listeners for the code
@@ -1786,24 +1796,43 @@ def test_a_single_showers_frames_are_titled_without_the_d_frame(wording_results)
 
 
 
-# ------------------------------------------- the particle filter on the page --
+# --------------------------------- the subpages and the particle filter on the page --
 #
 # ``main.js`` booted whole (test_js_layer_groups_physics.py ``PAGE_BOOT``), with
-# routes that answer the event pickers from a small editable world: which of
-# the two baseline events are candidates, what a pick draws, whether the pick
-# finds none. Every expected sentence, title and href is computed by the
-# function that writes it (event_picker.js), never hard-coded.
+# routes that answer the event pickers from a small editable world under
+# ``basis=experiment`` (brief physics-subpages §3, §10.1): which of the two
+# baseline events are candidates, what a pick draws, whether the pick finds
+# none, whether the pool is empty. Every /api/event* request must carry
+# ``basis=experiment`` and no E₁/E₂/D key - the server refuses one (422) and the
+# routes record it. Every expected sentence, title and readout is computed by
+# the function that writes it (event_picker.js, physics_subpages.js,
+# capabilities.js, frame_views.js), never hard-coded.
 
 _PARTICLE_PRE_BOOT = r"""
 const pf = await import(`${jsRoot}/event_picker.js`);
+const ps = await import(`${jsRoot}/physics_subpages.js`);
+const caps = await import(`${jsRoot}/capabilities.js`);
+const fv = await import(`${jsRoot}/frame_views.js`);
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const world = {
   inPool: { 0: true, 1: true },
   matched: { 0: ['a', 'b'], 1: ['a', 'b'] },
-  pickEvents: [1, 0],
+  pickEvents: scenario === 'selection' ? [0, 1] : [1, 0],
   pickMatched: null,
   pickRefused: false,
-  candidates: 'candidates_base_off',
+  candidates: scenario === 'empty' ? 'empty' : 'pool',
+  candidatesFail: false,
+  lastEvent: null,
+  lastCandidates: null,
+};
+// The server's refusal under basis=experiment (brief §3.1), and a pool request sent without the basis.
+const EVENT_FILTER_KEYS = ['e1_min', 'e1_max', 'e2_min', 'e2_max', 'd_min', 'd_max', 'include_undefined_d'];
+const violations = [];
+const refused = (path, q) => {
+  if (q.get('basis') !== 'experiment') violations.push(`${path}: no basis=experiment`);
+  const bad = EVENT_FILTER_KEYS.filter((k) => q.has(k));
+  if (bad.length) violations.push(`${path}: ${bad.join(', ')}`);
+  return bad.length > 0;
 };
 const echoOf = (q) => {
   const read = (k) => (q.has(k) ? Number(q.get(k)) : null);
@@ -1813,9 +1842,19 @@ const echoOf = (q) => {
     theta_rad: theta.map((v) => (v === null ? null : (v * Math.PI) / 180)) };
 };
 const pool = () => [0, 1].filter((n) => world.inPool[n]);
+const single = (q) => q.get('table_name') === 'single_hits';
+const REFUSED = { __status: 422, detail: 'e1_min does not apply with basis=experiment.' };
 ROUTES['/api/event'] = (q) => {
-  const body = clone(load('event_raster_base'));
+  if (refused('/api/event', q)) return REFUSED;
   const n = Number(q.get('event_number'));
+  if (single(q)) {
+    const body = clone(load('event_raster_single_experiment'));
+    body.event.event_number = n;
+    body.meta.total_ms = 3.5;
+    world.lastEvent = body;
+    return body;
+  }
+  const body = clone(load('event_raster_base_experiment'));
   const shower = q.get('shower') || 'a';
   const events = pool();
   const at = events.indexOf(n);
@@ -1825,24 +1864,89 @@ ROUTES['/api/event'] = (q) => {
   body.event.shower.key = shower;
   body.event.shower.label = shower.toUpperCase();
   body.event.candidates = {
-    particle: echoOf(q), in_pool: at >= 0, index: at >= 0 ? at : null, n_events: events.length,
-    matched: at >= 0 ? world.matched[n] : [],
+    basis: 'experiment', particle: echoOf(q), in_pool: at >= 0, index: at >= 0 ? at : null,
+    n_events: events.length, matched: at >= 0 ? world.matched[n] : [],
     prev_matched: prev === null ? null : world.matched[prev],
     next_matched: next === null ? null : world.matched[next],
   };
+  body.meta.total_ms = 3.5;
+  world.lastEvent = body;
   return body;
 };
 ROUTES['/api/event/pick'] = (q) => {
-  if (world.pickRefused) return { __status: 404, detail: 'The selection holds no candidate event.' };
-  const body = clone(load('pick_base_uniform'));
-  const k = q.get('rule') === 'tilted' ? Number(q.get('seed')) - 42 : Number(q.get('draw') ?? 0);
+  if (refused('/api/event/pick', q)) return REFUSED;
+  if (world.pickRefused) return { __status: 404, detail: 'The experiment holds no event with a defined separation to pick from.' };
+  if (scenario === 'pickFail') return { __status: 503, detail: 'Service Unavailable' };
+  if (single(q)) return clone(load('pick_single_uniform_experiment'));
+  const body = clone(load('pick_base_uniform_experiment'));
+  const draw = Number(q.get('draw') ?? 0);
+  const k = q.get('rule') === 'tilted' ? Number(q.get('seed')) - 42 : draw;
   body.event_number = world.pickEvents[k % world.pickEvents.length];
-  body.draw = Number(q.get('draw') ?? 0);
+  body.draw = draw;
+  body.rule = body.rule.replace('draw 0', `draw ${draw}`);
   body.matched = world.pickMatched ?? ['a', 'b'];
   return body;
 };
-ROUTES['/api/event/candidates'] = () => (world.candidatesFail
-  ? { __status: 503, detail: 'Service Unavailable' } : load(world.candidates));
+const emptyPool = () => {
+  const body = clone(load('candidates_base_experiment'));
+  Object.assign(body.candidates, { n_events: 0, n_showers: 0, by_shower: { a: 0, b: 0 }, n_both: 0 });
+  return body;
+};
+ROUTES['/api/event/candidates'] = (q) => {
+  if (refused('/api/event/candidates', q)) return REFUSED;
+  if (world.candidatesFail) return { __status: 503, detail: 'Service Unavailable' };
+  if (single(q)) return clone(load('candidates_single_experiment'));
+  const body = world.candidates === 'empty' ? emptyPool() : clone(load('candidates_base_experiment'));
+  body.candidates.particle = echoOf(q);
+  world.lastCandidates = body;
+  return body;
+};
+// The ensemble's responses carry their query time, for the status bar's per-subpage readout.
+const projectionsOf = ROUTES['/api/projections'];
+ROUTES['/api/projections'] = (q) => {
+  const body = projectionsOf(q);
+  body.meta.total_ms = 12.5;
+  body.meta.cached = false;
+  return body;
+};
+// The channel and model radios, each in its label, so the greyed ones' titles can be read back.
+const RADIO_VALUES = { channel: ['density', 'gradcam', 'gradcam_energy', 'shapcam', 'shapcam_energy'],
+  model: ['segmentation', 'energy', 'angle'] };
+const radios = {};
+for (const [name, values] of Object.entries(RADIO_VALUES)) {
+  radios[name] = values.map((value) => {
+    const label = new FakeElement('label');
+    label.className = 'choice';
+    label.setAttribute('title', `${value}: the markup's title`);
+    const input = new FakeElement('input');
+    input.value = value;
+    input.name = name;
+    input.label = label;
+    input.closest = (selector) => (selector === 'label' || selector === '.choice' ? label : null);
+    return input;
+  });
+}
+const allInputs = document.querySelectorAll;
+document.querySelectorAll = (selector) => {
+  const radio = /^input\[name="(channel|model)"\]$/.exec(selector);
+  return radio ? radios[radio[1]] : allInputs(selector);
+};
+// A Methodology badge's link (brief §10.1 deep links), to a card the fake document holds or to none.
+if (scenario === 'deeplinkSelection') location.search = '?panel=xy';
+if (scenario === 'deeplinkEvent') location.search = '?panel=event-lab-xy';
+if (scenario === 'deeplinkUnknown') location.search = '?panel=no-such-card';
+const linkedCards = {};
+for (const id of ['xy', 'event-lab-xy']) {
+  const card = new FakeElement('div');
+  card.className = 'card';
+  card.dataset.panel = id;
+  linkedCards[id] = card;
+}
+const allQueries = document.querySelector;
+document.querySelector = (selector) => {
+  const card = /\.card\[data-panel="([^"]+)"\]$/.exec(selector);
+  return card && linkedCards[card[1]] ? linkedCards[card[1]] : allQueries(selector);
+};
 // The markup's step titles (index.html carries event_picker.js STEP_TITLES), which N = 0 replaces and N > 0
 // gives back.
 byId('event-prev').setAttribute('title', pf.STEP_TITLES.prev);
@@ -1852,8 +1956,9 @@ process.on('unhandledRejection', (reason) => unhandled.push(String(reason?.messa
 """
 
 _PARTICLE_SCENARIOS = r"""
-const out = { boot: requests.map((r) => r.path) };
+const out = { boot: requests.map((r) => r.path), bootHash: location.hash, violations, unhandled };
 const after = (at) => requests.slice(at).map((r) => ({ path: r.path, params: r.params }));
+const pathsAfter = (at) => requests.slice(at).map((r) => r.path);
 const commitP = async (value) => {
   const field = byId('pp-num-lo');
   field.value = String(value);
@@ -1866,6 +1971,10 @@ const commitE1 = async (value) => {
   field.dispatch('change');
   await settle(80);
 };
+const tab = async (psub) => {
+  byId(`psub-tab-${psub}`).click();
+  await settle();
+};
 const caption = () => byId('event-caption').textContent;
 const button = (id) => ({ disabled: byId(id).disabled, title: byId(id).getAttribute('title') });
 const link = () => {
@@ -1876,25 +1985,97 @@ const titles = () => ({
   pick: button('event-pick'), tilted: button('event-pick-tilted'),
   prev: button('event-prev'), next: button('event-next'),
 });
+const view = () => ({
+  selection: !byId('psub-selection').hidden, event: !byId('psub-event').hidden,
+  chip: byId('stat-mode').textContent,
+  tabs: ['selection', 'event'].map((p) => byId(`psub-tab-${p}`).getAttribute('aria-selected')),
+  ensemble: !byId('ensemble-grid').hidden, eventGrid: !byId('event-grid-rows').hidden,
+  empty: !byId('event-empty').hidden, emptyText: byId('event-empty-text').textContent,
+});
+const STATUS = ['stat-event', 'stat-shower', 'stat-p', 'stat-theta', 'stat-cells', 'stat-ev-edep', 'stat-place'];
+const status = () => Object.fromEntries(STATUS.map((id) => [id, byId(id).textContent]));
+const expectedStatus = (payload, nShowers) => {
+  const s = ps.eventStatus(payload, { nShowers });
+  return { 'stat-event': s.event, 'stat-shower': s.shower, 'stat-p': s.p, 'stat-theta': s.theta,
+    'stat-cells': s.cells, 'stat-ev-edep': s.edep, 'stat-place': s.place };
+};
+const latency = () => byId('stat-latency').textContent;
+const hashOf = () => Object.fromEntries(new URLSearchParams(location.hash.slice(1)));
+out.expected = {};
+
+if (scenario === 'selection') {
+  // A cold boot on Entire selection; then the viewer, its first draw, Next, and back and forth.
+  out.bootView = view();
+  out.bootLatency = latency();
+  out.unpinnedLink = link();
+  out.shut = { hidden: byId('channel-shut').hidden, text: byId('channel-shut').textContent };
+  out.radios = Object.fromEntries(Object.entries(radios).map(([name, list]) => [name, Object.fromEntries(
+    list.map((i) => [i.value, { disabled: i.disabled, title: i.label.getAttribute('title') }]))]));
+  out.showerItemHidden = byId('stat-shower-item').hidden;
+  let at = requests.length;
+  await commitE1(3);
+  out.e1 = { paths: pathsAfter(at), hash: location.hash };
+  at = requests.length;
+  await tab('event');
+  out.enter = { requests: after(at), hash: location.hash, caption: caption(), view: view(), status: status(),
+    latency: latency(), count: byId('particle-count').textContent, link: link() };
+  out.expected.firstRule = load('pick_base_uniform_experiment').rule;
+  out.expected.firstStatus = expectedStatus(world.lastEvent, 2);
+  out.expected.pool = pf.poolLine(world.lastEvent.event, { nShowers: 2 });
+  out.expected.line = fv.eventSelectionLine(world.lastEvent.event, { nShowers: 2 });
+  at = requests.length;
+  byId('event-next').click();
+  await settle();
+  out.next = { requests: after(at), hash: location.hash, status: status() };
+  out.expected.nextStatus = expectedStatus(world.lastEvent, 2);
+  // Back to Entire selection: the event is parked in memory and nothing is asked.
+  at = requests.length;
+  await tab('selection');
+  out.park = { paths: pathsAfter(at), hash: location.hash, view: view(), latency: latency() };
+  // An E1 commit there: the ensemble alone.
+  at = requests.length;
+  await commitE1(4);
+  out.parkedE1 = { paths: pathsAfter(at), hash: location.hash };
+  // Back to the viewer: the parked event from the response in hand, with no request; N as it was.
+  at = requests.length;
+  await tab('event');
+  out.unpark = { paths: pathsAfter(at), hash: location.hash, view: view(), status: status(), caption: caption(),
+    count: byId('particle-count').textContent, latency: latency() };
+}
+
+if (scenario === 'legacy') {
+  // An old #event=0 link opens the viewer on that event; Entire selection loads when first shown.
+  out.bootView = view();
+  out.caption = caption();
+  let at = requests.length;
+  await tab('selection');
+  out.selection = { paths: pathsAfter(at), hash: location.hash, view: view() };
+  at = requests.length;
+  await tab('event');
+  out.back = { paths: pathsAfter(at), hash: location.hash, view: view() };
+  // The reader empties the event number: the viewer says how to draw one, and asks nothing.
+  at = requests.length;
+  const field = byId('event-number');
+  field.value = '';
+  field.dispatch('change');
+  await settle();
+  out.cleared = { paths: pathsAfter(at), hash: location.hash, view: view(), status: status(),
+    link: link() };
+  out.expected.cleared = (await import(`${jsRoot}/event_inspector.js`)).CLEARED_LINE;
+}
 
 if (scenario === 'pick') {
-  out.unpinnedLink = link();
-  let at = requests.length;
-  byId('event-pick').click();
-  await settle();
-  out.first = { requests: after(at), caption: caption(), link: link(), hash: location.hash };
-  const pick = load('pick_base_uniform');
-  out.expected = {
-    rule: pick.rule,
-    place: pf.placeLine({ in_pool: true, index: 1, n_events: 2, matched: ['a', 'b'],
-      particle: { active: false, p_gev: [null, null], theta_deg: [null, null] } }, { nShowers: 2 }),
-    href: pf.eventIn3dHref({ hash: location.hash, event: 1, shower: 'a', frame: 'lab' }),
-    title: pf.open3dTitle({ frame: 'lab' }),
-  };
+  // #psub=event with no event: the first draw is Pick for me at draw 0.
+  out.first = { picks: requests.filter((r) => r.path === '/api/event/pick').map((r) => r.params),
+    caption: caption(), link: link(), hash: location.hash, view: view() };
+  out.expected.rule = load('pick_base_uniform_experiment').rule;
+  out.expected.place = pf.placeLine(world.lastEvent.event, { nShowers: 2 });
+  out.expected.href = pf.eventIn3dHref({ hash: location.hash, event: 1, shower: 'a', frame: 'lab' });
+  out.expected.title = pf.open3dTitle({ frame: 'lab' });
   // The live link is rebuilt from the hash as it stands when it is followed.
   byId('event-open-3d').dispatch('click');
   out.followedHref = byId('event-open-3d').href;
-  at = requests.length;
+  let at = requests.length;
   byId('event-pick').click();
   await settle();
   byId('event-pick-tilted').click();
@@ -1902,8 +2083,8 @@ if (scenario === 'pick') {
   byId('event-pick-tilted').click();
   await settle();
   out.more = after(at).filter((r) => r.path === '/api/event/pick').map((r) => r.params);
-  // Event 1 (Most tilted, seed 43 drew pickEvents[1] = 0; seed 42 drew 1) now leaves the pool.
-  const pinned = Number(new URLSearchParams(location.hash.slice(1)).get('event') ?? 0);
+  // The pinned event now leaves the pool.
+  const pinned = Number(hashOf().event ?? 0);
   out.pinnedBeforeCommit = pinned;
   const other = 1 - pinned;
   world.inPool[pinned] = false;
@@ -1921,26 +2102,24 @@ if (scenario === 'flag') {
   const at = requests.length;
   await commitP(3);
   out.commit = { requests: after(at), caption: caption(), hash: location.hash };
-  out.expected = {
-    place: pf.placeLine({ in_selection: true, candidates: { in_pool: false, index: null, n_events: 1, matched: [],
-      particle: { active: true, p_gev: [3, null], theta_deg: [null, null] } } }, { nShowers: 2 }),
-  };
+  out.expected.place = pf.placeLine(world.lastEvent.event, { nShowers: 2 });
 }
 
 if (scenario === 'filters') {
-  // An E1 commit: the candidates are counted again, the page refreshes, and the
-  // picked event that left the pool is replaced by the first draw of the shuffle.
-  byId('event-pick').click();
-  await settle();
-  byId('event-pick').click();
-  await settle();
-  const pinned = Number(new URLSearchParams(location.hash.slice(1)).get('event'));
+  // E1, E2 and D steer Entire selection alone: a commit there neither counts the candidates again nor touches
+  // the viewer's event, even one that has left the pool.
+  const pinned = Number(hashOf().event);
+  out.pinned = pinned;
+  out.before = { caption: caption(), count: byId('particle-count').textContent };
   world.inPool[pinned] = false;
-  world.pickEvents = [1 - pinned];
+  await tab('selection');
   const at = requests.length;
   await commitE1(3);
-  out.commit = { requests: after(at), caption: caption(), hash: location.hash };
-  out.expected = { replaced: pf.replacedLine(pinned, 1 - pinned) };
+  out.commit = { paths: pathsAfter(at), hash: location.hash };
+  const back = requests.length;
+  await tab('event');
+  out.back = { paths: pathsAfter(back), hash: location.hash, caption: caption(),
+    count: byId('particle-count').textContent };
 }
 
 if (scenario === 'focus') {
@@ -1960,35 +2139,32 @@ if (scenario === 'focus') {
 }
 
 if (scenario === 'empty') {
-  out.before = titles();
-  world.candidates = 'candidates_base_empty';
-  let at = requests.length;
-  await commitP(5);
-  out.empty = { requests: after(at).map((r) => r.path), titles: titles() };
-  out.expected = {
-    empty: pf.emptyLine(load('candidates_base_empty'), { nShowers: 2 }),
-    pick: pf.PICK_TITLE, tilted: pf.TILTED_TITLE,
-  };
+  // N = 0 at the first draw: the empty state says why, and no pick is sent.
+  out.bootView = view();
+  out.bootTitles = titles();
+  out.expected.empty = pf.emptyLine(world.lastCandidates, { nShowers: 2 });
+  out.expected.pick = pf.PICK_TITLE;
+  out.expected.tilted = pf.TILTED_TITLE;
   // A 404 from the pick is the empty state: no error on the banner.
   world.pickRefused = true;
-  at = requests.length;
+  let at = requests.length;
   const bannerBefore = byId('banner-text').textContent;
   byId('event-pick').click();
   await settle();
-  out.refused = { requests: after(at).map((r) => r.path), banner: byId('banner-text').textContent,
-    bannerBefore, hash: location.hash };
-  world.candidates = 'candidates_base_off';
+  out.refused = { paths: pathsAfter(at), banner: byId('banner-text').textContent, bannerBefore,
+    hash: location.hash, view: view() };
+  // A particle commit that widens the pool: the titles come back and the first draw is made.
+  world.candidates = 'pool';
   world.pickRefused = false;
+  at = requests.length;
   await commitP(3);
-  out.back = titles();
+  out.widened = { requests: after(at), titles: titles(), view: view(), hash: location.hash };
 }
 
 if (scenario === 'race') {
   // Review U2: a follow-policy replacement still in flight when the reader types an event number lands
   // afterwards and replaces nothing; the typed event stays.
-  byId('event-pick').click();
-  await settle();
-  const pinned = Number(new URLSearchParams(location.hash.slice(1)).get('event'));
+  const pinned = Number(hashOf().event);
   out.pinned = pinned;
   world.inPool[pinned] = false;
   world.pickEvents = [1 - pinned];
@@ -1997,7 +2173,7 @@ if (scenario === 'race') {
   gateOn = true;
   const at = requests.length;
   await commitP(3);
-  out.held = after(at).map((r) => r.path);
+  out.held = pathsAfter(at);
   const typed = byId('event-number');
   typed.value = '7';
   typed.dispatch('change');
@@ -2005,41 +2181,179 @@ if (scenario === 'race') {
   out.typedHash = location.hash;
   openGates();
   await settle();
-  out.after = { hash: location.hash, caption: caption(), requests: after(at).map((r) => [r.path, r.params.event_number ?? null]) };
-  out.expected = { replaced: pf.replacedLine(pinned, 1 - pinned) };
+  out.after = { hash: location.hash, caption: caption(),
+    requests: after(at).map((r) => [r.path, r.params.event_number ?? null]) };
+  out.expected.replaced = pf.replacedLine(pinned, 1 - pinned);
 }
 
 if (scenario === 'countFail') {
   // Review U3: N = 0 shuts the pickers; a widened filter whose count fails leaves neither the N = 0 line nor
   // the lock standing, says so in the block and on the banner, and leaves no unhandled rejection.
-  world.candidates = 'candidates_base_empty';
+  world.candidates = 'empty';
   await commitP(5);
   out.empty = { count: byId('particle-count').textContent, pick: button('event-pick') };
+  out.expected.empty = pf.emptyLine(world.lastCandidates, { nShowers: 2 });
   world.candidatesFail = true;
   await commitP(3);
   await settle();
   out.failed = { count: byId('particle-count').textContent, pick: button('event-pick'), tilted: button('event-pick-tilted'),
     banner: byId('banner-text').textContent, hash: location.hash, unhandled: [...unhandled] };
-  out.expected = { empty: pf.emptyLine(load('candidates_base_empty'), { nShowers: 2 }), pick: pf.PICK_TITLE };
+  out.expected.pick = pf.PICK_TITLE;
 }
 
 if (scenario === 'keep') {
   // Review U4: a commit that keeps the picked event drops the pick's rule sentence, which named the previous pool.
-  byId('event-pick').click();
-  await settle();
   out.picked = caption();
   await commitP(3);
   out.kept = { caption: caption(), hash: location.hash };
-  out.expected = { rule: load('pick_base_uniform').rule };
+  out.expected.rule = load('pick_base_uniform_experiment').rule;
 }
 
 if (scenario === 'open3d') {
   out.link = link();
   out.hash = location.hash;
-  out.expected = {
-    href: pf.eventIn3dHref({ hash: location.hash, event: 0, shower: 'b', frame: 'canonical' }),
-    title: pf.open3dTitle({ frame: 'canonical' }),
+  out.expected.href = pf.eventIn3dHref({ hash: location.hash, event: 0, shower: 'b', frame: 'canonical' });
+  out.expected.title = pf.open3dTitle({ frame: 'canonical' });
+}
+
+if (scenario === 'switch') {
+  // An experiment switch on the viewer: the previous event goes and the new experiment's first draw is made,
+  // at draw 0 (the counter restarts on a switch only).
+  byId('event-pick').click();
+  await settle();
+  out.before = hashOf();
+  const choose = async (name) => {
+    const select = byId('experiment-select');
+    select.value = name;
+    select.dispatch('change');
+    await settle(80);
   };
+  let at = requests.length;
+  await choose('single_hits');
+  out.single = { requests: after(at), hash: hashOf(), view: view() };
+  // Parked on Entire selection, then another switch: the parked event is dropped, and the viewer draws anew.
+  await tab('selection');
+  out.parkedHash = hashOf();
+  at = requests.length;
+  await choose('experiment_baseline');
+  out.baseline = { paths: pathsAfter(at), hash: hashOf(), view: view() };
+  at = requests.length;
+  await tab('event');
+  out.back = { requests: after(at), hash: hashOf(), view: view() };
+}
+
+if (scenario === 'pickFail') {
+  // A first draw that fails (not N = 0): the empty state says why; nothing is pinned.
+  out.failed = { view: view(), hash: location.hash, banner: byId('banner-text').textContent };
+}
+
+if (scenario === 'single') {
+  // The standalone viewer: no shower B, and the greyed channels and models titled with the server's reason.
+  const exp = load('experiments').experiments.find((e) => e.table_name === 'single_hits');
+  const plan = caps.page1Plan(exp);
+  const titled = (name) => Object.fromEntries(radios[name].map((i) => [i.value,
+    { disabled: i.disabled, title: i.label.getAttribute('title') }]));
+  out.single = {
+    shut: { hidden: byId('channel-shut').hidden, text: byId('channel-shut').textContent },
+    channels: titled('channel'), models: titled('model'),
+    showerItemHidden: byId('stat-shower-item').hidden,
+    status: status(), caption: caption(), view: view(), hash: location.hash,
+  };
+  out.expected = {
+    channelsShut: plan.channelsShut, channelReasons: plan.channelReasons, modelReasons: plan.modelReasons,
+    status: expectedStatus(world.lastEvent, 1),
+    line: fv.eventSelectionLine(world.lastEvent.event, { nShowers: 1 }),
+    pool: pf.poolLine(world.lastEvent.event, { nShowers: 1 }),
+    rule: load('pick_single_uniform_experiment').rule,
+  };
+}
+
+if (scenario === 'aggregate') {
+  // An aggregate holds no hits: the viewer's tab is shut with the reason, and a psub=event link falls back.
+  const exp = load('experiments').experiments.find((e) => e.table_name === 'single_events');
+  const plan = caps.page1Plan(exp);
+  const shutTab = () => {
+    const t = byId('psub-tab-event');
+    return { disabled: t.getAttribute('aria-disabled'), shut: t.classList.contains('is-disabled'),
+      title: t.getAttribute('title') };
+  };
+  out.agg = { tab: shutTab(), view: view(), hash: location.hash,
+    kind: JSON.parse(byId('kind-banner').dataset.messages ?? '[]'),
+    shut: { hidden: byId('psub-shut').hidden, text: byId('psub-shut').textContent },
+    selectionTitle: byId('psub-tab-selection').getAttribute('title') };
+  const at = requests.length;
+  await tab('event');
+  out.click = { paths: pathsAfter(at), view: view() };
+  out.expected = { reason: plan.viewer.reason,
+    line: `The Event viewer is not available for this experiment: ${plan.viewer.reason} Showing Entire selection.`,
+    shut: ps.shutLine('event', plan.viewer.reason), selectionTitle: ps.selectionTabTitle(plan) };
+}
+
+if (scenario === 'parkEvent' || scenario === 'parkCount') {
+  // Review R1 = U1: the reader leaves the viewer while a particle commit is still in flight - its pinned
+  // event's reload and replacement (parkEvent), or its count (parkCount) - and comes back after it landed.
+  // The commit is never lost: the way back asks again under the filter in force and the follow policy applies.
+  const pinned = Number(hashOf().event);
+  out.pinned = pinned;
+  out.firstCaption = caption();
+  world.inPool[pinned] = false;            // the commit takes the picked event out of the pool
+  world.pickEvents = [1 - pinned];
+  gatedPaths.clear();
+  if (scenario === 'parkEvent') { gatedPaths.add('/api/event'); gatedPaths.add('/api/event/pick'); }
+  else gatedPaths.add('/api/event/candidates');
+  gateOn = true;
+  let at = requests.length;
+  await commitP(3);
+  out.held = pathsAfter(at);
+  await tab('selection');                  // park while the commit is in flight
+  openGates();
+  await settle();
+  out.whileParked = pathsAfter(at);
+  out.parkedHash = location.hash;
+  at = requests.length;
+  await tab('event');                      // unpark
+  await settle();
+  out.back = { requests: after(at), hash: location.hash, caption: caption(), status: status(), view: view(),
+    count: byId('particle-count').textContent };
+  out.expected.replaced = pf.replacedLine(pinned, 1 - pinned);
+  out.expected.pool = pf.poolLine(world.lastEvent.event, { nShowers: 2 });
+  out.expected.status = expectedStatus(world.lastEvent, 2);
+  out.expected.oldRule = load('pick_base_uniform_experiment').rule;
+  // A second round trip with nothing changed meanwhile: drawn from the response in hand, with no request.
+  await tab('selection');
+  at = requests.length;
+  await tab('event');
+  out.again = { paths: pathsAfter(at), hash: location.hash, caption: caption() };
+}
+
+if (scenario === 'parkStale') {
+  // Review U2: a link that parks event 0 at boot (#psub=selection&event=0). The first visit to the viewer
+  // asks for the parked event; the reader then clears it, leaves and comes back: the cleared viewer draws
+  // nothing by itself.
+  out.bootView = view();
+  let at = requests.length;
+  await tab('event');
+  out.enter = { paths: pathsAfter(at), hash: location.hash, view: view() };
+  const field = byId('event-number');
+  field.value = '';
+  field.dispatch('change');
+  await settle();
+  out.cleared = { view: view(), hash: location.hash };
+  await tab('selection');
+  at = requests.length;
+  await tab('event');
+  out.back = { paths: pathsAfter(at), hash: location.hash, view: view(), live: byId('event-live').textContent };
+  out.expected.cleared = (await import(`${jsRoot}/event_inspector.js`)).CLEARED_LINE;
+}
+
+if (scenario === 'deeplinkSelection' || scenario === 'deeplinkEvent' || scenario === 'deeplinkUnknown') {
+  // A Methodology badge's link switches to the card's own subpage first.
+  out.landed = { view: view(), hash: location.hash, kind: JSON.parse(byId('kind-banner').dataset.messages ?? '[]') };
+  if (scenario === 'deeplinkSelection') {
+    const at = requests.length;
+    await tab('event');
+    out.back = { paths: pathsAfter(at), hash: location.hash, view: view() };
+  }
 }
 
 console.log(JSON.stringify(out));
@@ -2058,9 +2372,33 @@ def _particle_run(hash_: str, scenario: str) -> dict:
     return json.loads(done.stdout.strip().splitlines()[-1])
 
 
+#: The viewer's requests: the pool's routes and nothing else (brief §10.1).
+EVENT_PATHS = {"/api/event", "/api/event/pick", "/api/event/candidates"}
+#: Entire selection's requests the viewer must never send (the cards are lazy; none is visible in Node).
+ENSEMBLE_PATHS = {"/api/projections", "/api/energy-distribution", "/api/model-performance", "/api/window-axis"}
+
+
+def _only_event_paths(paths) -> bool:
+    return all(path in EVENT_PATHS for path in paths)
+
+
+def _no_event_paths(paths) -> bool:
+    return not any(path.startswith("/api/event") for path in paths)
+
+
+@pytest.fixture(scope="module")
+def page_selection():
+    return _particle_run("", "selection")
+
+
+@pytest.fixture(scope="module")
+def page_legacy():
+    return _particle_run("#event=0", "legacy")
+
+
 @pytest.fixture(scope="module")
 def particle_pick():
-    return _particle_run("", "pick")
+    return _particle_run("#psub=event", "pick")
 
 
 @pytest.fixture(scope="module")
@@ -2070,32 +2408,32 @@ def particle_flag():
 
 @pytest.fixture(scope="module")
 def particle_filters():
-    return _particle_run("", "filters")
+    return _particle_run("#psub=event", "filters")
 
 
 @pytest.fixture(scope="module")
 def particle_focus():
-    return _particle_run("", "focus")
+    return _particle_run("#psub=event", "focus")
 
 
 @pytest.fixture(scope="module")
 def particle_empty():
-    return _particle_run("", "empty")
+    return _particle_run("#psub=event", "empty")
 
 
 @pytest.fixture(scope="module")
 def particle_race():
-    return _particle_run("", "race")
+    return _particle_run("#psub=event", "race")
 
 
 @pytest.fixture(scope="module")
 def particle_count_fail():
-    return _particle_run("", "countFail")
+    return _particle_run("#psub=event", "countFail")
 
 
 @pytest.fixture(scope="module")
 def particle_keep():
-    return _particle_run("", "keep")
+    return _particle_run("#psub=event", "keep")
 
 
 @pytest.fixture(scope="module")
@@ -2103,22 +2441,194 @@ def particle_open3d():
     return _particle_run("#event=0&shower=b&frame=canonical", "open3d")
 
 
-def test_the_page_asks_for_the_candidates_on_boot(particle_pick):
-    assert "/api/event/candidates" in particle_pick["boot"]
+@pytest.fixture(scope="module")
+def page_switch():
+    return _particle_run("#psub=event", "switch")
 
+
+@pytest.fixture(scope="module")
+def page_pick_fail():
+    return _particle_run("#psub=event", "pickFail")
+
+
+@pytest.fixture(scope="module")
+def page_single():
+    return _particle_run("#table_name=single_hits&psub=event", "single")
+
+
+@pytest.fixture(scope="module")
+def page_aggregate():
+    return _particle_run("#table_name=single_events&psub=event", "aggregate")
+
+
+@pytest.fixture(scope="module")
+def page_park_event():
+    return _particle_run("#psub=event", "parkEvent")
+
+
+@pytest.fixture(scope="module")
+def page_park_count():
+    return _particle_run("#psub=event", "parkCount")
+
+
+@pytest.fixture(scope="module")
+def page_park_stale():
+    return _particle_run("#psub=selection&event=0", "parkStale")
+
+
+@pytest.fixture(scope="module")
+def deeplink_selection():
+    return _particle_run("#event=0", "deeplinkSelection")
+
+
+@pytest.fixture(scope="module")
+def deeplink_event():
+    return _particle_run("", "deeplinkEvent")
+
+
+@pytest.fixture(scope="module")
+def deeplink_unknown():
+    return _particle_run("#event=0", "deeplinkUnknown")
+
+
+ALL_PAGE_RUNS = ("page_selection", "page_legacy", "particle_pick", "particle_flag", "particle_filters",
+                 "particle_focus", "particle_empty", "particle_race", "particle_count_fail", "particle_keep",
+                 "particle_open3d", "page_single", "page_aggregate", "deeplink_selection", "deeplink_event",
+                 "deeplink_unknown", "page_pick_fail", "page_switch", "page_park_event", "page_park_count",
+                 "page_park_stale")
+
+
+# ------------------------------------------------- the subpages and isolation --
+
+def test_a_cold_boot_opens_entire_selection_and_sends_no_event_request(page_selection):
+    run = page_selection
+    view = run["bootView"]
+    assert view["selection"] and not view["event"] and view["chip"] == "Entire selection"
+    assert view["tabs"] == ["true", "false"] and view["ensemble"]
+    assert "/api/projections" in run["boot"] and _no_event_paths(run["boot"])
+    # Entire selection is never written to the link.
+    assert "psub" not in run["bootHash"] and "event=" not in run["bootHash"]
+    assert run["bootLatency"] == "12.5 ms"
+    # No event pinned: "Open in 3-D" is hidden.
+    assert run["unpinnedLink"]["hidden"] is True
+
+
+def test_an_e1_commit_on_entire_selection_asks_for_the_ensemble_alone(page_selection):
+    for step in ("e1", "parkedE1"):
+        paths = page_selection[step]["paths"]
+        assert "/api/projections" in paths, step
+        assert _no_event_paths(paths), (step, paths)
+        assert "psub" not in page_selection[step]["hash"], step
+
+
+def test_entering_the_viewer_draws_the_first_pick_at_draw_0_with_event_requests_only(page_selection):
+    enter = page_selection["enter"]
+    paths = [r["path"] for r in enter["requests"]]
+    assert paths == ["/api/event/candidates", "/api/event/pick", "/api/event"]
+    pick = enter["requests"][1]["params"]
+    assert (pick["rule"], pick["seed"], pick["draw"], pick["basis"]) == ("uniform", "42", "0", "experiment")
+    assert not any(k.startswith(("e1_", "e2_", "d_")) or k == "include_undefined_d" for k in pick), pick
+    view = enter["view"]
+    assert view["event"] and not view["selection"] and view["chip"] == "Event viewer"
+    assert view["eventGrid"] and not view["empty"]
+    # The caption carries the server's sentence (seed and draw), the kinematics and what the pool is.
+    assert page_selection["expected"]["firstRule"] in enter["caption"]
+    assert "seed 42, draw 0" in enter["caption"]
+    assert page_selection["expected"]["line"] in enter["caption"]
+    assert page_selection["expected"]["pool"] in enter["caption"]
+    assert "inside the current selection" not in enter["caption"]
+    hash_ = dict(p.split("=") for p in enter["hash"].lstrip("#").split("&") if p)
+    assert hash_.get("psub") == "event" and hash_.get("event") == "0"
+    # The viewer's own status bar and Query readout.
+    assert enter["status"] == page_selection["expected"]["firstStatus"]
+    assert enter["status"]["stat-event"] == "0" and enter["status"]["stat-place"] == "1 of 2"
+    assert enter["latency"] == "3.5 ms"
+    assert enter["link"]["hidden"] is False
+    assert enter["count"].startswith("Particle filter off: the pickers draw from all 2 events of the experiment.")
+
+
+def test_next_asks_for_the_event_alone_and_the_status_bar_follows(page_selection):
+    run = page_selection["next"]
+    assert [r["path"] for r in run["requests"]] == ["/api/event"]
+    assert run["requests"][0]["params"]["event_number"] == "1"
+    assert run["status"] == page_selection["expected"]["nextStatus"]
+    assert run["status"]["stat-place"] == "2 of 2"
+
+
+def test_leaving_the_viewer_parks_its_event_with_no_request_and_coming_back_draws_it_from_hand(page_selection):
+    park = page_selection["park"]
+    assert park["paths"] == []
+    assert park["view"]["selection"] and not park["view"]["event"] and park["view"]["chip"] == "Entire selection"
+    # The link carries neither the event nor the subpage.
+    assert "event=" not in park["hash"] and "psub" not in park["hash"]
+    assert park["latency"] == "12.5 ms"
+    unpark = page_selection["unpark"]
+    assert unpark["paths"] == []
+    assert "event=1" in unpark["hash"] and "psub=event" in unpark["hash"]
+    assert unpark["view"]["eventGrid"] and unpark["status"]["stat-event"] == "1"
+    assert unpark["latency"] == "3.5 ms"
+    # The E1 commit in between left the viewer's N alone.
+    assert unpark["count"] == page_selection["enter"]["count"]
+
+
+def test_a_legacy_event_link_opens_the_viewer_on_that_event(page_legacy):
+    run = page_legacy
+    assert run["boot"] == ["/api/experiments", "/api/event/candidates", "/api/event"]
+    assert run["bootView"]["event"] and run["bootView"]["eventGrid"] and not run["bootView"]["selection"]
+    assert "event=0" in run["bootHash"] and "psub=event" in run["bootHash"]
+    # Entire selection loads when it is first shown, and asks for no event; the event is parked.
+    selection = run["selection"]
+    assert "/api/projections" in selection["paths"] and _no_event_paths(selection["paths"])
+    assert "event=" not in selection["hash"] and "psub" not in selection["hash"]
+    back = run["back"]
+    assert back["paths"] == [] and "event=0" in back["hash"] and back["view"]["eventGrid"]
+
+
+def test_a_cleared_event_number_shows_the_empty_state_and_asks_nothing(page_legacy):
+    cleared = page_legacy["cleared"]
+    assert cleared["paths"] == []
+    assert cleared["view"]["event"] and cleared["view"]["empty"] and not cleared["view"]["eventGrid"]
+    assert cleared["view"]["emptyText"] == page_legacy["expected"]["cleared"]
+    assert page_legacy["expected"]["cleared"] == (
+        "No event drawn: type an event number, or press Pick for me or Most tilted.")
+    # The viewer stays on show (psub kept), with no event in the link and no readout or link standing.
+    assert "psub=event" in cleared["hash"] and "event=" not in cleared["hash"].replace("psub=event", "")
+    assert set(cleared["status"].values()) == {"—"}
+    assert cleared["link"]["hidden"] is True
+
+
+@pytest.mark.parametrize("fixture", ALL_PAGE_RUNS)
+def test_every_pool_request_is_asked_under_basis_experiment_with_no_e1_e2_or_d_key(fixture, request):
+    run = request.getfixturevalue(fixture)
+    assert run["violations"] == [], run["violations"]
+    assert run["unhandled"] == [], run["unhandled"]
+
+
+@pytest.mark.parametrize("fixture", ["particle_pick", "particle_flag", "particle_filters", "particle_focus",
+                                     "particle_empty", "particle_race", "particle_count_fail", "particle_keep",
+                                     "particle_open3d", "page_single", "page_legacy"])
+def test_a_boot_on_the_viewer_sends_no_ensemble_request(fixture, request):
+    boot = request.getfixturevalue(fixture)["boot"]
+    assert boot[0] == "/api/experiments"
+    assert _only_event_paths(boot[1:]), boot
+    assert not ENSEMBLE_PATHS & set(boot)
+
+
+# ------------------------------------------------- the pickers on the viewer --
 
 def test_pick_for_me_is_the_uniform_draw_from_seed_42_and_the_caption_says_so(particle_pick):
     first = particle_pick["first"]
-    picks = [r["params"] for r in first["requests"] if r["path"] == "/api/event/pick"]
-    assert picks == [{"rule": "uniform", "seed": "42", "draw": "0",
-                      **{k: v for k, v in picks[0].items() if k not in ("rule", "seed", "draw")}}]
+    # The first draw: entering the viewer with no event.
+    picks = first["picks"]
+    assert len(picks) == 1
+    assert (picks[0]["rule"], picks[0]["seed"], picks[0]["draw"]) == ("uniform", "42", "0")
     assert not any(k.startswith("particle_") for k in picks[0])
-    assert [r["path"] for r in first["requests"]] == ["/api/event/pick", "/api/event"]
     caption = first["caption"]
-    # tests/test_browser_event.py reads these two after a first Pick for me.
-    assert "inside the current selection" in caption and "seed 42" in caption
+    # tests/test_browser_event.py reads "seed 42" after a first Pick for me.
+    assert "seed 42" in caption
     assert particle_pick["expected"]["rule"] in caption
     assert particle_pick["expected"]["place"] in caption
+    assert "psub=event" in first["hash"] and "event=1" in first["hash"]
 
 
 def test_each_click_takes_the_next_draw_and_most_tilted_the_next_seed(particle_pick):
@@ -2126,10 +2636,10 @@ def test_each_click_takes_the_next_draw_and_most_tilted_the_next_seed(particle_p
     assert [(p["rule"], p["seed"], p.get("draw")) for p in more] == [
         ("uniform", "42", "1"), ("tilted", "42", None), ("tilted", "43", None),
     ]
+    assert all(p["basis"] == "experiment" for p in more)
 
 
 def test_open_in_3d_is_shown_while_an_event_is_pinned_with_its_href_and_title(particle_pick):
-    assert particle_pick["unpinnedLink"]["hidden"] is True
     link = particle_pick["first"]["link"]
     assert link["hidden"] is False
     assert link["href"] == particle_pick["expected"]["href"]
@@ -2146,8 +2656,8 @@ def test_a_particle_commit_asks_for_the_candidates_and_the_pinned_event_and_repl
     assert candidates["particle_p_min"] == "3" and "event_number" not in candidates
     assert event["particle_p_min"] == "3"
     assert event["event_number"] == str(particle_pick["pinnedBeforeCommit"])
-    # The draw counter carries across the commit (brief-fix decision 1): two Pick for me clicks drew 0 and 1,
-    # so the replacement is draw 2 of the uniform shuffle.
+    # The draw counter carries across the commit (brief-fix decision 1): the first draw and one Pick for me
+    # drew 0 and 1, so the replacement is draw 2 of the uniform shuffle.
     assert (pick["rule"], pick["seed"], pick["draw"], pick["particle_p_min"]) == ("uniform", "42", "2", "3")
     assert replacement["event_number"] == str(1 - particle_pick["pinnedBeforeCommit"])
     assert particle_pick["expected"]["replaced"] in commit["caption"]
@@ -2162,16 +2672,18 @@ def test_a_linked_event_that_leaves_the_pool_is_kept_and_flagged(particle_flag):
     assert "left the candidates" not in commit["caption"]
 
 
-def test_a_filter_commit_counts_again_and_its_refresh_follows_the_pinned_event(particle_filters):
+def test_an_e1_commit_leaves_the_viewers_event_and_n_alone(particle_filters):
+    """Martin's decision of 2026-11-16: E1, E2 and D never narrow the pickers' pool, and a commit never follows."""
     commit = particle_filters["commit"]
-    paths = [r["path"] for r in commit["requests"]]
-    assert paths[0] == "/api/event/candidates"
-    assert "/api/projections" in paths
-    picks = [r["params"] for r in commit["requests"] if r["path"] == "/api/event/pick"]
-    # Two clicks drew 0 and 1; the counter carries across the commit, so the replacement is draw 2.
-    assert len(picks) == 1 and picks[0]["draw"] == "2" and picks[0]["e1_min"] == "3"
-    assert paths.count("/api/event") == 2
-    assert particle_filters["expected"]["replaced"] in commit["caption"]
+    assert "/api/projections" in commit["paths"]
+    assert _no_event_paths(commit["paths"]), commit["paths"]
+    back = particle_filters["back"]
+    # Back on the viewer: no request, the same event (out of the pool, yet not replaced), the same N.
+    assert back["paths"] == []
+    assert f"event={particle_filters['pinned']}" in back["hash"]
+    assert back["caption"] == particle_filters["before"]["caption"]
+    assert back["count"] == particle_filters["before"]["count"]
+    assert "left the candidates" not in back["caption"]
 
 
 def test_the_shower_follows_the_match_of_a_pick_and_of_a_step(particle_focus):
@@ -2179,27 +2691,70 @@ def test_the_shower_follows_the_match_of_a_pick_and_of_a_step(particle_focus):
     assert [(p["event_number"], p["shower"]) for p in particle_focus["step"]] == [("1", "a")]
 
 
-def test_n_0_shuts_every_picker_with_the_empty_line_and_n_above_0_gives_the_titles_back(particle_empty):
-    expected = particle_empty["expected"]
-    before = particle_empty["before"]
-    assert before["pick"] == {"disabled": False, "title": expected["pick"]}
-    assert before["tilted"] == {"disabled": False, "title": expected["tilted"]}
-    empty = particle_empty["empty"]
-    # Unpinned: the count is all a particle commit asks for.
-    assert empty["requests"] == ["/api/event/candidates"]
+def test_n_0_at_the_first_draw_shows_the_empty_line_and_sends_no_pick(particle_empty):
+    run = particle_empty
+    expected = run["expected"]
+    # The count alone: N = 0, so no pick and no event.
+    assert run["boot"] == ["/api/experiments", "/api/event/candidates"]
+    view = run["bootView"]
+    assert view["event"] and view["empty"] and not view["eventGrid"]
+    assert view["emptyText"] == expected["empty"]
     for key in ("pick", "tilted", "prev", "next"):
-        assert empty["titles"][key] == {"disabled": True, "title": expected["empty"]}, key
-    refused = particle_empty["refused"]
-    assert refused["requests"] == ["/api/event/pick"]
+        assert run["bootTitles"][key] == {"disabled": True, "title": expected["empty"]}, key
+    refused = run["refused"]
+    assert refused["paths"] == ["/api/event/pick"]
     # The banner is as it was (the fake document's own Admin fault aside), and nothing is pinned.
     assert refused["banner"] == refused["bannerBefore"]
     assert "no candidate" not in refused["banner"] and "event=" not in refused["hash"]
-    back = particle_empty["back"]
-    assert back["pick"] == {"disabled": False, "title": expected["pick"]}
-    assert back["tilted"] == {"disabled": False, "title": expected["tilted"]}
+    assert refused["view"]["empty"]
+
+
+def test_a_commit_that_widens_an_empty_pool_gives_the_titles_back_and_makes_the_first_draw(particle_empty):
+    widened = particle_empty["widened"]
+    assert [r["path"] for r in widened["requests"]] == ["/api/event/candidates", "/api/event/pick", "/api/event"]
+    assert widened["requests"][1]["params"]["draw"] == "0"
+    expected = particle_empty["expected"]
+    assert widened["titles"]["pick"] == {"disabled": False, "title": expected["pick"]}
+    assert widened["titles"]["tilted"] == {"disabled": False, "title": expected["tilted"]}
     # Review U5: Page 1's steps take event_picker.js STEP_TITLES, the Models page's wording.
-    assert back["prev"]["title"] == "The previous candidate event, in event-number order"
-    assert back["next"]["title"] == "The next candidate event, in event-number order"
+    assert widened["titles"]["prev"]["title"] == "The previous candidate event, in event-number order"
+    assert widened["view"]["eventGrid"] and not widened["view"]["empty"]
+    assert "event=1" in widened["hash"]
+
+
+def test_an_experiment_switch_drops_the_event_and_draws_the_new_experiments_first_at_draw_0(page_switch):
+    run = page_switch
+    # The baseline's first draw and one Pick for me: draws 0 and 1.
+    assert run["before"]["event"] == "0" and run["before"]["psub"] == "event"
+    single = run["single"]
+    paths = [r["path"] for r in single["requests"]]
+    assert paths == ["/api/event/candidates", "/api/event/pick", "/api/event"], paths
+    pick = single["requests"][1]["params"]
+    assert (pick["table_name"], pick["rule"], pick["draw"]) == ("single_hits", "uniform", "0")
+    assert single["hash"]["event"] == "179" and single["hash"]["table_name"] == "single_hits"
+    assert single["view"]["event"] and single["view"]["eventGrid"]
+    # Parked, then a switch: Entire selection loads for the new experiment, no event request.
+    assert "event" not in run["parkedHash"]
+    baseline = run["baseline"]
+    assert "/api/projections" in baseline["paths"] and _no_event_paths(baseline["paths"])
+    assert "event" not in baseline["hash"] and baseline["view"]["selection"]
+    # The viewer then draws the baseline's first event afresh (the single's 179 was dropped), at draw 0.
+    back = run["back"]
+    paths = [r["path"] for r in back["requests"]]
+    assert paths == ["/api/event/candidates", "/api/event/pick", "/api/event"], paths
+    assert back["requests"][1]["params"]["draw"] == "0"
+    assert back["requests"][2]["params"]["table_name"] == "experiment_baseline"
+    assert back["hash"]["event"] != "179" and back["view"]["eventGrid"]
+
+
+def test_a_failed_first_draw_says_why_in_the_viewers_empty_state(page_pick_fail):
+    run = page_pick_fail
+    assert run["boot"] == ["/api/experiments", "/api/event/candidates", "/api/event/pick"]
+    failed = run["failed"]
+    assert failed["view"]["empty"] and not failed["view"]["eventGrid"]
+    assert failed["view"]["emptyText"] == "The first event could not be drawn: Service Unavailable"
+    assert "event=" not in failed["hash"].replace("psub=event", "")
+    assert "Service Unavailable" not in failed["banner"]
 
 
 def test_a_replacement_in_flight_never_replaces_an_event_the_reader_typed(particle_race):
@@ -2210,6 +2765,50 @@ def test_a_replacement_in_flight_never_replaces_an_event_the_reader_typed(partic
     assert "event=7" in race["after"]["hash"], race["after"]
     assert race["expected"]["replaced"] not in race["after"]["caption"]
     assert "left the candidates" not in race["after"]["caption"]
+
+
+@pytest.mark.parametrize("fixture", ["page_park_event", "page_park_count"])
+def test_leaving_the_viewer_mid_commit_never_loses_the_commit(fixture, request):
+    """Review R1 = U1: parked while a particle commit was in flight, the way back asks again under the filter in
+    force; the picked event that left the pool is replaced, and the caption and status bar describe the new pool."""
+    run = request.getfixturevalue(fixture)
+    pinned = run["pinned"]
+    # Nothing of the viewer's was drawn while parked, and the link carried no event.
+    assert "event=" not in run["parkedHash"] and "psub" not in run["parkedHash"]
+    back = run["back"]
+    paths = [r["path"] for r in back["requests"]]
+    # The pinned event again under p >= 3, then the follow policy's replacement (and a commit landing late may ask
+    # once more); never a request of Entire selection.
+    assert paths[:3] == ["/api/event", "/api/event/pick", "/api/event"], paths
+    assert _only_event_paths(paths), paths
+    first = back["requests"][0]["params"]
+    assert first["event_number"] == str(pinned) and first["particle_p_min"] == "3"
+    pick = back["requests"][1]["params"]
+    assert pick["rule"] == "uniform" and pick["particle_p_min"] == "3"
+    assert f"event={1 - pinned}" in back["hash"] and "particle_p_min=3" in back["hash"]
+    assert back["view"]["eventGrid"] and not back["view"]["empty"]
+    # The caption: the replacement's line, the pool under the filter, never the pre-commit pick's sentence.
+    assert run["expected"]["replaced"] in back["caption"], back["caption"]
+    assert run["expected"]["pool"] in back["caption"]
+    assert run["expected"]["oldRule"] not in back["caption"].replace(run["expected"]["replaced"], "")
+    assert back["status"] == run["expected"]["status"]
+    # With nothing changed since, the next way back draws from hand.
+    assert run["again"]["paths"] == [] and run["again"]["caption"] == back["caption"]
+
+
+def test_a_cleared_viewer_that_was_parked_at_boot_never_draws_by_itself(page_park_stale):
+    """Review U2: `stale.event` no longer survives an unpark, so a return to a cleared viewer asks nothing."""
+    run = page_park_stale
+    assert run["bootView"]["selection"] and not run["bootView"]["event"]
+    assert run["enter"]["paths"] == ["/api/event/candidates", "/api/event"], run["enter"]["paths"]
+    assert "event=0" in run["enter"]["hash"] and run["enter"]["view"]["eventGrid"]
+    assert run["cleared"]["view"]["empty"] and run["cleared"]["view"]["emptyText"] == run["expected"]["cleared"]
+    back = run["back"]
+    assert back["paths"] == [], back["paths"]
+    assert "event=" not in back["hash"].replace("psub=event", "")
+    assert back["view"]["empty"] and back["view"]["emptyText"] == run["expected"]["cleared"]
+    # The empty state's text reaches the always-rendered live region (review U6).
+    assert back["live"] == run["expected"]["cleared"]
 
 
 def test_a_failed_count_after_the_blocks_commit_is_reported_and_drops_the_n_0_lock(particle_count_fail):
@@ -2240,6 +2839,94 @@ def test_open_in_3d_from_the_d_frame_says_it_opens_in_the_absolute_frame(particl
     assert link["title"] == particle_open3d["expected"]["title"]
 
 
+# ------------------------------------------------ standalone and the aggregate --
+
+def test_the_standalone_viewer_draws_one_shower_with_p_and_says_so(page_single):
+    run = page_single["single"]
+    expected = page_single["expected"]
+    assert run["view"]["event"] and run["view"]["eventGrid"]
+    assert run["showerItemHidden"] is True
+    assert run["status"] == expected["status"] and run["status"]["stat-shower"] == "—"
+    # The kinematics alone: p, never E₂ or D, and no word of a selection.
+    assert expected["line"] in run["caption"] and "E₂" not in expected["line"] and "selection" not in expected["line"]
+    assert expected["line"].endswith(" GeV.") and ", p = " in expected["line"]
+    assert expected["pool"] in run["caption"] and "p window" in expected["pool"]
+    assert expected["rule"] in run["caption"]
+
+
+def test_standalone_greyed_channels_and_models_carry_the_servers_reason_and_a_visible_line(page_single):
+    run = page_single["single"]
+    expected = page_single["expected"]
+    assert run["shut"] == {"hidden": False, "text": expected["channelsShut"]}
+    assert expected["channelsShut"].startswith("Grad-CAM and Shap-CAM, raw and energy-weighted, are not available")
+    for value, radio in run["channels"].items():
+        if value == "density":
+            assert radio == {"disabled": False, "title": "density: the markup's title"}
+        else:
+            assert radio == {"disabled": True, "title": expected["channelReasons"][value]}, value
+    assert set(expected["modelReasons"]) == {"segmentation", "energy", "angle"}
+    for value, radio in run["models"].items():
+        assert radio == {"disabled": True, "title": expected["modelReasons"][value]}, value
+
+
+def test_a_two_shower_experiment_shows_no_shut_channel_line_and_no_reason_titles(page_selection):
+    # The baseline offers every channel and network: the line stays hidden and every label keeps its own title.
+    assert page_selection["shut"] == {"hidden": True, "text": ""}
+    for name, values in page_selection["radios"].items():
+        for value, radio in values.items():
+            assert radio == {"disabled": False, "title": f"{value}: the markup's title"}, (name, value)
+    assert page_selection["showerItemHidden"] is False
+
+
+def test_an_aggregate_shuts_the_viewer_and_a_viewer_link_falls_back_with_the_banner_line(page_aggregate):
+    run = page_aggregate
+    agg = run["agg"]
+    reason = run["expected"]["reason"]
+    assert reason and reason.endswith(".")
+    assert agg["tab"] == {"disabled": "true", "shut": True, "title": reason}
+    assert agg["view"]["selection"] and not agg["view"]["event"] and agg["view"]["chip"] == "Entire selection"
+    assert "psub" not in agg["hash"]
+    assert run["expected"]["line"] in agg["kind"]
+    assert _no_event_paths(run["boot"])
+    # A click on the shut tab does nothing.
+    assert run["click"]["paths"] == [] and run["click"]["view"]["selection"]
+    # Review U3: the reason is a visible sentence under the tab bar; review R3: the selection tab names the kind.
+    assert agg["shut"] == {"hidden": False, "text": run["expected"]["shut"]}
+    assert run["expected"]["shut"] == f"The Event viewer is not available for this experiment: {reason}"
+    assert agg["selectionTitle"] == run["expected"]["selectionTitle"]
+    assert "no hits to project" in agg["selectionTitle"] and "E₁" not in agg["selectionTitle"]
+
+
+# ---------------------------------------------------------------- deep links --
+
+def test_a_deep_link_to_a_physics_card_switches_to_entire_selection_parking_the_event(deeplink_selection):
+    run = deeplink_selection
+    landed = run["landed"]
+    assert landed["view"]["selection"] and not landed["view"]["event"]
+    assert "event=" not in landed["hash"] and "psub" not in landed["hash"]
+    assert "/api/projections" in run["boot"]
+    # The parked event comes back on the viewer.
+    back = run["back"]
+    assert back["view"]["event"] and "event=0" in back["hash"]
+    assert _only_event_paths(back["paths"])
+
+
+def test_a_deep_link_to_no_card_of_the_page_switches_nothing(deeplink_unknown):
+    landed = deeplink_unknown["landed"]
+    # The viewer the #event=0 link opened stays, with its event; the banner names the unknown panel.
+    assert landed["view"]["event"] and "event=0" in landed["hash"]
+    assert any("does not have (no-such-card)" in line for line in landed["kind"]), landed["kind"]
+
+
+def test_a_deep_link_to_an_event_inspector_cell_switches_to_the_viewer(deeplink_event):
+    landed = deeplink_event["landed"]
+    assert landed["view"]["event"] and not landed["view"]["selection"]
+    assert "psub=event" in landed["hash"] and "event=1" in landed["hash"]
+    boot = deeplink_event["boot"]
+    # Entire selection was on show first (a cold boot), then the viewer drew its first event.
+    assert "/api/projections" in boot and "/api/event/pick" in boot
+
+
 def test_main_mounts_the_particle_filter_and_aborts_its_request_on_a_switch():
     main = (JS / "main.js").read_text(encoding="utf-8")
     assert "mountParticleFilter({" in main
@@ -2249,8 +2936,28 @@ def test_main_mounts_the_particle_filter_and_aborts_its_request_on_a_switch():
     for id_ in ("event-pick-tilted", "event-open-3d", "group-particle", "particle-count", "particle-clear",
                 "pp-num-lo", "pt-num-hi"):
         assert f"'{id_}'" in required, id_
+    # Brief §9.1: the two "Back to the ensemble" buttons are gone; the subpages' ids are audited.
+    for id_ in ("event-close", "event-grid-close"):
+        assert f"'{id_}'" not in required, id_
+    for id_ in ("physics-head", "psub-tab-selection", "psub-tab-event", "psub-selection", "psub-event",
+                "stat-mode", "stat-event", "stat-shower-item", "stat-place", "event-empty", "event-empty-text",
+                "event-live", "psub-shut", "channel-shut", "group-filters", "group-event", "group-model"):
+        assert f"'{id_}'" in required, id_
+    # The particle block counts only while the viewer is on show; an E1/E2/D commit refreshes the ensemble alone.
+    assert "particle.setShown(subnav.current() === 'event');" in main
+    assert "onCommit: () => refreshAll()," in main
+    assert "filtersCommitted" not in main and "refreshParticle" not in main
+    assert ("import { mountPhysicsSubnav, psubOfCard, eventStatus, selectionTabTitle } from './physics_subpages.js';"
+            in main)
+    # Review R3: the Entire selection tab is titled per experiment, at every activation.
+    assert "subnav.setTitle('selection', selectionTabTitle(pagePlan));" in main
     inspector = (JS / "event_inspector.js").read_text(encoding="utf-8")
     assert "'/api/event/pick'" in inspector and "innerHTML" not in inspector
+    # Every pick is asked from the pool (brief §5.2), never with filterParams().
+    assert "filters: this.state.eventPoolParams()," in inspector
+    assert "filterParams()" not in inspector
+    for removed in ("'event-close'", "'event-grid-close'", "filtersCommitted"):
+        assert removed not in inspector, removed
     # Review U3: a count that fails after the block's own commit reaches the banner.
     mount = re.search(r"mountParticleFilter\(\{(.*?)\}\);", main, re.DOTALL).group(1)
     assert "onError: (error, context) => { if (!isAbort(error)) reportError(error, context); }" in mount

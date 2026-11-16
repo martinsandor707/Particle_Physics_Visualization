@@ -15,8 +15,8 @@
  * ## What each pair asks for
  *
  * The event pair draws the event the link names (`voxel_event`) or, with
- * none, the densest candidate event (`/api/event/pick?rule=densest`, under
- * the particle filter too; never written to the link): the Event Inspector's rasters
+ * none, the densest candidate event (`/api/event/pick?rule=densest`, from
+ * the whole experiment under the particle filter; never written to the link): the Event Inspector's rasters
  * (`/api/event`, three panels of the drawn frame) and its cubes
  * (`/api/event?format=voxels`). The raster holds one shower in the Absolute,
  * per-shower translated and Local frames; the cubes are therefore asked for
@@ -94,23 +94,35 @@
  * slice's depth with a bracket (`depthSlab`, projection.js), carried by every
  * later render. At K = 1 nothing of this reaches either chart.
  *
- * ## The event pickers and the particle filter (brief particle-filter, section 8)
+ * ## The event pickers and the particle filter (brief particle-filter, section 8;
+ * brief physics-subpages, section 10.2)
  *
- * The One event scope draws one event of the candidates: the selection
- * (E₁, E₂, D) narrowed by the sidebar's particle filter (p and θ of either
- * shower; event_picker.js says what the pool is). Its pickers all draw from
- * that pool: "Pick for me" a uniform draw (a seeded shuffle, `FIRST_SEED`,
- * each click the next draw), "Most tilted" the notebook's rule (each click the
- * next seed), "Densest" (no `voxel_event`: always re-picked by its request
- * key) and ‹ › (the server's previous / next walk the pool). The event pair's
- * request key and both its requests carry `state.particleParams()`; the
- * Selection scope and the cloud never do, and while a bound is set they say
- * in their captions that they draw the whole selection (`ensembleLine`).
+ * The One event scope draws one event of the candidates: every event of the
+ * experiment that the pickers can place, narrowed by the sidebar's particle
+ * filter (p and θ of either shower) alone. E₁, E₂ and D never narrow it
+ * (Martin's decision of 2026-11-16, on both pages; event_picker.js says what
+ * the pool is). Its pickers all draw from that pool: "Pick for me" a uniform
+ * draw (a seeded shuffle, `FIRST_SEED`, each click the next draw), "Most
+ * tilted" the notebook's rule (each click the next seed), "Densest" (no
+ * `voxel_event`: always re-picked by its request key) and ‹ › (the server's
+ * previous / next walk the pool).
+ *
+ * Every One event request (the raster, the cubes, the pick, Densest, the
+ * steps, a replacement) carries `state.eventPoolParams()` - the experiment,
+ * `basis=experiment` and the set particle bounds - and the view's own keys,
+ * never an E₁, E₂ or D key (the server refuses one under that basis with a
+ * 422 rather than ignore it). The event pair's request key is built from the
+ * same, so an E₁/E₂/D commit neither reloads the pinned event nor re-picks
+ * the densest, and applies no follow policy to it (`filtersCommitted` leaves
+ * the One event scope alone). The Selection scope and the cloud keep
+ * `state.filterParams()`, reload on an E₁/E₂/D commit by their own keys, and
+ * never read the particle filter: while a bound is set they say in their
+ * captions that they draw the whole selection (`ensembleLine`).
  *
  * Each pinned event's origin is remembered in memory (link, typed, pick,
- * tilted, step, replace, densest). After a filter or particle commit the
- * pinned event's fresh response decides (`followDecision`): kept while it is
- * a candidate, replaced by the next uniform draw when the page chose it
+ * tilted, step, replace, densest). After a particle commit the pinned
+ * event's fresh response decides (`followDecision`): kept while it is a
+ * candidate, replaced by the next uniform draw when the page chose it
  * itself, else drawn as asked and flagged. A picker asks for a matching
  * shower (`focusShower`, "Both" kept in the Absolute frame); with "Both" and
  * one shower matching, the projections draw the matching one and say so.
@@ -119,14 +131,27 @@
  * line in place of its plots and asks for nothing; a 404 from the pick is that
  * state, never an error. Every picker is then shut with the empty line as its
  * title. The "2-D ↗" link opens the drawn event in the Physics page's Event
- * Inspector, with the hash of the moment it is followed.
+ * viewer (`psub=event`), with the hash of the moment it is followed.
+ *
+ * ## Channels the experiment cannot serve
+ *
+ * A 3-D card whose channel menu holds network channels the experiment cannot
+ * serve (Grad-CAM, Shap-CAM, the segmentation error, raw or energy-weighted:
+ * the networks' outputs and attention maps) says so in a standing line under
+ * its caption (`shutChannelsLine`), visible text and not a tooltip alone:
+ * "Unavailable for this experiment: …" with the server's reason, one sentence
+ * per distinct reason. Any other shut option (Particle species, which no
+ * two-shower file carries) is named by its own title alone, as every shut
+ * option is (Martin's decision, 2026-11-16). The options stay in the menu,
+ * disabled, each with its reason as its title.
  */
 
 import { getJson, abortRequest, isAbort } from './api.js';
 import { LazyCards, requestKey, isRefusal } from './lazy_cards.js';
 import { describeError, writeSparseNote, webglAvailable, wireLiveLinks } from './page_common.js';
 import {
-  FIRST_SEED, pickParams, followDecision, focusShower, placeLine, matchLine, replacedLine, ensembleLine, emptyLine,
+  FIRST_SEED, pickParams, followDecision, focusShower, placeLine, poolLine, matchLine, replacedLine, ensembleLine,
+  emptyLine,
   pickerTitle, eventIn2dHref, OPEN_2D_TITLE, PICK_TITLE, TILTED_TITLE, STEP_TITLES as PICKER_STEP_TITLES,
 } from './event_picker.js';
 import { apiFrame } from './state.js';
@@ -190,6 +215,48 @@ function choiceLabels(choices) {
 export const EVENT_CHANNEL_LABELS = choiceLabels(MODELS_LABELS.voxel_channel);
 export const ENSEMBLE_CHANNEL_LABELS = choiceLabels(MODELS_LABELS.ens_channel);
 
+/** The same choices by their bare labels, for a sentence that names them. */
+function choiceNames(choices) {
+  return Object.freeze(Object.fromEntries((choices ?? []).map((c) => [c.value, c.label])));
+}
+export const EVENT_CHANNEL_NAMES = choiceNames(MODELS_LABELS.voxel_channel);
+export const ENSEMBLE_CHANNEL_NAMES = choiceNames(MODELS_LABELS.ens_channel);
+
+/** A shut option's reason when the server names none. */
+const SHUT_FALLBACK = 'Not available for this experiment.';
+
+/**
+ * The channels drawn from the reconstruction networks' outputs and attention
+ * maps, the only ones the standing line names (Martin's decision of
+ * 2026-11-16): a missing species channel is no network's absence, and its
+ * option's title already says why.
+ */
+export const NETWORK_CHANNELS = Object.freeze(['gradcam', 'shapcam', 'segerr', 'gradcam_energy', 'shapcam_energy']);
+
+/**
+ * The standing line of a 3-D card whose channel menu holds network channels
+ * the experiment cannot serve (brief physics-subpages, section 10.2, and
+ * `NETWORK_CHANNELS`): "Unavailable for this experiment: {labels}. {reason}",
+ * the labels in the menu's order, one such sentence per distinct reason (in
+ * the order each first appears). '' when every network channel is served, or
+ * when the view serves none (its card then carries the view's own reason).
+ * `names` maps each option's value to its label; `view` is a
+ * `normaliseOffer` view. Pure.
+ */
+export function shutChannelsLine(names, view) {
+  if (!view?.enabled || !(view.channels ?? []).length) return '';
+  const groups = new Map();
+  for (const [value, label] of Object.entries(names ?? {})) {
+    if (!NETWORK_CHANNELS.includes(value) || view.channels.includes(value)) continue;
+    let reason = String(view.disabledChannels?.[value] ?? SHUT_FALLBACK).trim() || SHUT_FALLBACK;
+    if (!/[.!?]$/.test(reason)) reason += '.';
+    if (!groups.has(reason)) groups.set(reason, []);
+    groups.get(reason).push(label);
+  }
+  return [...groups].map(([reason, labels]) => `Unavailable for this experiment: ${labels.join(', ')}. ${reason}`)
+    .join(' ');
+}
+
 /** How many responses the section keeps for views it may return to. */
 const CACHE_SIZE = 16;
 
@@ -199,7 +266,7 @@ const MATCHED_MEMO_SIZE = 256;
 /** The event pickers' labels and the titles event_picker.js does not write (Densest, ‹ ›). */
 export const PICKER_LABELS = Object.freeze({ uniform: 'Pick for me', tilted: 'Most tilted', densest: 'Densest' });
 export const DENSEST_TITLE = 'The candidate event with the most detector cells (the High_energy notebook\'s idxmax, '
-  + 'under the filters and the particle filter; not written to the link)';
+  + 'from the whole experiment under the particle filter; not written to the link)';
 /** ‹ ›'s titles: one constant for both pages (event_picker.js). */
 export const STEP_TITLES = PICKER_STEP_TITLES;
 /** The event-number field: empty draws the densest of the candidates (Densest's own rule). */
@@ -591,9 +658,9 @@ export function framePairsNote({ frame, offer, drawable = {}, scope = null } = {
 
 /**
  * The densest candidate event (the High_energy notebook's idxmax on the pool),
- * never written to the link. With no particle bound set (`particle` = {}, as
- * `state.particleParams()` returns) the request is exactly the selection's
- * densest; a set bound narrows the pool. Pure.
+ * never written to the link. `filters` is the pool's request,
+ * `state.eventPoolParams()` (the experiment, `basis=experiment` and the set
+ * particle bounds); `particle` adds bounds to it (`{}`: none). Pure.
  */
 export function pickRequest(filters, particle = {}) {
   return { route: '/api/event/pick', abortKey: VOXEL_ABORT_KEYS.pick,
@@ -607,9 +674,11 @@ export const EVENT_WINDOW = 'per_axis';
  * The event pair's two requests: the raster (one shower; all three paired
  * frames come in one response) and the cubes (null without WebGL), both on
  * the per-axis window (`EVENT_WINDOW`). The network is named only where a
- * CAM channel reads it. The particle filter's set bounds (`particle`, from
- * `state.particleParams()`) go with both, so the server places the event
- * among the candidates (`event.candidates`); none set, none sent. Pure.
+ * CAM channel reads it. `filters` is the pool's request,
+ * `state.eventPoolParams()` (the experiment, `basis=experiment` and the set
+ * particle bounds), so the server places the event among the candidates
+ * (`event.candidates`) and no E₁, E₂ or D key is ever sent; `particle` adds
+ * bounds to it (`{}`: none). Pure.
  */
 export function eventRequests({ filters, particle = {}, eventNumber, view, model = 'segmentation', gl = true }) {
   const raster = {
@@ -846,7 +915,7 @@ export class VoxelSection {
     // the densest (no event pinned) until a control pins one.
     this.origin = Number.isInteger(state?.get?.('voxel_event')) ? 'link' : 'densest';
     // The pick that pinned the event ({event, ruleId, rule}), a replacement
-    // ({old, new}), and whether a filter or particle commit awaits the pinned
+    // ({old, new}), and whether a particle commit awaits the pinned
     // event's fresh response (`followDecision`).
     this.picked = null;
     this.replaced = null;
@@ -920,7 +989,7 @@ export class VoxelSection {
       spec, element: card, title, tag, details, controls: {}, exporter: null,
       caption: null, plot: null, message: null, legend: null, sparse: null,
       panel: null, chart: null, watched: null, lost: false, disabled: null, error: null,
-      slices: null, slab: null, empty: null,
+      slices: null, slab: null, empty: null, shut: null,
     };
     if (spec.gl) this.buildGlControls(record, actions);
     else {
@@ -942,8 +1011,13 @@ export class VoxelSection {
     message.hidden = true;
     frame.append(plot, message);
     if (spec.gl) {
+      // The channels the experiment cannot serve, as a standing line (syncShutLines): never a tooltip alone.
+      const shut = make('p', 'card-caption voxel-shut');
+      shut.dataset.voxelShut = '';
+      shut.hidden = true;
+      record.shut = shut;
       record.slices = this.buildSliceRow(record);
-      card.append(heading, caption, record.slices.element, frame);
+      card.append(heading, caption, shut, record.slices.element, frame);
     } else {
       card.append(heading, caption, frame);
     }
@@ -1203,14 +1277,13 @@ export class VoxelSection {
   }
 
   /**
-   * GET /api/event/pick for a button's rule under the filters and the particle
-   * filter. Null when superseded, or when the pool is empty (a 404: N = 0, the
+   * GET /api/event/pick for a button's rule, from the pool (`poolParams`: the
+   * whole experiment under the particle filter). Null when superseded, or when the pool is empty (a 404: N = 0, the
    * pickers shut with the empty line, never an error banner).
    */
   async requestPick(rule) {
     const params = pickParams({
-      filters: this.state.filterParams(), particle: this.particleParams(), rule,
-      seed: rule === 'uniform' ? FIRST_SEED : this.seed, draw: this.draw,
+      filters: this.poolParams(), rule, seed: rule === 'uniform' ? FIRST_SEED : this.seed, draw: this.draw,
     });
     try {
       return await getJson('/api/event/pick', params, VOXEL_ABORT_KEYS.pick);
@@ -1266,9 +1339,18 @@ export class VoxelSection {
     return Object.keys(this.particleParams()).length > 0;
   }
 
-  /** The pool's identity: the filters and the particle filter in hand. */
+  /**
+   * The pool's request (state.js `eventPoolParams`): the experiment,
+   * `basis=experiment` and the set particle bounds; never an E₁, E₂ or D key.
+   * Every One event request starts from it.
+   */
+  poolParams() {
+    return this.state?.eventPoolParams?.() ?? {};
+  }
+
+  /** The pool's identity: the experiment and the particle filter in hand (E₁, E₂ and D never enter it). */
   poolKey() {
-    return requestKey('pool', { ...(this.state?.filterParams?.() ?? {}), ...this.particleParams() });
+    return requestKey('pool', this.poolParams());
   }
 
   /**
@@ -1283,7 +1365,7 @@ export class VoxelSection {
 
   /**
    * The count the page has asked for and not yet received (an experiment
-   * adopted, an E₁/E₂/D commit), under the filters it was asked for. A densest
+   * adopted), under the pool it was asked for. A densest
    * pick waits for it while a particle bound is set, so an empty pool sends no
    * request (brief section 8.3). Null forgets it.
    */
@@ -1303,14 +1385,24 @@ export class VoxelSection {
     return Boolean(c) && Number(c.n_events) === 0;
   }
 
-  /** The pool is empty (a pick's 404): known for the filters in hand until a candidates payload says more. */
-  markEmpty() {
-    this.pool = { key: this.poolKey(), payload: { candidates: { n_events: 0, particle: this.particleParams() } } };
+  /**
+   * An empty pool's candidates block, as the page knows it without a count:
+   * none, under the particle filter in hand, drawn from the pool's basis (the
+   * whole experiment), so the empty line names the experiment.
+   */
+  emptyCandidates() {
+    const { basis } = this.poolParams();
+    return { candidates: { n_events: 0, particle: this.particleParams(), ...(basis ? { basis } : {}) } };
   }
 
-  /** The empty line of the filters in hand (event_picker.js `emptyLine`). */
+  /** The pool is empty (a pick's 404): known for the pool in hand until a candidates payload says more. */
+  markEmpty() {
+    this.pool = { key: this.poolKey(), payload: this.emptyCandidates() };
+  }
+
+  /** The empty line of the pool in hand (event_picker.js `emptyLine`). */
   emptyText() {
-    const payload = this.poolPayload() ?? { candidates: { n_events: 0, particle: this.particleParams() } };
+    const payload = this.poolPayload() ?? this.emptyCandidates();
     return emptyLine(payload, { nShowers: this.offer.nShowers ?? 2 });
   }
 
@@ -1329,28 +1421,30 @@ export class VoxelSection {
   }
 
   /**
-   * A filter (E₁, E₂, D) commit: the pool can change, so the pinned event's
-   * fresh response decides whether it stays (`followDecision`). The uniform
-   * draw counter carries on (only an experiment switch, `reset`, restarts it):
+   * A filter (E₁, E₂, D) commit. The pool ignores E₁, E₂ and D (brief
+   * physics-subpages, section 10.2), so the One event scope is left alone:
+   * its key does not move, nothing is reloaded or re-picked, no follow policy
+   * applies, and the pick's rule sentence and the draw counter stay. The
+   * Selection scope and the cloud reload by their own keys on the page's
+   * refresh. Kept so a caller has one hook per commit; it changes nothing.
+   */
+  filtersCommitted() {}
+
+  /**
+   * A particle commit: the pool can change, so the pinned event's fresh
+   * response decides whether it stays (`followDecision`). The uniform draw
+   * counter carries on (only an experiment switch, `reset`, restarts it):
    * entry k of a fresh shuffle is as uniform as entry 1, and a restart would
    * replay entry 1 after a commit that left the pool as it was. The pick's
    * rule sentence goes: it named the previous pool. The event pair reloads by
-   * its own key.
-   */
-  filtersCommitted() {
-    this.followPending = true;
-    this.picked = null;
-    this.replaced = null;
-  }
-
-  /**
-   * A particle commit: as a filter commit for the event pair, whose key holds
-   * the particle filter. The selection and the cloud never read it and send
+   * its own key. The selection and the cloud never read the filter and send
    * nothing; their captions and drawers say so (`ensembleLine`), rebuilt here
    * from the payloads in hand.
    */
   particleCommitted() {
-    this.filtersCommitted();
+    this.followPending = true;
+    this.picked = null;
+    this.replaced = null;
     for (const pair of Object.values(this.pairs)) {
       const selection = pair.name === 'ensemble' || pair.view?.scope === 'selection';
       if (!selection || !pair.view) continue;
@@ -1528,9 +1622,21 @@ export class VoxelSection {
         }
       }
     }
+    this.syncShutLines();
     this.syncPairs();
     this.syncControls();
     this.lazy.forget();
+  }
+
+  /** Each 3-D card's standing line of the channels the experiment cannot serve (`shutChannelsLine`). */
+  syncShutLines() {
+    for (const [name, names] of [['event', EVENT_CHANNEL_NAMES], ['ensemble', ENSEMBLE_CHANNEL_NAMES]]) {
+      const shut = this.pairs[name]?.gl?.shut;
+      if (!shut) continue;
+      const line = this.offer.shown ? shutChannelsLine(names, this.offer[name]) : '';
+      shut.textContent = line;
+      shut.hidden = !line;
+    }
   }
 
   ids() {
@@ -1556,10 +1662,10 @@ export class VoxelSection {
           ...filters, channel: view.channel, model: EVENT_CAM.has(view.channel) ? this.value('model') : undefined, gl,
         });
       }
-      // One event: the particle filter narrows the pool it is picked from and placed in.
+      // One event: the pool's request (the experiment under the particle filter), never E₁, E₂ or D.
       const event = this.value('voxel_event');
       return requestKey('vox-event', {
-        ...filters, ...this.particleParams(), event: Number.isInteger(event) ? event : 'densest', frame: view.frame,
+        ...this.poolParams(), event: Number.isInteger(event) ? event : 'densest', frame: view.frame,
         channel: view.channel, shower: view.shower, model: EVENT_CAM.has(view.channel) ? this.value('model') : undefined,
         gl,
       });
@@ -1651,8 +1757,8 @@ export class VoxelSection {
 
   /**
    * One event: the densest candidate when the link pins none (N = 0: the empty
-   * line, and no request), then its raster and cubes under the filters and the
-   * particle filter. After a filter or particle commit the fresh response
+   * line, and no request), then its raster and cubes, all from the pool's
+   * request (`poolParams`: no E₁, E₂ or D key). After a particle commit the fresh response
    * decides whether a pinned event stays (`followDecision`); a replacement is
    * the next uniform draw, loaded in this load's place.
    */
@@ -1663,16 +1769,18 @@ export class VoxelSection {
     this.setPairBusy(pair, true);
     let stage = 'pick';
     try {
-      const filters = this.state.filterParams();
-      const particle = this.particleParams();
+      // The pool's request carries the particle bounds: nothing is added to it.
+      const filters = this.poolParams();
+      const particle = {};
+      const bounded = this.particleActive();
       let view = this.eventView();
       let eventNumber = this.value('voxel_event');
       let pick = null;
       if (!Number.isInteger(eventNumber)) {
-        // The count is on its way under these filters: with a particle bound set, wait for it, so an
+        // The count is on its way for this pool: with a particle bound set, wait for it, so an
         // empty pool asks for nothing. With no bound nothing waits, as before the filter existed.
         const pending = this.pendingPool?.key === this.poolKey() ? this.pendingPool.promise : null;
-        if (pending && !this.poolPayload() && Object.keys(particle).length) {
+        if (pending && !this.poolPayload() && bounded) {
           await pending;
           if (this.keyOf('event') !== key) return;
         }
@@ -1722,7 +1830,7 @@ export class VoxelSection {
       if (block?.candidates) this.rememberMatched(eventNumber, block.candidates.matched);
       // A pinned event's response that counts no candidate: the pickers are shut before the block's count lands.
       if (block?.candidates && Number(block.candidates.n_events) === 0 && !this.poolPayload()) this.markEmpty();
-      // A filter or particle commit: the pinned event's fresh response decides.
+      // A particle commit: the pinned event's fresh response decides.
       if (this.followPending && Number.isInteger(this.value('voxel_event'))) {
         this.followPending = false;
         const c = block?.candidates;
@@ -1773,8 +1881,7 @@ export class VoxelSection {
     let payload;
     try {
       payload = await getJson('/api/event/pick', pickParams({
-        filters: this.state.filterParams(), particle: this.particleParams(), rule: 'uniform', seed: FIRST_SEED,
-        draw: this.draw,
+        filters: this.poolParams(), rule: 'uniform', seed: FIRST_SEED, draw: this.draw,
       }), VOXEL_ABORT_KEYS.pick);
     } catch (error) {
       if (isAbort(error)) throw error;
@@ -2305,7 +2412,10 @@ export class VoxelSection {
         + `${formatInt(cap.n_drawn)} of ${formatInt(cap.n_total)} ${what} drawn`;
       const picked = this.picked && this.picked.event === event.event_number ? this.picked : null;
       if (pair.pick && !Number.isInteger(this.value('voxel_event'))) {
-        lead += this.particleActive() ? ' · the densest candidate event' : ' · the densest event of the selection';
+        // The pool is the whole experiment (`basis`: experiment), or, in a response without the basis, the selection.
+        const whole = (pair.pick.basis ?? event.candidates?.basis) === 'experiment';
+        lead += this.particleActive() ? ' · the densest candidate event'
+          : ` · the densest event of the ${whole ? 'experiment' : 'selection'}`;
       } else if (picked) {
         lead += picked.ruleId === 'tilted' ? ' · picked by the tilted rule' : ' · drawn uniformly at random';
       }
@@ -2314,6 +2424,9 @@ export class VoxelSection {
       // Where the event stands among the candidates, how its shower meets the
       // particle filter, the pick's rule, and a replacement (event_picker.js).
       if (event.candidates) lines.push(placeLine(event, { nShowers }));
+      // What the candidates are: the whole experiment, which E₁, E₂ and D do not narrow ('' without the basis).
+      const pool = event.candidates ? poolLine(event, { nShowers }) : '';
+      if (pool) lines.push(pool);
       lines.push(matchLine({ candidates: event.candidates, drawn: pair.view?.shower ?? 'a', showers: event.showers ?? [],
         nShowers }));
       if (picked?.rule) lines.push(picked.rule);

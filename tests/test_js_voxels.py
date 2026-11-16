@@ -415,7 +415,8 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
     const q = Object.fromEntries(u.searchParams.entries());
     const json = (body, status = 200) => ({ ok: status < 400, status, statusText: '', json: async () => body });
     if (u.pathname === '/api/event/pick') {
-      return json(table === 'single_hits' ? load('pick_single_densest') : { event_number: 0, rule: 'densest rule', rule_id: 'densest' });
+      return json(table === 'single_hits' ? load('pick_single_densest')
+        : { event_number: 0, rule: 'densest rule', rule_id: 'densest', ...(q.basis ? { basis: q.basis } : {}) });
     }
     if (u.pathname === '/api/event' && q.format === 'voxels') {
       if (refuse3d) return json({ title: 'Unsupported capability', detail: 'The 3-D view is shut for this test.' }, 422);
@@ -493,6 +494,8 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
       return Object.fromEntries(['particle_p_min', 'particle_p_max', 'particle_theta_min', 'particle_theta_max']
         .filter((k) => this.values[k] !== null && this.values[k] !== undefined).map((k) => [k, this.values[k]]));
     },
+    // state.js: the pickers' pool, the whole experiment under the particle filter (never E1, E2 or D).
+    eventPoolParams() { return { table_name: this.values.table_name, basis: 'experiment', ...this.particleParams() }; },
     isTouched: () => false,
   };
   const host = new El('section');
@@ -541,6 +544,8 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
       pickerHidden: rec.controls.number ? ['number', 'prev', 'next', 'densest', 'pick', 'tilted'].map((k) => Boolean(rec.controls[k].hidden)) : null,
       open2dHidden: rec.controls.open2d ? Boolean(rec.controls.open2d.hidden) : null,
       slices: rec.slices ? { hidden: rec.slices.element.hidden, readout: rec.slices.readout.textContent } : null,
+      // The standing line of the channels the experiment cannot serve (3-D cards only).
+      shut: rec.shut ? (rec.shut.hidden ? null : rec.shut.textContent) : undefined,
       showerButtons: rec.controls.showerButtons ? [...rec.controls.showerButtons].map(([value, b]) => ({
         value, disabled: Boolean(b.disabled), title: b.title, active: b.classList.contains('is-active') })) : null,
       // The species legend: laid out by models.css, each swatch carrying only its colour.
@@ -2132,7 +2137,8 @@ def test_the_section_builds_its_cards_with_export_on_the_projections_only(out):
 def test_the_densest_event_is_asked_for_when_the_link_names_none(out):
     base = out["section"]["base"]
     paths = [(path, q) for path, q in base["requests"]]
-    assert paths[0] == ("/api/event/pick", {"table_name": "experiment_baseline", "rule": "densest"})
+    # The pickers' pool (brief physics-subpages 10.2): the whole experiment, never an E1, E2 or D key.
+    assert paths[0] == ("/api/event/pick", {"table_name": "experiment_baseline", "basis": "experiment", "rule": "densest"})
     event = [q for path, q in paths if path == "/api/event"]
     assert {q.get("event_number") for q in event} == {"0"}
     assert any(q.get("format") == "voxels" for q in event) and any("format" not in q for q in event)
@@ -2140,7 +2146,7 @@ def test_the_densest_event_is_asked_for_when_the_link_names_none(out):
     # not asked for; one event's projections come with the event itself.
     assert {path for path, _ in paths} == {"/api/event/pick", "/api/event"}
     cards = base["cards"]
-    assert "the densest event of the selection" in cards["vox-event"]["sparse"]
+    assert "the densest event of the experiment" in cards["vox-event"]["sparse"]
     assert cards["vox-event"]["notes"]["headings"] == ["Selection", "What is drawn", "Disclosures", "Marks and legend"]
     assert base["refreshError"] is None and base["errors"] == []
     # A pinned event is never re-picked, and the network is named for a CAM channel.
@@ -2320,6 +2326,28 @@ def test_a_single_shower_offers_its_own_channels_and_no_shower_toggle(out):
     assert channels == {"density"}
     species = next(q for path, q in single["requests"] if path == "/api/event" and q.get("format") == "voxels")
     assert species["channel"] == "species" and species["event_number"] == "3"
+
+
+def test_each_3d_card_with_shut_channels_carries_a_standing_line(out):
+    """Brief physics-subpages 10.2: visible text under the caption, not a tooltip alone; reasons grouped."""
+    reason = ("This experiment carries no reconstruction-network outputs; network panels need the hits_all_models "
+              "schema.")
+    single = out["section"]["single"]["cards"]
+    assert single["vox-event"]["shut"] == ("Unavailable for this experiment: Grad-CAM Model Attention, Shap-CAM "
+                                           f"Attribution, Segmentation error. {reason}")
+    assert single["vox-ensemble"]["shut"] == ("Unavailable for this experiment: Energy-weighted Grad-CAM, "
+                                              f"Energy-weighted Shap-CAM. {reason}")
+    # The same line in the Selection scope, whose per-event channels the scope (not the experiment) shuts.
+    assert out["section"]["selectionSingle"]["cards"]["vox-event"]["shut"] == single["vox-event"]["shut"]
+    # The two-shower baseline lacks the species columns only: no network channel is shut, so no line (Martin's
+    # decision of 2026-11-16: the line names the networks' outputs and attention maps alone).
+    base = out["section"]["base"]["cards"]
+    assert base["vox-event"]["shut"] is None
+    assert base["vox-ensemble"]["shut"] is None
+    # The projections carry none, and an events-only experiment, whose views are shut whole, shows none.
+    assert "shut" not in single["vproj-xy"]
+    events = out["section"]["events"]["cards"]
+    assert events["vox-event"]["shut"] is None and events["vox-ensemble"]["shut"] is None
 
 
 def test_the_species_legend_carries_only_its_colours_inline(out):
@@ -2663,7 +2691,8 @@ def test_every_slab_of_the_recorded_cloud_lies_inside_its_paired_depth_axis(out)
 
 def test_the_slice_row_sits_between_the_caption_and_the_plot(out):
     value = out["section"]["slices"]["acted"]["value"]
-    assert value["markup"]["order"][1:4] == ["card-caption", "voxel-slices", "plot-frame"]
+    # The standing line of the shut channels sits under the caption, above the slice row.
+    assert value["markup"]["order"][1:5] == ["card-caption", "card-caption voxel-shut", "voxel-slices", "plot-frame"]
     row = value["markup"]["row"]
     label, prev, scrub, nxt, readout = row
     assert label[0] == "LABEL" and label[1] == "voxel-slices-k" and label[3] == "Slices "
@@ -2917,7 +2946,14 @@ function makeServer({ matched = {}, events = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] } = 
       next_matched: next === null ? null : matchedOf(next, q) } };
   };
   const json = (body, status = 200) => ({ ok: status < 400, status, statusText: '', json: async () => body });
+  // The server's refusal (api/deps.py resolve_basis): no E1, E2 or D key under basis=experiment.
+  const CUTS = ['e1_min', 'e1_max', 'e2_min', 'e2_max', 'd_min', 'd_max'];
+  const basisOf = (q) => (q.basis ? { basis: q.basis } : {});
   const answer = (path, q) => {
+    if (path.startsWith('/api/event') && q.basis === 'experiment') {
+      const field = CUTS.find((k) => k in q) ?? (q.include_undefined_d === 'true' ? 'include_undefined_d' : null);
+      if (field) return json({ detail: `${field} does not apply with basis=experiment.` }, 422);
+    }
     if (path === '/api/event/pick') {
       const p = pool(q);
       if (!p.length) return json({ title: 'Not Found', detail: 'The selection holds no candidate event.' }, 404);
@@ -2926,12 +2962,13 @@ function makeServer({ matched = {}, events = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] } = 
       const n = rule === 'uniform' ? p.at(-1 - (Number(q.draw) % p.length))
         : rule === 'tilted' ? p.at(-1 - ((Number(q.seed) - 42) % p.length)) : p[0];
       return json({ event_number: n, n_events: p.length, rule: `The ${rule} rule's sentence for event ${n}.`, rule_id: rule,
-        matched: matchedOf(n, q), particle: echo(q) });
+        matched: matchedOf(n, q), particle: echo(q), ...basisOf(q) });
     }
     if (path === '/api/event') {
       const n = Number(q.event_number);
       const body = clone(load(q.format === 'voxels' ? 'event_voxels_base_lab' : 'event_raster_base'));
       Object.assign(body.event, { event_number: n, in_selection: true }, place(n, q));
+      Object.assign(body.event.candidates, basisOf(q));
       if (q.format !== 'voxels') body.event.shower = { ...body.event.shower, key: q.shower, label: q.shower.toUpperCase() };
       return json(body);
     }
@@ -2968,10 +3005,16 @@ function makeState(values) {
       for (const [k, v] of Object.entries(patch)) if (this.values[k] !== v) { this.values[k] = v; changed = true; }
       return changed;
     },
-    filterParams() { return { table_name: this.values.table_name }; },
+    // E1 and D bounds the selection would send (a commit sets them): the pool must never carry them.
+    filterParams() {
+      return { table_name: this.values.table_name,
+        ...Object.fromEntries(['e1_min', 'e1_max', 'd_min'].filter((k) => this.values[k] !== undefined).map((k) => [k, this.values[k]])) };
+    },
     particleParams() {
       return Object.fromEntries(P.filter((k) => this.values[k] !== null && this.values[k] !== undefined).map((k) => [k, this.values[k]]));
     },
+    // state.js: the pickers' pool, the whole experiment under the particle filter (never E1, E2 or D).
+    eventPoolParams() { return { table_name: this.values.table_name, basis: 'experiment', ...this.particleParams() }; },
     isTouched: () => false,
   };
 }
@@ -3066,6 +3109,19 @@ const BOUND = { particle_p_min: 2, particle_p_max: 3 };
   k.push(keys('cloud off'));
   Object.assign(state.values, BOUND);
   k.push(keys('cloud on'));
+  // An E1 bound (brief physics-subpages 10.2): the One event key does not move; the Selection's and the cloud's do.
+  Object.assign(state.values, { frame: 'lab', voxel_scope: 'event' });
+  k.push(keys('event no e1'));
+  state.values.e1_min = 5;
+  k.push(keys('event e1'));
+  state.values.voxel_scope = 'selection';
+  k.push(keys('selection e1'));
+  state.values.frame = 'local';
+  k.push(keys('cloud e1'));
+  delete state.values.e1_min;
+  k.push(keys('cloud no e1'));
+  state.values.frame = 'lab';
+  k.push(keys('selection no e1'));
   out.keys = k;
 }
 
@@ -3085,6 +3141,16 @@ const BOUND = { particle_p_min: 2, particle_p_max: 3 };
     bothNone: vv.resolveEventView({ frame: 'lab', channel: 'energy', shower: 'both' }, offer),
     localMatched: vv.resolveEventView({ frame: 'local', channel: 'energy', shower: 'both', matched: ['b'] }, offer),
     noteB: vv.projectionsMatchingNote('b'), oneShower: vv.PROJECTIONS_ONE_SHOWER,
+    // The standing line of shut channels: reasons grouped, labels in the menu's order.
+    shutMixed: vv.shutChannelsLine(vv.EVENT_CHANNEL_NAMES, { enabled: true, channels: ['energy'],
+      disabledChannels: { gradcam: 'Reason one.', shapcam: 'Reason one.', segerr: 'Reason two', species: 'Reason one.' } }),
+    shutNone: vv.shutChannelsLine(vv.EVENT_CHANNEL_NAMES, { enabled: true,
+      channels: ['energy', 'gradcam', 'shapcam', 'segerr', 'species'], disabledChannels: {} }),
+    shutView: vv.shutChannelsLine(vv.EVENT_CHANNEL_NAMES, { enabled: false, channels: [], disabledChannels: { energy: 'No hits.' } }),
+    shutSpeciesOnly: vv.shutChannelsLine(vv.EVENT_CHANNEL_NAMES, { enabled: true,
+      channels: ['energy', 'gradcam', 'shapcam', 'segerr'], disabledChannels: { species: 'No species columns.' } }),
+    networkChannels: vv.NETWORK_CHANNELS,
+    shutFallback: vv.shutChannelsLine(vv.ENSEMBLE_CHANNEL_NAMES, { enabled: true, channels: ['density'], disabledChannels: {} }),
   };
 }
 
@@ -3211,7 +3277,7 @@ const BOUND = { particle_p_min: 2, particle_p_max: 3 };
   await typed.section.refresh(); await idle(typed.section);
   typed.section.setEvent(0, { origin: 'typed' }); await idle(typed.section);
   Object.assign(typed.state.values, BOUND);
-  typed.section.filtersCommitted();
+  typed.section.particleCommitted();
   const t0 = typed.requests.length;
   await typed.section.refresh(); await idle(typed.section);
   out.follow.typed = snap(typed, t0);
@@ -3231,7 +3297,9 @@ const BOUND = { particle_p_min: 2, particle_p_max: 3 };
   try { await fresh.section.refresh(); } catch (e) { out.emptyRefreshError = e.message; }
   await idle(fresh.section);
   out.empty404 = snap(fresh);
-  out.empty404.expected = ep.emptyLine({ candidates: { n_events: 0, particle: fresh.state.particleParams() } }, { nShowers: 2 });
+  // The pool is the whole experiment: the line the page writes without a count names it (basis=experiment).
+  out.empty404.expected = ep.emptyLine({ candidates: { n_events: 0, particle: fresh.state.particleParams(), basis: 'experiment' } },
+    { nShowers: 2 });
   // A button's 404 is the same: no error, the pickers shut.
   const pinned = await make({ values: { particle_p_min: 5, particle_p_max: 6, voxel_event: 0 }, server: { matched: {} } });
   await pinned.section.refresh(); await idle(pinned.section);
@@ -3322,6 +3390,50 @@ const BOUND = { particle_p_min: 2, particle_p_max: 3 };
     field: number ? { aria: number.getAttribute('aria-label'), title: number.title } : null };
 }
 
+/* 14. An E1/E2/D commit (brief physics-subpages 10.2): the One event scope sends nothing and keeps its event,
+   its draw counter and its pick's sentence; the next pick carries no E1 key. The Selection scope and the cloud
+   reload under the new cut. */
+{
+  const ctx = await make({ values: BOUND, server: { matched: { 1: ['b'], 2: ['a', 'b'], 4: ['a'] } } });
+  const { section, state } = ctx;
+  await section.refresh(); await idle(section);
+  section.pairs.event.gl.controls.pick.fire('click'); await idle(section);
+  const picked = snap(ctx);
+  const keyBefore = section.keyOf('event');
+  const n0 = ctx.requests.length;
+  state.values.e1_min = 5;
+  section.filtersCommitted();
+  await section.refresh(); await idle(section);
+  const committed = { ...snap(ctx, n0), keySame: section.keyOf('event') === keyBefore, followPending: section.followPending };
+  const n1 = ctx.requests.length;
+  section.pairs.event.gl.controls.pick.fire('click'); await idle(section);
+  const next = snap(ctx, n1);
+  // The densest (no pinned event): nothing is re-picked either.
+  const dense = await make({ server: { matched: {} } });
+  await dense.section.refresh(); await idle(dense.section);
+  const d0 = dense.requests.length;
+  dense.state.values.e1_min = 5;
+  dense.section.filtersCommitted();
+  await dense.section.refresh(); await idle(dense.section);
+  const densest = snap(dense, d0);
+  // The Selection scope reloads under the cut, and so does the cloud.
+  const sel = await make({ values: { voxel_scope: 'selection' } });
+  await sel.section.refresh(); await idle(sel.section);
+  const s0 = sel.requests.length;
+  sel.state.values.e1_min = 5;
+  sel.section.filtersCommitted();
+  await sel.section.refresh(); await idle(sel.section);
+  const selection = snap(sel, s0);
+  sel.state.values.frame = 'local';
+  await sel.section.refresh(); await idle(sel.section);
+  const s1 = sel.requests.length;
+  sel.state.values.e1_min = 6;
+  sel.section.filtersCommitted();
+  await sel.section.refresh(); await idle(sel.section);
+  const cloud = snap(sel, s1);
+  out.e1Commit = { picked, committed, next, densest, selection, cloud };
+}
+
 /* 10. A stored "Both" in a per-shower frame (drawn as A) survives every picker and step with no bound (U1). */
 {
   const runs = {};
@@ -3378,6 +3490,12 @@ def test_the_particle_filter_is_in_the_one_event_key_only(pickers):
     # The Selection scope and the cloud never see the particle keys: a bound changes neither key.
     assert keys["selection on"][0] == keys["selection off"][0] and "particle" not in keys["selection on"][0]
     assert keys["cloud on"][1] == keys["cloud off"][1] and "particle" not in keys["cloud on"][1]
+    # The One event key is the pool's: the experiment and basis=experiment, never E1, E2 or D, so an E1 commit
+    # leaves it as it was; the Selection's and the cloud's keys follow the cut.
+    assert keys["event e1"][0] == keys["event no e1"][0] and "e1_min" not in keys["event e1"][0]
+    assert '["basis","experiment"]' in keys["event e1"][0]
+    assert keys["selection e1"][0] != keys["selection no e1"][0] and "e1_min" in keys["selection e1"][0]
+    assert keys["cloud e1"][1] != keys["cloud no e1"][1] and "e1_min" in keys["cloud e1"][1]
 
 
 def test_the_pure_requests_keep_their_output_without_a_bound_and_gain_the_keys_with_one(pickers):
@@ -3409,12 +3527,14 @@ def test_both_draws_the_matching_showers_projections_and_says_so(pickers):
 
 def test_the_densest_is_the_pools_and_asks_for_a_matching_shower_first(pickers):
     off = pickers["densestOff"]
-    assert off["requests"][0] == ["/api/event/pick", {"table_name": "experiment_baseline", "rule": "densest"}]
+    assert off["requests"][0] == ["/api/event/pick", {"table_name": "experiment_baseline", "basis": "experiment",
+                                                      "rule": "densest"}]
     assert all(not _particle_keys(q) for _, q in off["requests"])
     assert off["origin"] == "densest" and off["errors"] == []
     on = pickers["densestOn"]
     picks = [q for path, q in on["requests"] if path == "/api/event/pick"]
-    assert picks == [{"table_name": "experiment_baseline", "particle_p_min": "2", "particle_p_max": "3", "rule": "densest"}]
+    assert picks == [{"table_name": "experiment_baseline", "basis": "experiment", "particle_p_min": "2",
+                      "particle_p_max": "3", "rule": "densest"}]
     events = [q for path, q in on["requests"] if path == "/api/event"]
     # The pool's densest is event 1, whose only match is shower B: B is asked for in the event's first requests.
     assert {q["event_number"] for q in events} == {"1"} and {q["shower"] for q in events} == {"b"}
@@ -3430,8 +3550,8 @@ def test_the_densest_is_the_pools_and_asks_for_a_matching_shower_first(pickers):
 def test_pick_for_me_is_uniform_with_the_first_seed_and_a_draw_counter_carried_across_commits(pickers):
     p = pickers["pickers"]
     first = [q for path, q in p["first"]["requests"] if path == "/api/event/pick"]
-    assert first == [{"table_name": "experiment_baseline", "particle_p_min": "2", "particle_p_max": "3",
-                      "rule": "uniform", "seed": "42", "draw": "0"}]
+    assert first == [{"table_name": "experiment_baseline", "basis": "experiment", "particle_p_min": "2",
+                      "particle_p_max": "3", "rule": "uniform", "seed": "42", "draw": "0"}]
     assert p["first"]["origin"] == "pick" and p["first"]["state"]["voxel_event"] == 4
     # The densest (event 1) left shower B asked for; event 4 matches with A only, so the pick asks for A
     # in the event's first requests (the Absolute frame keeps "Both" only when it is asked for).
@@ -3449,7 +3569,7 @@ def test_pick_for_me_is_uniform_with_the_first_seed_and_a_draw_counter_carried_a
     assert p["afterCommit"] == {"draw": 2, "followPending": True}
     third = [q for path, q in p["third"]["requests"] if path == "/api/event/pick"]
     assert [(q["rule"], q["seed"], q["draw"]) for q in third] == [("uniform", "42", "2")]
-    assert p["afterFilters"] == {"draw": 3}
+    assert p["afterFilters"] == {"draw": 3}, "an E1/E2/D commit leaves the counter alone"
     assert pickers["pickerReset"] == {"draw": 0, "seed": 42}, "an experiment switch restarts both counters"
 
 
@@ -3522,6 +3642,8 @@ def test_the_2d_link_is_live_and_opens_the_drawn_event_and_its_match(pickers):
     assert link["text"] == pickers["titles"]["open2dLabel"] and link["title"] == pickers["titles"]["open2d"]
     assert link["hidden"] is False and link["href"] == typed["firstExpected"]
     assert "event=1" in link["href"] and "shower=b" in link["href"] and link["href"].startswith("/#")
+    # It lands in the Physics page's Event viewer (brief physics-subpages 10.2).
+    assert "psub=event" in link["href"] and "psub=event" in typed["liveHref"]
     # Followed later, with another hash: the href is the moment's.
     assert typed["liveHref"] == typed["liveExpected"] and "particle_p_min=2.5" in typed["liveHref"]
     # The selection draws no one event: no link.
@@ -3584,6 +3706,7 @@ def test_a_404_from_the_pick_is_the_empty_state_never_an_error(pickers):
     assert "emptyRefreshError" not in pickers
     paths = [p for p, _ in run["requests"]]
     assert paths == ["/api/event/pick"], "the 404 pick, and nothing after it"
+    assert run["expected"].startswith("N = 0: no event of the experiment with a defined separation holds a shower")
     for card in ("vox-event", "vproj-xz"):
         assert run["cards"][card]["message"] == run["expected"] and run["cards"][card]["kind"] == "empty"
     assert run["pickers"]["pick"]["disabled"] and run["pickers"]["pick"]["title"] == run["expected"]
@@ -3672,9 +3795,95 @@ def test_no_rendered_picker_sentence_signs_a_number_with_a_hyphen(pickers):
             _no_hyphen_numbers(_strings(run))
 
 
+_CUTS = ("e1_min", "e1_max", "e2_min", "e2_max", "d_min", "d_max", "include_undefined_d")
+
+
+def _picker_runs(pickers: dict) -> list:
+    """Every snapshot of the picker script that carries requests."""
+    found = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if "requests" in node and isinstance(node["requests"], list):
+                found.append(node)
+            for value in node.values():
+                walk(value)
+
+    walk(pickers)
+    return found
+
+
+def test_every_one_event_request_carries_the_pool_and_no_e1_e2_or_d_key(pickers):
+    """Brief physics-subpages 10.2: the raster, the cubes, the pick, Densest, the steps and a replacement all carry
+    state.eventPoolParams() (basis=experiment) and never an E1/E2/D key, which the server refuses with a 422."""
+    seen = 0
+    for run in _picker_runs(pickers):
+        for path, query in run["requests"]:
+            if not path.startswith("/api/event"):
+                continue
+            seen += 1
+            assert query.get("basis") == "experiment", (path, query)
+            assert not [k for k in _CUTS if k in query], (path, query)
+        assert not [e for e in run.get("errors", []) if "422" in e or "does not apply" in e], run["errors"]
+    assert seen > 40
+    # The runs above include a pick, Most tilted, Densest, steps, a replacement and a pick after an E1 commit.
+    commit = pickers["e1Commit"]["next"]["requests"]
+    assert [q["rule"] for p, q in commit if p == "/api/event/pick"] == ["uniform"]
+
+
+def test_an_e1_commit_sends_no_event_request_and_keeps_the_event_its_draw_and_its_pick(pickers):
+    e = pickers["e1Commit"]
+    picked, committed = e["picked"], e["committed"]
+    assert picked["origin"] == "pick" and isinstance(picked["state"]["voxel_event"], int)
+    # Nothing is asked of /api/event*: the key did not move, so nothing reloads, recounts or re-picks.
+    assert not [p for p, _ in committed["requests"] if p.startswith("/api/event")], committed["requests"]
+    assert committed["keySame"] is True and committed["followPending"] is False
+    assert committed["state"] == picked["state"] and committed["draw"] == picked["draw"] == 1
+    assert committed["origin"] == "pick"
+    rule = f"The uniform rule's sentence for event {picked['state']['voxel_event']}."
+    assert rule in committed["cards"]["vox-event"]["sparse"], "the pick's sentence stays: the pool did not change"
+    assert committed["errors"] == []
+    # The next pick takes the next draw, with no E1 key.
+    picks = [q for p, q in e["next"]["requests"] if p == "/api/event/pick"]
+    assert [(q["draw"], "e1_min" in q) for q in picks] == [("1", False)]
+    # The densest is not re-picked.
+    assert not [p for p, _ in e["densest"]["requests"] if p.startswith("/api/event")], e["densest"]["requests"]
+    assert e["densest"]["errors"] == []
+
+
+def test_an_e1_commit_still_reloads_the_selection_scope_and_the_cloud(pickers):
+    e = pickers["e1Commit"]
+    selection = {p: q for p, q in e["selection"]["requests"]}
+    assert set(selection) == {"/api/selection-cells", "/api/projections"}, e["selection"]["requests"]
+    assert all(q.get("e1_min") == "5" and "basis" not in q for q in selection.values())
+    cloud = {p: q for p, q in e["cloud"]["requests"]}
+    assert set(cloud) == {"/api/voxels", "/api/projections"}, e["cloud"]["requests"]
+    assert all(q.get("e1_min") == "6" and "basis" not in q for q in cloud.values())
+    assert e["selection"]["errors"] == [] and e["cloud"]["errors"] == []
+
+
+def test_the_e1_commit_runs_carry_the_pool_line_in_the_event_caption(pickers):
+    sparse = pickers["e1Commit"]["committed"]["cards"]["vox-event"]["sparse"]
+    assert ("The candidates are the events of the whole experiment holding a matching particle "
+            "(p in 2.00–3.00 GeV); E₁, E₂ and D do not narrow them.") in sparse
+
+
+def test_the_standing_line_groups_its_reasons_and_names_the_options_in_menu_order(pickers):
+    pure = pickers["pure"]
+    # Particle species is shut with "Reason one" too, but it is no network channel: the line leaves it to its title.
+    assert pure["shutMixed"] == ("Unavailable for this experiment: Grad-CAM Model Attention, Shap-CAM Attribution. "
+                                 "Reason one. Unavailable for this experiment: Segmentation error. Reason two.")
+    assert pure["shutNone"] == "" and pure["shutView"] == ""
+    assert pure["shutSpeciesOnly"] == ""
+    assert pure["networkChannels"] == ["gradcam", "shapcam", "segerr", "gradcam_energy", "shapcam_energy"]
+    assert pure["shutFallback"] == ("Unavailable for this experiment: Energy-weighted Grad-CAM, Energy-weighted "
+                                    "Shap-CAM. Not available for this experiment.")
+
+
 def test_the_models_page_mounts_the_particle_filter_and_wires_its_commits():
-    """models_main.js (brief 8.1, 8.3, 8.4a): one block; a particle commit refreshes the 3-D views alone; an E1/E2/D
-    commit refreshes the block (the draw counter carries on); the experiment switch aborts its request."""
+    """models_main.js (brief 8.1, 8.3, 8.4a; physics-subpages 10.2): one block; a particle commit refreshes the 3-D
+    views alone; an E1/E2/D commit refreshes the cards only (the pool ignores it); the experiment switch aborts its
+    request."""
     from test_layout_assets import _strip_comments
 
     src = _strip_comments((JS / "models_main.js").read_text(encoding="utf-8"))
@@ -3688,8 +3897,13 @@ def test_the_models_page_mounts_the_particle_filter_and_wires_its_commits():
     assert "voxels.particleCommitted" in commit and "voxels.refresh()" in commit
     for forbidden in ("refreshAll", "models.refresh", "particle.refresh"):
         assert forbidden not in commit, forbidden
+    # Brief physics-subpages 10.2: an E1/E2/D commit refreshes the cards (and the 3-D Selection scope and cloud by
+    # their keys) and neither recounts the block nor touches the One event scope.
     filters = re.search(r"new FilterBlock\(\{(.*?)\n\}\);", src, re.S).group(1)
-    assert "voxels?.filtersCommitted?.()" in filters and "refreshParticle()" in filters and "refreshAll()" in filters
+    assert "refreshAll()" in filters
+    for forbidden in ("filtersCommitted", "refreshParticle", "particle.refresh", "setPoolPending"):
+        assert forbidden not in filters, forbidden
+    assert "refreshParticle" not in src and len(re.findall(r"particle\.refresh\(", src)) == 0
     offer = re.search(r"function particleOffer\(\) \{(.*?)\n\}", src, re.S).group(1)
     assert "plan.voxels?.event" in offer and "event?.enabled" in offer
     activate = re.search(r"function activate\(experiment\) \{(.*?)\n\}", src, re.S).group(1)

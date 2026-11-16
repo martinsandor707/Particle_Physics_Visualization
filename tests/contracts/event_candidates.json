@@ -1,7 +1,7 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "title": "GET /api/event/candidates",
- "description": "The event pickers' candidates (the pool): the selection AND the frame gate AND, when the particle filter is active, at least one shower that deposited energy with its incident momentum and polar angle inside every set bound. Counts, the dataset's slider bounds over every placeable event's depositing showers, and with event_number one event's place among the candidates. The route reads the event table only; no object at any depth may carry a 'hits' or 'points' key. $defs also hold the particle echo, GET /api/event's event.candidates block (event_block, copied into event_voxels.json $defs/candidates) and the two pick bodies that carry the particle filter.",
+ "description": "The event pickers' candidates (the pool): the basis - the E1/E2/D selection (basis=selection, the default) or every event of the experiment (basis=experiment) - AND the frame gate AND, when the particle filter is active, at least one shower that deposited energy with its incident momentum and polar angle inside every set bound. Counts, the dataset's slider bounds over every placeable event's depositing showers, and with event_number one event's place among the candidates. The route reads the event table only; no object at any depth may carry a 'hits' or 'points' key. $defs also hold the particle echo, GET /api/event's event.candidates block (event_block, copied into event_voxels.json $defs/candidates) and the two pick bodies that carry the particle filter. Under basis=experiment the counts block, the event_block, both pick bodies and the filter echo carry basis: 'experiment', n_selection is the experiment's event count and membership.in_selection is true for every event of the experiment; under basis=selection none carries basis.",
  "type": "object",
  "required": [
   "meta",
@@ -88,6 +88,10 @@
     },
     "include_undefined_d": {
      "type": "boolean"
+    },
+    "basis": {
+     "description": "Present only under basis=experiment, beside the whole-experiment spec's echo: every bound null (no E1, E2 or D clause) and include_undefined_d true on two showers, whose events without a separation the experiment holds.",
+     "const": "experiment"
     }
    },
    "propertyNames": {
@@ -206,6 +210,10 @@
    ],
    "additionalProperties": false,
    "properties": {
+    "basis": {
+     "description": "The pickers' basis, present only under basis=experiment: the candidates are drawn from every event of the experiment, narrowed by the frame gate and the particle filter alone. Absent under basis=selection (the default), whose bodies are unchanged.",
+     "const": "experiment"
+    },
     "particle": {
      "$ref": "#/$defs/particle"
     },
@@ -413,6 +421,10 @@
    ],
    "additionalProperties": false,
    "properties": {
+    "basis": {
+     "description": "The pickers' basis, present only under basis=experiment: the candidates are drawn from every event of the experiment, narrowed by the frame gate and the particle filter alone. Absent under basis=selection (the default), whose bodies are unchanged.",
+     "const": "experiment"
+    },
     "particle": {
      "$ref": "#/$defs/particle"
     },
@@ -535,6 +547,10 @@
    ],
    "additionalProperties": false,
    "properties": {
+    "basis": {
+     "description": "The pickers' basis, present only under basis=experiment: the candidates are drawn from every event of the experiment, narrowed by the frame gate and the particle filter alone. Absent under basis=selection (the default), whose bodies are unchanged.",
+     "const": "experiment"
+    },
     "meta": {
      "$ref": "#/$defs/pick_meta"
     },
@@ -588,7 +604,7 @@
    }
   },
   "pick_ranked": {
-   "description": "GET /api/event/pick?rule=tilted|densest (or no rule with a particle bound): the notebook rules' body with the chosen event's matching showers and the particle echo. A request naming no rule and no bound is answered without rule_id, seed_used, matched and particle (event_voxels.json $defs/pick holds the rest).",
+   "description": "GET /api/event/pick?rule=tilted|densest (or no rule with a particle bound): the notebook rules' body with the chosen event's matching showers and the particle echo. A request naming no rule, no bound and no basis is answered without rule_id, seed_used, matched and particle; under basis=experiment they are always present (event_voxels.json $defs/pick holds the rest).",
    "type": "object",
    "required": [
     "meta",
@@ -607,6 +623,10 @@
    ],
    "additionalProperties": false,
    "properties": {
+    "basis": {
+     "description": "The pickers' basis, present only under basis=experiment: the candidates are drawn from every event of the experiment, narrowed by the frame gate and the particle filter alone. Absent under basis=selection (the default), whose bodies are unchanged.",
+     "const": "experiment"
+    },
     "meta": {
      "$ref": "#/$defs/pick_meta"
     },

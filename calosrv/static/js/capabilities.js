@@ -27,8 +27,8 @@
  * Every text here is English and writes a negative number with U+2212.
  */
 
-import { FRAMES, apiFrame } from './state.js';
-import { offeredFrames, SINGLE_SHOWER_FRAME_LABELS, frameLabel } from './labels.js';
+import { CHANNELS, FRAMES, MODELS, apiFrame } from './state.js';
+import { CHOICE_LABELS, offeredFrames, SINGLE_SHOWER_FRAME_LABELS, frameLabel } from './labels.js';
 
 /** The three input kinds the server ingests. */
 export const KIND = Object.freeze({
@@ -193,6 +193,15 @@ export function filterAxes(experiment) {
  * - `banner`: the missing-predictions banner (CLAUDE.md section 3), or null.
  * - `stale`: the derived-table notice when the experiment was built by an
  *   earlier release and can be rebuilt from its archive.
+ * - `viewer`: the Event viewer subpage, `{enabled, reason}`: enabled with the
+ *   Event Inspector, else shut with the server's `event-inspector` reason.
+ * - `channelReasons` / `modelReasons`: for each display channel and each
+ *   network the experiment does not offer, why (the attention views'
+ *   reason, else the networks', else a generic sentence), for the greyed
+ *   radio's title.
+ * - `channelsShut`: the standing line under the channel radios while any
+ *   channel is shut (null when every one is offered, or when there are no
+ *   spatial panels whose channel it would name).
  */
 export function page1Plan(experiment) {
   const caps = capabilitiesOf(experiment);
@@ -227,6 +236,16 @@ export function page1Plan(experiment) {
     current: caps.derived.current ?? null,
   } : null;
 
+  const eventInspector = spatial && gate('event-inspector');
+  // Why a channel or a network is not offered: the attention views' reason
+  // (the per-hit CAM maps), else the networks' (plot 4), else a generic one.
+  const shutReason = caps.reasons['vox-attention'] ?? caps.reasons.energy ?? NO_REASON;
+  const channelReasons = {};
+  for (const channel of CHANNELS) if (!caps.channels.includes(channel)) channelReasons[channel] = shutReason;
+  const modelReasons = {};
+  for (const model of MODELS) if (!caps.models.includes(model)) modelReasons[model] = shutReason;
+  const channelsShut = spatial ? channelsShutLine(Object.keys(channelReasons), shutReason) : null;
+
   return {
     kind: caps.kind,
     kindLabel: caps.kindLabel,
@@ -255,7 +274,7 @@ export function page1Plan(experiment) {
     performance: networks,
     banner: missing,
     status: { d: caps.filters.includes('d') },
-    eventInspector: spatial && gate('event-inspector'),
+    eventInspector,
     compare: spatial && gate('compare'),
     windowAxis: spatial && gate('window-axis'),
     physics,
@@ -263,7 +282,34 @@ export function page1Plan(experiment) {
     reasons: { ...caps.reasons },
     quantities: caps.hasHits ? [...SHOWER_QUANTITIES, ...HIT_QUANTITIES] : [...SHOWER_QUANTITIES],
     stale,
+    viewer: {
+      enabled: eventInspector,
+      reason: eventInspector ? null : reasonOf(caps, 'event-inspector'),
+    },
+    channelReasons,
+    modelReasons,
+    channelsShut,
   };
+}
+
+/** The four attention channels, which a hit file without network outputs cannot serve. */
+const ATTENTION_CHANNELS = Object.freeze(['gradcam', 'gradcam_energy', 'shapcam', 'shapcam_energy']);
+
+/**
+ * The standing line under the channel radios (null when no channel is
+ * shut): the four attention channels shut together, as on a single-shower
+ * hit file, say so in one sentence; any other set is named channel by channel
+ * in the radios' order. `reason` ends with its own full stop.
+ */
+export function channelsShutLine(shut, reason) {
+  const list = CHANNELS.filter((channel) => (shut ?? []).includes(channel));
+  if (!list.length) return null;
+  if (list.length === ATTENTION_CHANNELS.length && ATTENTION_CHANNELS.every((c) => list.includes(c))) {
+    return 'Grad-CAM and Shap-CAM, raw and energy-weighted, are not available for this experiment: '
+      + `${reason} The panels show the summed energy density.`;
+  }
+  const labels = list.map((value) => CHOICE_LABELS.channel.find((c) => c.value === value)?.label ?? value);
+  return `Not available for this experiment: ${labels.join(', ')}. ${reason}`;
 }
 
 /**

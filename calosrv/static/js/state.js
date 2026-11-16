@@ -67,13 +67,30 @@
  * ensemble panels and every card follow E₁, E₂ and D alone, so
  * `filterParams()` never carries them and stays the seven keys it always
  * was. `particleParams()` holds only the bounds that are set (`{}` when
- * none, so a request without a particle filter is exactly today's), and
- * `eventParams()` adds them to the Event Inspector's request. The sidebar
- * block (controls/particle_filter.js) stores a bound left at its slider's
- * snapped domain edge as null, so a link carries only a bound that narrows.
- * A link's p must be finite and ≥ 0, its θ within 0–180°; an inverted pair
- * names no range and keeps both bounds null. The four keys are view state,
- * read and written by both pages, and never Admin defaults.
+ * none, so a request without a particle filter is exactly today's). The
+ * sidebar block (controls/particle_filter.js) stores a bound left at its
+ * slider's snapped domain edge as null, so a link carries only a bound that
+ * narrows. A link's p must be finite and ≥ 0, its θ within 0–180°; an
+ * inverted pair names no range and keeps both bounds null. The four keys are
+ * view state, read and written by both pages, and never Admin defaults.
+ *
+ * ## The pickers' pool: `basis=experiment`
+ *
+ * The event pickers draw from the whole experiment, never from the E₁/E₂/D
+ * selection (Martin's decision of 2026-11-16, on both pages): every event the
+ * frame gate can place, narrowed by the particle filter alone.
+ * `eventPoolParams()` is that request - the experiment, `basis: 'experiment'`
+ * and the set particle bounds - and never carries an E₁, E₂ or D key (the
+ * server refuses one under that basis rather than ignore it). `eventParams()`
+ * adds the pinned event and its shower to it for the Event Inspector.
+ *
+ * ## The Physics page's subpage: `psub`
+ *
+ * `psub` is `selection` (Entire selection, the default, so never written) or
+ * `event` (Event viewer; physics_subpages.js). Never an Admin default. A link
+ * written before the split pinned an event with `event=` alone, which then
+ * replaced the 2 × 2; such a link (a valid `event` and no valid `psub`) now
+ * opens the Event viewer on that event. An explicit `psub` always wins.
  */
 
 import { SEQUENTIAL_PALETTES } from './palette.js';
@@ -87,6 +104,8 @@ export const MODELS = ['segmentation', 'energy', 'angle'];
 export const ANCHORS = ['backprojected', 'p0'];
 /* The Event Inspector draws one of an event's two showers at a time. */
 export const SHOWERS = ['a', 'b'];
+/* The Physics page's subpages, in tab order: Entire selection (the default) and Event viewer. */
+export const PSUBS = Object.freeze(['selection', 'event']);
 
 /* ## The Models page's keys
  *
@@ -162,6 +181,7 @@ const ENUMS = {
   palette: SEQUENTIAL_PALETTES,
   anchor: ANCHORS,
   shower: SHOWERS,
+  psub: PSUBS,
   feature: FEATURE_KEYS,
   fclass: FEATURE_CLASSES,
   fshower: FEATURE_SHOWERS,
@@ -260,13 +280,16 @@ export const DEFAULTS = Object.freeze({
   palette: 'viridis',
   lock_scale: true,
   model: 'segmentation',
-  // The Event Inspector: the pinned event (null = the ensemble panels) and
-  // which of its two showers is drawn; and the compare-frames view, which
-  // lays the selection out in the Absolute, per-shower translated and Local
-  // frames at once. All three are view state, so a link carries them.
+  // The Event Inspector: the pinned event (null = none drawn) and which of
+  // its two showers is drawn; and the compare-frames view, which lays the
+  // selection out in the Absolute, per-shower translated and Local frames at
+  // once. All three are view state, so a link carries them.
   event: null,
   shower: 'a',
   compare: false,
+  // The Physics page's subpage (see the header): Entire selection, never
+  // written, or the Event viewer.
+  psub: 'selection',
   // The Models page (see "The Models page's keys" above). The feature the
   // explorer's histograms draw, the classes it splits the selection into and,
   // on two-shower data, whose features (shower A or B); the 3-D event view's
@@ -668,10 +691,19 @@ export class State {
     return Object.keys(this.particleParams()).length > 0;
   }
 
-  /** The Event Inspector: the pinned event and its shower, under the filters and the particle filter. */
+  /**
+   * The event pickers' pool (see the header): the experiment, the whole of it
+   * (`basis: 'experiment'`), and the set particle bounds. Never an E₁, E₂ or
+   * D key: those steer the ensemble views alone.
+   */
+  eventPoolParams() {
+    return { table_name: this.values.table_name, basis: 'experiment', ...this.particleParams() };
+  }
+
+  /** The Event Inspector: the pinned event and its shower, in the pickers' pool. */
   eventParams() {
     const v = this.values;
-    return { ...this.filterParams(), ...this.particleParams(), event_number: v.event, shower: v.shower };
+    return { ...this.eventPoolParams(), event_number: v.event, shower: v.shower };
   }
 
   /** The energy panel: the selected frame's segmentation network. */
@@ -790,6 +822,11 @@ export class State {
     // carries that frame's own key, which is the more specific statement.
     const active = displayKey(this.values.frame);
     if (legacyDisplay && !params.has(active)) this.values[active] = legacyDisplay;
+    // A link from before the subpages that pins an event opens the Event
+    // viewer on it; a valid `psub` in the link is the more specific statement.
+    if (this.values.event !== null && acceptValue('psub', params.get('psub')) === undefined) {
+      this.values.psub = 'event';
+    }
     // An inverted particle range names nothing (the server would refuse it
     // with a 422 on every event request): both of its bounds keep null.
     for (const axis of ['p', 'theta']) {

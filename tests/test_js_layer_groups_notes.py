@@ -190,6 +190,84 @@ out.captions = {
   eventLab: fv.eventFrameSentence(ev, 'lab'),
   eventTrans: fv.eventFrameSentence(ev, 'trans'),
 };
+
+/* ---- basis=experiment drawers (physics-subpages, brief section 11) ---- */
+const epx = await imp('event_picker.js');
+globalThis.window = globalThis.window ?? { location: { hash: '', pathname: '/' }, history: { replaceState() {} } };
+const { State } = await imp('state.js');
+const twoX = { capabilities: { n_showers: 2 } };
+const oneX = { capabilities: { n_showers: 1 } };
+const activeEcho = { active: true, p_gev: [5, 6], theta_deg: [10, null], theta_rad: [0.1745329, null] };
+const outsidePool = (payload) => {
+  const p = clone(payload);
+  p.event.candidates = { ...p.event.candidates, in_pool: false, index: null, matched: [], particle: activeEcho };
+  return p;
+};
+const experimentCases = {
+  raster_base: load('event_raster_base_experiment'),
+  raster_single: load('event_raster_single_experiment'),
+  vox: load('event_voxels_base_lab_experiment'),
+};
+experimentCases.raster_base_out = outsidePool(experimentCases.raster_base);
+experimentCases.raster_single_out = outsidePool(experimentCases.raster_single);
+experimentCases.vox_out = outsidePool(experimentCases.vox);
+const stateX = new State();
+stateX.set({ particle_p_min: 5, particle_p_max: 6 }, { silent: true });
+out.exp = {};
+for (const [name, payload] of Object.entries(experimentCases)) {
+  const exp = name.startsWith('raster_single') ? oneX : twoX;
+  const nShowers = exp.capabilities.n_showers;
+  const isVox = name.startsWith('vox');
+  const notes = isVox
+    ? dump(vn.voxelEventNotes({ payload, experiment: exp, state: stateX }))
+    : dump(pn.eventNotes({ payload, kind: 'lab', panelId: 'xy', experiment: exp, state: stateX }));
+  out.exp[name] = {
+    notes,
+    pool: epx.poolLine(payload.event, { nShowers }),
+    place: epx.placeLine(payload.event, { nShowers }),
+    kinematics: fv.eventSelectionLine(payload.event, { nShowers }),
+    hazards: pn.hazards(payload, 'xy'),
+    nEvents: payload.event.candidates.n_events,
+  };
+}
+// The hazard under the experiment basis, whatever in_selection says (it cannot fire).
+const flipped = clone(experimentCases.raster_base);
+flipped.event.in_selection = false;
+out.exp_flipped_hazards = pn.hazards(flipped, 'xy');
+const flippedNotes = dump(pn.eventNotes({ payload: flipped, kind: 'lab', panelId: 'xy', experiment: twoX }));
+out.exp_flipped_text = Object.values(flippedNotes.sections).flat();
+out.exp_flipped_kinematics = fv.eventSelectionLine(flipped.event, { nShowers: 2 });
+// The selection scope and the cloud keep the ensemble line.
+const selectedExp = { ...clone(experimentCases.vox), selection: { n_events: 2, n_hits: 9, n_cells: 5 } };
+out.exp_selection_scope = dump(vn.voxelEventNotes({ payload: selectedExp, experiment: twoX, state: stateX }));
+out.exp_ensemble_line = epx.ensembleLine(stateX.particleParams(), { nShowers: 2 });
+out.exp_cloud = dump(vn.voxelEnsembleNotes({ payload: load('voxels_base_local'), state: stateX, experiment: twoX }));
+// R2: an event the frame gate refuses, drawn as asked with the filter off, under the experiment basis.
+const gateRefused = (payload) => {
+  const p = clone(payload);
+  p.event.candidates = { ...p.event.candidates, in_pool: false, index: null, matched: [], particle: { active: false } };
+  return p;
+};
+const gateRaster = gateRefused(experimentCases.raster_base);
+const gateVox = gateRefused(experimentCases.vox);
+const gateNoBasis = gateRefused(load('event_raster_base'));
+delete gateNoBasis.event.candidates.basis;
+const gateSelectionScope = { ...clone(gateVox), selection: { n_events: 2, n_hits: 9, n_cells: 5 } };
+out.gate = {
+  raster_hazards: pn.hazards(gateRaster, 'xy'),
+  raster_notes: dump(pn.eventNotes({ payload: gateRaster, kind: 'lab', panelId: 'xy', experiment: twoX })),
+  vox_notes: dump(vn.voxelEventNotes({ payload: gateVox, experiment: twoX })),
+  vox_selection_scope: dump(vn.voxelEventNotes({ payload: gateSelectionScope, experiment: twoX })),
+  pair_notes: dump(vn.voxelProjectionNotes({ pair: 'event', payload: gateRaster, panelId: 'yz', frameKind: 'lab', experiment: twoX })),
+  inside_hazards: pn.hazards(experimentCases.raster_base, 'xy'),
+  nobasis_hazards: pn.hazards(gateNoBasis, 'xy'),
+  outsideSelection_hazards: (() => { const p = gateRefused(experimentCases.raster_base); p.event.in_selection = false;
+    return pn.hazards(p, 'xy'); })(),
+};
+// Without basis nothing moves.
+const noBasis = load('event_raster_base');
+out.nobasis_pool = epx.poolLine(noBasis.event, { nShowers: 2 });
+out.nobasis_lines = dump(pn.eventNotes({ payload: noBasis, kind: 'lab', panelId: 'xy', experiment: twoX, state: stateX }));
 console.log(JSON.stringify(out));
 """
 
@@ -631,3 +709,127 @@ def test_the_display_caption_names_a_pooled_depth_axis(out):
     # Unpooled responses, and a call with no block, keep the native sentence.
     assert "Every bin is a real cell" in c["lab"] and "Every bin is a real cell" in c["labNoBlock"]
     assert "Longitudinal" not in c["trans"]
+
+
+# ------------------------- basis = experiment: the event drawers (section 11) --
+
+CURRENT_SELECTION = "current selection"
+EXPERIMENT_CASES = ["raster_base", "raster_single", "vox"]
+OUTSIDE_CASES = ["raster_base_out", "raster_single_out", "vox_out"]
+
+
+def _selection_lines(case: dict) -> list[str]:
+    return _sec(case["notes"], "Selection")
+
+
+@pytest.mark.parametrize("name", EXPERIMENT_CASES + OUTSIDE_CASES)
+def test_an_experiment_drawer_never_says_the_current_selection(out, name):
+    """Brief 11: no line of an experiment-basis drawer, the kinematics line included, says
+    "current selection"."""
+    case = out["exp"][name]
+    for lines in case["notes"]["sections"].values():
+        for line in lines:
+            assert CURRENT_SELECTION not in line, line
+    assert "event outside the selection" not in case["notes"]["hazards"]
+
+
+@pytest.mark.parametrize("name", EXPERIMENT_CASES + OUTSIDE_CASES)
+def test_an_experiment_drawer_states_the_pool_line_last_in_its_selection_section(out, name):
+    case = out["exp"][name]
+    lines = _selection_lines(case)
+    assert case["pool"].startswith("The candidates are the events of the whole experiment")
+    assert lines[-1] == case["pool"]
+    assert "narrow them" in case["pool"]
+
+
+@pytest.mark.parametrize("name", EXPERIMENT_CASES)
+def test_an_event_in_the_pool_states_the_kinematics_and_its_place(out, name):
+    case = out["exp"][name]
+    lines = _selection_lines(case)
+    assert case["kinematics"] in lines
+    assert case["place"] in lines
+    assert case["place"].startswith("Candidate ")
+    # The event's own counts are grouped, and both shower counts or the one are named.
+    assert f"of {case['nEvents']:,}" in case["place"] or f"of {case['nEvents']}" in case["place"]
+    assert "event outside the candidates" not in case["notes"]["hazards"]
+    assert "event outside the selection" not in case["notes"]["hazards"]
+
+
+def test_the_two_shower_event_names_both_showers_and_the_one_shower_event_names_one(out):
+    vox = _text(out["exp"]["vox"]["notes"], "Selection")
+    assert "Showers A and B drawn." in vox
+    assert "Shower A:" in vox and "Shower B:" in vox
+    assert "matching" not in _text(out["exp"]["raster_single"]["notes"], "Selection").split("Particle filter")[0]
+    assert "the ensemble views' p window does not narrow them" in out["exp"]["raster_single"]["pool"]
+    assert "E₁, E₂ and D do not narrow them" in out["exp"]["raster_base"]["pool"]
+    assert "E₁, E₂ and D do not narrow them" in out["exp"]["vox"]["pool"]
+
+
+@pytest.mark.parametrize("name", OUTSIDE_CASES)
+def test_an_event_outside_the_pool_is_flagged_and_matches_the_active_filter_echo(out, name):
+    case = out["exp"][name]
+    lines = _selection_lines(case)
+    assert case["place"].startswith("Not a candidate")
+    assert case["place"] in lines
+    assert any(line.startswith("Not a candidate: no shower matches the particle filter") for line in lines)
+    assert any(line.startswith("Particle filter: p in 5.00–6.00 GeV") for line in lines)
+    assert "whole experiment holding a matching particle" in case["pool"] or "whose shower has" in case["pool"]
+    assert "event outside the candidates" in case["notes"]["hazards"]
+    assert "event outside the selection" not in case["notes"]["hazards"]
+
+
+def test_the_experiment_drawer_leaves_the_e1_e2_d_filter_line_out(out):
+    """The E₁/E₂/D line says those filters narrow the event: under the experiment basis they do not."""
+    for name in EXPERIMENT_CASES:
+        text = _text(out["exp"][name]["notes"], "Selection")
+        assert "E₁" not in text.replace("E₁, E₂ and D do not narrow them", "").replace(
+            out["exp"][name]["kinematics"], ""
+        ), name
+
+
+def test_the_outside_selection_hazard_cannot_fire_under_the_experiment_basis(out):
+    assert out["exp_flipped_hazards"] == []
+    # The kinematics line too: under the experiment basis it states the kinematics alone.
+    assert CURRENT_SELECTION not in out["exp_flipped_kinematics"]
+    assert not any("outside the current selection" in line for line in out["exp_flipped_text"])
+    assert not any("previous / next controls walk" in line for line in out["exp_flipped_text"])
+
+
+def test_the_selection_scope_and_the_cloud_keep_the_ensemble_line(out):
+    line = out["exp_ensemble_line"]
+    assert line
+    assert line in _sec(out["exp_selection_scope"], "Selection")
+    assert line in _sec(out["exp_cloud"], "Selection")
+    assert not any(l.startswith("The candidates are the events of the whole experiment")
+                   for l in _sec(out["exp_selection_scope"], "Selection"))
+
+
+def test_a_drawer_without_basis_is_unchanged_and_carries_no_pool_line(out):
+    assert out["nobasis_pool"] == ""
+    lines = _sec(out["nobasis_lines"], "Selection")
+    assert not any(l.startswith("The candidates are the events of the whole experiment") for l in lines)
+    assert any("inside the current selection" in l for l in lines)
+
+
+def test_the_experiment_drawers_print_no_ascii_hyphen_as_a_minus_sign(out):
+    for text in _walk(out["exp"]):
+        assert not HYPHEN_NUMBER.search(text), text
+
+
+def test_an_event_the_gate_refuses_raises_the_candidates_hazard_under_the_experiment_basis_with_the_filter_off(out):
+    """R2: the experiment basis puts every event in the selection, so the pool is the only test left."""
+    g = out["gate"]
+    assert g["raster_hazards"] == ["event outside the candidates"]
+    assert "event outside the candidates" in g["raster_notes"]["hazards"]
+    assert "event outside the candidates" in g["vox_notes"]["hazards"]
+    assert "event outside the candidates" in g["pair_notes"]["hazards"]
+    # The cloud / selection scope draws no one event, so it never raises it.
+    assert "event outside the candidates" not in g["vox_selection_scope"]["hazards"]
+    # Never the selection's own hazard, which the experiment basis cannot fire.
+    assert "event outside the selection" not in g["raster_notes"]["hazards"]
+    # An event inside the pool still raises none.
+    assert g["inside_hazards"] == []
+
+
+def test_without_the_experiment_basis_an_inactive_filter_still_raises_no_candidates_hazard(out):
+    assert out["gate"]["nobasis_hazards"] == []

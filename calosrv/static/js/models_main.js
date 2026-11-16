@@ -44,14 +44,17 @@
  *
  * The sidebar's Particle Filter (controls/particle_filter.js, on Views only,
  * by CSS on `.app[data-msub]`) narrows which events the 3-D event view's
- * pickers offer. It is offered where the experiment offers that view. A
- * particle commit refreshes the 3-D views alone (the event pair's key holds
- * the filter; the selection and the cloud only say they draw the whole
- * selection): no other card reads it, so none is asked. An E₁/E₂/D commit
- * also asks the block for its new count. Either lets the pinned event's
- * fresh response decide whether it stays (voxel_views.js `filtersCommitted`);
- * the 3-D view's uniform draw counter carries on, restarting only on an
- * experiment switch.
+ * pickers offer. It is offered where the experiment offers that view. The
+ * pickers draw from the whole experiment (`basis=experiment`; Martin's
+ * decision of 2026-11-16): E₁, E₂ and D never narrow them. A particle commit
+ * refreshes the 3-D views alone (the event pair's key holds the filter; the
+ * selection and the cloud only say they draw the whole selection): no other
+ * card reads it, so none is asked, and the pinned event's fresh response
+ * decides whether it stays (voxel_views.js `particleCommitted`). An E₁/E₂/D
+ * commit refreshes the cards and the 3-D Selection scope and cloud by their
+ * keys; it asks the block for no new count and leaves the One event scope
+ * alone (its key holds no E₁, E₂ or D). The 3-D view's uniform draw counter
+ * carries on, restarting only on an experiment switch.
  */
 
 import { getJson, debounce, DEBOUNCE_MS, isAbort, abortRequest } from './api.js';
@@ -319,7 +322,7 @@ const particle = mountParticleFilter({
   state,
   onCommit: () => onParticleCommit(),
   onCandidates: (payload) => voxels?.setCandidates?.(payload),
-  // A count that fails after the block's own commit or Clear: on the banner, as refreshParticle's.
+  // A count that fails after the block's own commit or Clear: on the banner, as an adopted experiment's.
   onError: (error, context) => { if (!isAbort(error)) reportError(error, context); },
 });
 
@@ -332,17 +335,6 @@ function particleOffer() {
     nShowers: plan.nShowers === 1 ? 1 : 2,
     reason: enabled ? null : (event?.reason ?? 'This experiment offers no 3-D event view to pick an event for.'),
   };
-}
-
-/**
- * The block's count again, for an E₁/E₂/D commit (its own commits refresh it).
- * The 3-D views hold the pending count, so a densest pick waits for it while a
- * particle bound is set and an empty pool sends no request (brief section 8.3).
- */
-function refreshParticle() {
-  const ready = particle.refresh().catch((error) => reportError(error, 'particle filter'));
-  voxels?.setPoolPending?.(ready);
-  return ready;
 }
 
 /**
@@ -789,15 +781,14 @@ const STATUS_IDS = ['stat-events', 'stat-kind', 'stat-latency'];
 /* ------------------------------------------------------------- wiring */
 
 /* The filter sliders, adopted per experiment: a release refreshes the cards
- * in view (the Models page draws no sampled preview while dragging). The pool
- * moves with them: the 3-D view's pinned event's fresh response decides
- * whether it stays, and the Particle Filter's count is asked for again; the
- * draw counter carries on. */
+ * in view (the Models page draws no sampled preview while dragging), the 3-D
+ * Selection scope and the cloud among them. The pickers' pool is the whole
+ * experiment (brief physics-subpages, section 10.2), so the One event scope's
+ * key does not move: its event, its draw counter and the Particle Filter's
+ * count are left alone, and nothing is asked of /api/event*. */
 const filters = new FilterBlock({
   state,
   onCommit: () => {
-    voxels?.filtersCommitted?.();
-    refreshParticle();
     refreshAll();
   },
 });

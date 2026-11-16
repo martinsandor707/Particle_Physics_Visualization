@@ -2,7 +2,7 @@
 
 FastAPI's default answer is ``{"detail": [...]}``; every other refusal here is a
 ``/problems/validation-error`` naming the field, which the frontend shows beside
-the card. One shape for every 422.
+the card. One shape for every 422, the event pickers' ``basis`` refusals included.
 """
 
 from __future__ import annotations
@@ -22,6 +22,15 @@ from calosrv.text import signed_hyphens
     ("/api/event/candidates", {"event_number": "first"}, "event_number"),
     ("/api/event/pick", {"draw": "next"}, "draw"),
     ("/api/event/pick", {"draw": -1}, "draw"),
+    # The pickers' basis: an unknown one, and a selection bound sent with the whole experiment.
+    ("/api/event/pick", {"basis": "x"}, "basis"),
+    ("/api/event/candidates", {"basis": "experiment", "e1_min": 1.0}, "e1_min"),
+    ("/api/event", {"event_number": 0, "basis": "experiment", "include_undefined_d": "true"},
+     "include_undefined_d"),
+    # An explicit false is refused too: the experiment basis's echo would contradict it (review R4).
+    ("/api/event/candidates", {"basis": "experiment", "include_undefined_d": "false"},
+     "include_undefined_d"),
+    ("/api/event/pick", {"basis": "experiment", "include_undefined_d": "0"}, "include_undefined_d"),
 ])
 def test_type_and_missing_parameter_errors_are_validation_problems(client, path, params, field):
     reply = client.get(path, params=params)

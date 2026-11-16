@@ -20,6 +20,21 @@ selection AND the frame gate, which is exactly the population the pick rules
 have always drawn from. Pick for me, Most tilted, Densest and previous / next
 all draw from it; the ensemble panels never read it.
 
+**The basis** is what the pool is drawn from (``basis`` on ``GET /api/event``,
+``/api/event/pick`` and ``/api/event/candidates``; ``api/deps.py``
+``resolve_basis``). ``selection``, the API default, is the pool above, so
+every response that names no basis is what it was. ``experiment`` replaces
+the selection with the whole experiment (``filters.unbounded``: no E1, E2 or
+D clause), so the pool is every event of the experiment AND the frame gate
+AND, when active, a matching shower; an E1/E2/D bound sent with it is
+refused, never ignored. Both pages use it (Martin, 2026-11-16). The basis is
+read off the spec (:func:`basis_of`), so the SQL and the words cannot
+disagree: under ``experiment`` the sentences say "events of the experiment"
+and "The experiment holds", every block that places the pool carries
+``"basis": "experiment"``, ``n_selection`` is the experiment's event count
+and ``in_selection`` is true for every event it holds. Under ``selection``
+no block carries ``basis``.
+
 Column names come only from ``query/showers.py``; no request string reaches
 SQL. The bounds travel as named parameters ``particle_p_min``,
 ``particle_p_max``, ``particle_theta_min`` and ``particle_theta_max`` (the
@@ -58,6 +73,30 @@ PARAMS: tuple[str, ...] = (PARAM_P_MIN, PARAM_P_MAX, PARAM_THETA_MIN, PARAM_THET
 
 #: The en dash between the two ends of an interval.
 EN_DASH = "–"
+
+#: The bases of the pool: the E1/E2/D selection (the API default, today's pool) or the whole
+#: experiment (both pages' event pickers).
+BASIS_SELECTION = "selection"
+BASIS_EXPERIMENT = "experiment"
+BASES: tuple[str, ...] = (BASIS_SELECTION, BASIS_EXPERIMENT)
+
+
+def basis_of(spec: FilterSpec) -> str:
+    """The basis a spec stands for: the whole experiment's (``filters.unbounded``) or the selection's."""
+    return BASIS_EXPERIMENT if spec.whole_experiment else BASIS_SELECTION
+
+
+def with_basis(block: dict[str, Any], basis: str) -> dict[str, Any]:
+    """``block`` led by ``"basis": "experiment"`` under the experiment basis; as it is under the selection."""
+    return {"basis": basis, **block} if basis == BASIS_EXPERIMENT else block
+
+
+def filter_echo(spec: FilterSpec) -> dict[str, Any]:
+    """The ``filter`` a pool route echoes: the spec it used, plus ``basis`` under the experiment basis."""
+    echo = spec.as_dict()
+    if spec.whole_experiment:
+        echo["basis"] = BASIS_EXPERIMENT
+    return echo
 
 
 def _rad(degrees: float | None) -> float | None:
@@ -224,9 +263,17 @@ def placed_words(record: ExperimentRecord) -> str:
             else "with an incident direction and an entry point")
 
 
-def population_phrase(record: ExperimentRecord, particle: ParticleSpec) -> str:
-    """'selected events with a defined separation[ holding a shower with ... that deposited energy]'."""
-    phrase = f"selected events {placed_words(record)}"
+def population_words(basis: str) -> str:
+    """Who the pool's events are: 'selected events', or 'events of the experiment' under its basis."""
+    return "events of the experiment" if basis == BASIS_EXPERIMENT else "selected events"
+
+
+def population_phrase(record: ExperimentRecord, particle: ParticleSpec, basis: str = BASIS_SELECTION) -> str:
+    """'selected events with a defined separation[ holding a shower with ... that deposited energy]'.
+
+    Under the experiment basis it opens 'events of the experiment' instead.
+    """
+    phrase = f"{population_words(basis)} {placed_words(record)}"
     if particle.active:
         interval = particle.interval_text()
         phrase += (f" holding a shower with {interval} that deposited energy" if two_showers(record)
@@ -234,18 +281,19 @@ def population_phrase(record: ExperimentRecord, particle: ParticleSpec) -> str:
     return phrase
 
 
-def empty_pool_detail(record: ExperimentRecord, particle: ParticleSpec) -> str:
-    """The 404's detail when the pool holds no event."""
+def empty_pool_detail(record: ExperimentRecord, particle: ParticleSpec, basis: str = BASIS_SELECTION) -> str:
+    """The 404's detail when the pool holds no event: 'The selection holds ...' or 'The experiment holds ...'."""
+    holder = "The experiment" if basis == BASIS_EXPERIMENT else "The selection"
     if not particle.active:
-        return ("The selection holds no event with a defined separation to pick from." if two_showers(record)
-                else "The selection holds no event with an incident direction and an entry point to pick from.")
+        return (f"{holder} holds no event with a defined separation to pick from." if two_showers(record)
+                else f"{holder} holds no event with an incident direction and an entry point to pick from.")
     interval = particle.interval_text()
     if two_showers(record):
         return typographic(
-            f"The selection holds no candidate event: none of its events {placed_words(record)} holds a "
+            f"{holder} holds no candidate event: none of its events {placed_words(record)} holds a "
             f"shower with {interval} that deposited energy.")
     return typographic(
-        f"The selection holds no candidate event: none of its events {placed_words(record)} has its "
+        f"{holder} holds no candidate event: none of its events {placed_words(record)} has its "
         f"shower at {interval}.")
 
 
@@ -310,7 +358,10 @@ def candidates(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: F
 
     One scan of the event table. ``n_showers`` counts the matching showers of
     the pool's events (with no bound set, every shower with a deposit);
-    ``n_both`` is null where an event has one shower.
+    ``n_both`` is null where an event has one shower. Under the experiment
+    basis the block opens with ``"basis": "experiment"``, ``n_selection`` is
+    the experiment's event count and ``n_unplaceable`` every event of it the
+    frame gate refuses.
     """
     showers = showers_mod.of(record)
     two = len(showers) == 2
@@ -331,7 +382,7 @@ def candidates(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: F
     ).fetchone()
     n_selection, n_unplaceable, n_events = (int(v or 0) for v in row[:3])
     by_shower = {s.key: int(row[3 + i] or 0) for i, s in enumerate(showers)}
-    return {
+    return with_basis({
         "particle": particle.as_dict(),
         "n_selection": n_selection,
         "n_unplaceable": n_unplaceable,
@@ -340,7 +391,7 @@ def candidates(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: F
         "by_shower": by_shower,
         "n_both": int(row[3 + len(showers)] or 0) if two else None,
         "showers": [s.key for s in showers],
-    }
+    }, basis_of(spec))
 
 
 def membership(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: FilterSpec,
@@ -353,6 +404,8 @@ def membership(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: F
     ``prev`` / ``next`` (the pool's neighbours by event number, whether or not
     the event is in it); one small query gives the matching showers of the
     event and of both neighbours. An event the table does not hold is a 404.
+    Under the experiment basis the spec selects every row, so ``in_selection``
+    is true for every event the experiment holds.
     """
     gate = capabilities.frame_gate(record)
     pool = f"{gate} AND ({particle.pool_sql(record)})" if particle.active else gate
@@ -387,9 +440,13 @@ def membership(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: F
     }
 
 
-def event_candidates(particle: ParticleSpec, member: dict[str, Any]) -> dict[str, Any]:
-    """``event.candidates`` of ``GET /api/event``: the echo and the pool fields of a membership."""
-    return {
+def event_candidates(particle: ParticleSpec, member: dict[str, Any],
+                     basis: str = BASIS_SELECTION) -> dict[str, Any]:
+    """``event.candidates`` of ``GET /api/event``: the echo and the pool fields of a membership.
+
+    Led by ``"basis": "experiment"`` under the experiment basis.
+    """
+    return with_basis({
         "particle": particle.as_dict(),
         "in_pool": member["in_pool"],
         "index": member["index"],
@@ -397,7 +454,7 @@ def event_candidates(particle: ParticleSpec, member: dict[str, Any]) -> dict[str
         "matched": member["matched"],
         "prev_matched": member["prev_matched"],
         "next_matched": member["next_matched"],
-    }
+    }, basis)
 
 
 def _extreme(fn: str, terms: list[str]) -> str:

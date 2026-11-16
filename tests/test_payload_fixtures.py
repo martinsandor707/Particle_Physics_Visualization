@@ -44,6 +44,8 @@ BASE_UNIFORM_GROUPS = "5.5.5.5.4.4.4.4.4.4.4.4.4"
 XGB = {"table_name": xgb_table(XGB_SOURCE)}
 #: A particle filter the baseline's event 0 meets through shower A alone.
 PARTICLE_2_3 = {"particle_p_min": 2.0, "particle_p_max": 3.0}
+#: The event pickers' whole-experiment basis.
+EXPERIMENT = {"basis": "experiment"}
 
 #: name -> (fixture, path, params, contract or None)
 PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
@@ -219,6 +221,27 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
     "event_voxels_base_lab_particle": ("single_client", "/api/event",
                                        {**BASE, **PARTICLE_2_3, "event_number": 1, "format": "voxels",
                                         "frame": "lab"}, "event_voxels"),
+    # The pickers' whole-experiment basis (physics-subpages, brief §3.5): both pages' event pickers
+    # draw from every event of the experiment, narrowed by the particle filter alone. Each block that
+    # places the pool, and the filter echo, carries basis: 'experiment'.
+    "candidates_base_experiment": ("single_client", "/api/event/candidates",
+                                   {**BASE, **EXPERIMENT, "event_number": 0}, "event_candidates"),
+    "candidates_base_experiment_particle": ("single_client", "/api/event/candidates",
+                                            {**BASE, **EXPERIMENT, **PARTICLE_2_3, "event_number": 1},
+                                            "event_candidates"),
+    "candidates_single_experiment": ("single_client", "/api/event/candidates",
+                                     {**HITS, **EXPERIMENT, "event_number": 3}, "event_candidates"),
+    "pick_base_uniform_experiment": ("single_client", "/api/event/pick",
+                                     {**BASE, **EXPERIMENT, "rule": "uniform"}, None),
+    "pick_single_uniform_experiment": ("single_client", "/api/event/pick",
+                                       {**HITS, **EXPERIMENT, "rule": "uniform"}, None),
+    "event_raster_base_experiment": ("single_client", "/api/event",
+                                     {**BASE, **EXPERIMENT, "event_number": 0}, None),
+    "event_raster_single_experiment": ("single_client", "/api/event",
+                                       {**HITS, **EXPERIMENT, "event_number": 3}, None),
+    "event_voxels_base_lab_experiment": ("single_client", "/api/event",
+                                         {**BASE, **EXPERIMENT, "event_number": 0, "format": "voxels",
+                                          "frame": "lab"}, "event_voxels"),
     # XGBoost (Page 2): the catalogue with model runs, the Admin Settings list, the four
     # views (each task they apply to, requested as the shell does: no selection), and
     # the XGBoost series of E2 and of the prediction density.
