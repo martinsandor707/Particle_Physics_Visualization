@@ -21,6 +21,19 @@
  * per-shower translated rows): entering or leaving it, or a new partition
  * while it is on, asks once more for exactly the panel sets whose request
  * changed. The Event Inspector and the profile card draw boundaries only.
+ *
+ * The page has two subpages (physics_subpages.js, the State's `psub`):
+ * Entire selection, the ensemble under E₁, E₂ and D, and the Event viewer,
+ * one event at a time drawn from the whole experiment under the particle
+ * filter. Each asks only for its own data, and only while it is on show
+ * (`refreshAll`, `loadViewer`): Entire selection never sends an /api/event*
+ * request and the viewer never an ensemble one. A subpage loads when it is
+ * first shown and again when it is stale - after an experiment switch, or
+ * (Entire selection) after a change made while the viewer was on show that
+ * needs a request - so a switch to a fresh subpage sends nothing. E₁, E₂ and
+ * D steer Entire selection alone; the particle filter steers the viewer's
+ * pickers alone. Leaving the viewer parks its event in memory, out of the
+ * link, and coming back draws it again from the response in hand.
  */
 
 import { getJson, debounce, DEBOUNCE_MS, isAbort, abortRequest } from './api.js';
@@ -32,6 +45,7 @@ import { mountParticleFilter } from './controls/particle_filter.js';
 import { ProjectionPanel } from './panels/projection.js';
 import { FrameGrid, GRID_ROWS, GRID_COLS, DEPTH_COLS } from './panels/frame_grid.js';
 import { EventInspector } from './event_inspector.js';
+import { mountPhysicsSubnav, psubOfCard, eventStatus } from './physics_subpages.js';
 import { depthIsometric, ensembleCellOptions, ensembleLayerOptions } from './event_cells.js';
 import { mountLayerGroupControl, depthContextFromPayload, effectiveMode } from './controls/layer_groups_control.js';
 import { formatCounts } from './layer_groups.js';
@@ -159,6 +173,30 @@ const metricsPanel = new MetricsPanel('metrics', 'model-caption');
  * and what the active experiment cannot show and why. */
 const banner = new Banner();
 const kindBanner = new Banner({ root: 'kind-banner', text: 'kind-banner-text', close: 'kind-banner-close' });
+
+/* The two subpages: the tab bar, the wrappers, `.app[data-psub]` and the
+ * status bar's mode chip. The State's `psub` is applied at once, silently
+ * (an old `#event=N` link reads as the viewer, state.js); every later switch
+ * runs `onSubpageSwitch`. */
+const subnav = mountPhysicsSubnav({ state, onSwitch: (psub) => onSubpageSwitch(psub) });
+
+/* Whether each subpage must ask for its data when it is next shown: both
+ * after an experiment switch, and Entire selection after a change made while
+ * the viewer was on show that needs its requests (`refreshAll`). */
+const stale = { selection: true, event: true };
+/* The viewer's event while Entire selection is on show (event_inspector.js
+ * `park`): in memory only, never in the link; dropped by an experiment switch. */
+let parked = null;
+/* True while an experiment is activated: a subpage switch it forces (the
+ * aggregate's shut viewer) loads nothing, as the activation's own refresh follows. */
+let activating = false;
+/* The particle block's latest count in flight (its adopt, or its first count
+ * once shown), which the viewer's first draw waits for. */
+let countPromise = null;
+/* A zoomed depth panel's windowed axis not asked for while the viewer was on show. */
+let windowAxisMissed = false;
+/* The status bar's Query readout of each subpage: its last response's time and cache note. */
+const latency = { selection: { ms: '—', cache: '' }, event: { ms: '—', cache: '' } };
 
 /* What the page shows for the active experiment (capabilities.js); before one
  * is adopted, the two-shower page with no physics cards. */
@@ -289,17 +327,25 @@ function repaintLayerGroups() {
  * the 2 x 2 (one request) and, while the compare grid is on show, each of
  * its rows whose pooling changed (Absolute and per-shower translated; Local
  * never pools). Boundaries, Off and a partition change outside Pooled change
- * no request and cost none.
+ * no request and cost none. Only Entire selection pools: a change made while
+ * the viewer is on show asks nothing there, and Entire selection asks for it
+ * when it is next shown (`syncEnsembleDepth`).
  */
 function onLayerGroupsChanged() {
   repaintLayerGroups();
+  if (subnav.current() !== 'selection') return;
+  syncEnsembleDepth();
+}
+
+/** Ask again for the ensemble panel sets whose pooling the state no longer matches; nothing when every one does. */
+function syncEnsembleDepth() {
   // Against what was last *asked*, not what has landed: a response still in flight
   // is superseded (the shared request key aborts it) rather than drawn under a
   // mode it was not asked for.
   if (pagePlan.spatial && lastProjections && ensembleWants() !== ensembleRequested) {
     reloadEnsembleDepth();
   }
-  const compareOn = state.get('event') === null && state.get('compare') && pagePlan.compare;
+  const compareOn = state.get('compare') && pagePlan.compare;
   if (compareOn) {
     const kinds = GRID_ROWS.filter((kind) => comparePayloads[kind]
       && (compareParams(kind).depth_groups ?? null) !== compareAsked(kind));
@@ -468,10 +514,19 @@ function windowOf(panel) {
   return { t_min: view.row[0], t_max: view.row[1] };
 }
 
-/** Ask for a depth panel's windowed axis, or drop it when the panel is back at full extent. */
+/**
+ * Ask for a depth panel's windowed axis, or drop it when the panel is back at
+ * full extent. Only while Entire selection is on show: a view change of a
+ * hidden panel (a relayout) asks nothing, and is asked for on the way back.
+ */
 function requestWindowAxis(id) {
   const panel = panels[id];
   if (!panel || !panel.payload) return;
+  if (subnav.current() !== 'selection') {
+    windowAxisRequests[id]?.cancel();
+    if (windowOf(panel)) windowAxisMissed = true;
+    return;
+  }
   if (kindOf(lastProjections) !== 'lab' || !windowOf(panel)) {
     windowAxisRequests[id]?.cancel();
     if (panel.lastOpts?.windowAxis) {
@@ -487,6 +542,11 @@ async function loadWindowAxis(id) {
   const panel = panels[id];
   const asked = windowOf(panel);
   if (!asked || kindOf(lastProjections) !== 'lab') return;
+  // The viewer came on show while the request waited: asked for on the way back.
+  if (subnav.current() !== 'selection') {
+    windowAxisMissed = true;
+    return;
+  }
   const generation = viewGeneration;
   try {
     const payload = await getJson('/api/window-axis', {
@@ -518,6 +578,11 @@ const inspector = new EventInspector({
     for (const id of eventGrid.ids()) buildNotes(id);
     setNotices('event', payload.meta?.notices || []);
     endpointWarnings.event = payload.meta?.warnings || [];
+    // The viewer's own status bar: the event, its shower, p, θ, cells, deposit and place among the candidates.
+    writeEventStatus(payload);
+    const ms = payload.meta?.total_ms;
+    latency.event = { ms: Number.isFinite(ms) ? `${formatNumber(ms, 1)} ms` : '—', cache: '' };
+    showLatency();
     showBanner(mergedWarnings());
   },
   onError: (error, context) => reportError(error, context),
@@ -530,48 +595,47 @@ const inspector = new EventInspector({
 
 /* The E1, E2 and D sliders and the undefined-D option, adopted per experiment:
  * a single shower filters on its incident momentum p alone. Dragging asks for
- * the sampled preview, a release for the exact refresh. A commit moves the
- * candidates too: the particle block counts afresh and the pinned event's
- * reload applies the follow policy; the pickers' draw counter carries on. */
+ * the sampled preview, a release for the exact refresh. They steer Entire
+ * selection alone: the pickers' pool is the whole experiment (Martin's
+ * decision of 2026-11-16), so a commit neither counts the candidates again
+ * nor touches the viewer's event. */
 const filters = new FilterBlock({
   state,
   onPreview: () => requestPreview(),
-  onCommit: () => {
-    inspector.filtersCommitted();
-    refreshParticle();
-    refreshAll();
-  },
+  onCommit: () => refreshAll(),
 });
 
 /* The Particle Filter (controls/particle_filter.js): p and θ narrow which
- * events the pickers offer, never the ensemble panels or a card. The block
- * owns GET /api/event/candidates and refreshes itself after its own commit;
- * the page then asks again for the pinned event alone, under the follow
- * policy - no projections, no card. Every candidates payload reaches the
- * inspector: N for the caption, N = 0 to shut the pickers. */
+ * events the pickers offer, never the ensemble panels or a card. It is the
+ * viewer's: shown, and counting, only while the viewer is on show
+ * (`setShown`). The block owns GET /api/event/candidates and refreshes itself
+ * after its own commit; the page then asks again for the pinned event alone,
+ * under the follow policy - no projections, no card - or, while the viewer's
+ * first draw waits at N = 0, draws it once the pool holds an event. Every
+ * candidates payload reaches the inspector: N for the caption, N = 0 to shut
+ * the pickers and to fill the viewer's empty state. */
 const particle = mountParticleFilter({
   state,
-  onCommit: () => inspector.particleCommitted(),
-  onCandidates: (payload) => inspector.setCandidates(payload),
-  // A count that fails after the block's own commit or Clear: on the banner, as refreshParticle's.
+  onCommit: () => {
+    if (inspector.drawPending && !inspector.pinned) inspector.firstDraw();
+    else inspector.particleCommitted();
+  },
+  onCandidates: (payload) => {
+    inspector.setCandidates(payload);
+    syncViewerEmpty();
+  },
+  // A count that fails after the block's own commit or Clear: on the banner.
   onError: (error, context) => { if (!isAbort(error)) reportError(error, context); },
 });
-
-/** Ask the block for the candidates again; a failure is said on the banner, a superseded request is not. */
-function refreshParticle() {
-  return particle.refresh().catch((error) => {
-    if (!isAbort(error)) reportError(error, 'particle filter');
-    return null;
-  });
-}
+particle.setShown(subnav.current() === 'event');
 
 /* ------------------------------------------------------------------ loading */
 
+/* Entire selection's panels busy or not; the viewer's grid is the inspector's own. */
 function setBusy(busy) {
   for (const panel of Object.values(panels)) panel.setBusy(busy);
   energyPanel.setBusy(busy);
   plot4Grid?.setBusy?.(busy);
-  eventGrid.setBusy(busy);
   compareGrid.setBusy(busy);
 }
 
@@ -825,23 +889,123 @@ async function refreshCompare() {
 }
 
 /**
- * Show whichever grid the view state asks for: the Event Inspector while an
- * event is pinned, else the compare-frames grid while its toggle is on, else
- * the ensemble grid. The grid tracks snap, so one call is one layout.
+ * The router: what each subpage shows, from the view state. Inside Entire
+ * selection, the compare-frames grid while its toggle is on, else the 2 x 2
+ * (or, without hits, the kind notice) and the physics cards; inside the Event
+ * viewer, the Event Inspector while an event is pinned, else its empty state
+ * saying why. A pinned event never hides the 2 x 2: the two live on their own
+ * subpages, and a grid is shown only on the subpage on show, so no chart is
+ * created into a hidden one. The grid tracks snap, so one call is one layout.
  */
 function applyViewMode() {
-  const pinned = state.get('event') !== null && pagePlan.eventInspector;
-  const compare = !pinned && state.get('compare') && pagePlan.compare;
-  setHidden('ensemble-grid', pinned || compare || !pagePlan.spatial);
+  const psub = subnav.current();
+  const compare = state.get('compare') && pagePlan.compare;
+  setHidden('ensemble-grid', compare || !pagePlan.spatial);
   // An experiment without hits shows why, in place of the 2 x 2 grid.
-  setHidden('kind-notice', pinned || compare || pagePlan.spatial);
+  setHidden('kind-notice', compare || pagePlan.spatial);
   // The physics cards belong to the ensemble view: hidden with the 2 x 2.
-  setHidden('physics-grid', pinned || compare || !pagePlan.physics.length);
-  eventGrid.show(pinned);
-  compareGrid.show(compare);
+  setHidden('physics-grid', compare || !pagePlan.physics.length);
+  compareGrid.show(compare && psub === 'selection');
+  const pinned = state.get('event') !== null && pagePlan.viewer.enabled;
+  eventGrid.show(pinned && psub === 'event');
+  syncViewerEmpty();
+  if (!pinned) writeEventStatus(null);
   inspector.syncControls();
   setChecked('opt-compare', state.get('compare'));
   relayoutAll();
+}
+
+/**
+ * The viewer's empty state (`#event-empty`): shown with the inspector's reason
+ * while no event is drawn; nothing while the viewer's event is parked.
+ */
+function syncViewerEmpty() {
+  const text = pagePlan.viewer.enabled && !parked ? inspector.emptyText() : '';
+  setText('event-empty-text', text || '—');
+  setHidden('event-empty', !text);
+}
+
+/* The viewer's status-bar readouts, by physics_subpages.js `eventStatus` key. */
+const EVENT_STATUS_IDS = Object.freeze({
+  event: 'stat-event', shower: 'stat-shower', p: 'stat-p', theta: 'stat-theta', cells: 'stat-cells',
+  edep: 'stat-ev-edep', place: 'stat-place',
+});
+
+/** The viewer's status bar from an event response, or every readout '—' without one. */
+function writeEventStatus(payload) {
+  const status = eventStatus(payload, { nShowers: pagePlan.nShowers });
+  for (const [key, id] of Object.entries(EVENT_STATUS_IDS)) setText(id, status[key]);
+}
+
+/** The Query readout: the last response of the subpage on show. */
+function showLatency() {
+  const entry = latency[subnav.current()] ?? latency.selection;
+  setText('stat-latency', entry.ms);
+  setText('stat-cache', entry.cache);
+}
+
+/**
+ * A switch of subpage (physics_subpages.js has already shown it and written
+ * `psub`). Leaving the viewer parks its event in memory - the link then
+ * carries neither the event nor the subpage - and drops anything of it in
+ * flight; coming back draws the parked event from the response in hand. The
+ * particle block counts only while the viewer is on show. Then the subpage
+ * asks for its data only if it is stale: a switch to a fresh subpage sends
+ * nothing, bar Entire selection's pooling or windowed axes changed while it
+ * was hidden.
+ */
+function onSubpageSwitch(psub) {
+  hidePopover();
+  if (psub === 'selection') {
+    const held = inspector.park();
+    if (held) parked = held;
+    abortRequest('event');
+    abortRequest('event-pick');
+  }
+  countPromise = particle.setShown(psub === 'event');
+  applyViewMode();
+  showLatency();
+  // The transient banner speaks for the subpage on show; a failure stays until the next response.
+  if (!banner.root?.classList?.contains('is-error')) showBanner(mergedWarnings());
+  if (activating) return;
+  if (psub === 'event') {
+    if (parked) {
+      const held = parked;
+      parked = null;
+      inspector.unpark(held);
+    } else if (stale.event || (inspector.drawPending && !inspector.pinned)) {
+      loadViewer();
+    }
+    return;
+  }
+  if (stale.selection) {
+    refreshAll.flush();
+    return;
+  }
+  syncEnsembleDepth();
+  if (windowAxisMissed) {
+    windowAxisMissed = false;
+    for (const id of ['yz', 'xz']) requestWindowAxis(id);
+  }
+}
+
+/**
+ * The viewer's data: the pinned event, or - entered with none - the first
+ * draw, once the particle block's count is in (Pick for me at the current
+ * draw; nothing at N = 0, where the empty state says why). Only `/api/event*`
+ * requests; failures are the inspector's to show.
+ */
+async function loadViewer() {
+  stale.event = false;
+  if (!pagePlan.viewer.enabled) return null;
+  if (state.get('event') !== null) return inspector.refresh();
+  inspector.armFirstDraw();
+  syncViewerEmpty();
+  const epoch = inspector.epoch;
+  await Promise.resolve(countPromise).catch(() => null);
+  // Left, or another experiment, while the count was awaited: the draw waits, armed, for the way back.
+  if (subnav.current() !== 'event' || inspector.epoch !== epoch) return null;
+  return inspector.firstDraw();
 }
 
 /* ------------------------------------------------------------ panel notes */
@@ -1040,8 +1204,10 @@ async function loadProjections(preview = false, { windowAxes = true } = {}) {
   setText('stat-wneg', negativeReadout(negative));
   const negativeItem = document.getElementById('stat-wneg-item');
   if (negativeItem && negative?.summary) negativeItem.title = negative.summary;
-  setText('stat-latency', `${formatNumber(payload.meta.total_ms, 1)} ms`);
-  setText('stat-cache', payload.meta.cached ? 'cached' : 'scanned');
+  latency.selection = {
+    ms: `${formatNumber(payload.meta.total_ms, 1)} ms`, cache: payload.meta.cached ? 'cached' : 'scanned',
+  };
+  showLatency();
 
   const exact = payload.meta.exact;
   setText('badge-exact', exact ? 'Exact' : 'Preview (sampled)');
@@ -1232,11 +1398,16 @@ function applyCapabilities(experiment) {
   }
   syncFrameControl();
 
+  // A greyed channel or network carries the server's reason as its title, and
+  // the shut channels are named in one visible line under the radios: a
+  // tooltip alone is hover-only.
+  const reasons = { channel: plan.channelReasons ?? {}, model: plan.modelReasons ?? {} };
   for (const [name, values] of Object.entries(offered)) {
     for (const input of document.querySelectorAll(`input[name="${name}"]`)) {
       const ok = values.includes(input.value);
       input.disabled = !ok;
       input.closest('.choice')?.classList.toggle('is-disabled', !ok);
+      choiceTitle(input, ok ? null : (reasons[name][input.value] ?? null));
     }
     if (!values.includes(state.get(name)) && values.length) {
       fallbacks.push(`${name} "${state.get(name)}" is not available for this experiment; `
@@ -1244,6 +1415,8 @@ function applyCapabilities(experiment) {
       state.set({ [name]: values[0] }, { silent: true });
     }
   }
+  setText('channel-shut', plan.channelsShut ?? '');
+  setHidden('channel-shut', !plan.channelsShut);
   // Held in the kind banner, which stays until the experiment changes: the
   // transient banner is rewritten by the refresh that follows at once.
   if (fallbacks.length) restoreControlsFromState();
@@ -1318,6 +1491,8 @@ function applyKindPlan(plan, notices = []) {
     }
   }
   if (!twoShowers && state.get('shower') === 'b') state.set({ shower: 'a' }, { silent: true });
+  // The viewer's status bar names no shower where an event has one.
+  setHidden('stat-shower-item', !twoShowers);
 
   // No networks: no model cards, and the banner CLAUDE.md section 3 asks for.
   if (!plan.performance) {
@@ -1428,9 +1603,10 @@ function mergedWarnings() {
     pagePlan.plot4 === 'response-b3' ? notesText(panelNotes.energy) : '',
     pagePlan.plot4 === 'response-b3' ? plot4Sparse().join(' ') : '',
   ].join(' ');
+  // Each subpage's own endpoints: the viewer's event, or Entire selection's ensemble.
+  if (subnav.current() === 'event') return warningsNotShown([...endpointWarnings.event], shown);
   return warningsNotShown([
-    ...endpointWarnings.projections, ...endpointWarnings.performance,
-    ...endpointWarnings.event, ...endpointWarnings.compare,
+    ...endpointWarnings.projections, ...endpointWarnings.performance, ...endpointWarnings.compare,
     ...endpointWarnings.plot4, ...physics.warnings(),
   ], shown);
 }
@@ -1460,7 +1636,7 @@ async function loadEventCount() {
 
 const requestPreview = debounce(async () => {
   // The preview is the spatial panels' alone; the physics cards wait for the release.
-  if (!pagePlan.spatial) return;
+  if (!pagePlan.spatial || subnav.current() !== 'selection') return;
   try {
     await loadProjections(true);
     showBanner(mergedWarnings());
@@ -1470,13 +1646,19 @@ const requestPreview = debounce(async () => {
 }, DEBOUNCE_MS);
 
 /**
- * Refresh every panel.
+ * Refresh the subpage on show.
  *
- * The three loads are settled independently rather than with `Promise.all`, so
- * one failing endpoint degrades one panel instead of blanking the dashboard.
- * That matters here because the panels answer different questions: a selection
- * that breaks the energy fit still has perfectly good spatial projections, and
- * the physicist should keep them.
+ * On Entire selection: every ensemble panel - the projections, plot 4, the
+ * model cards, the physics cards in view and the compare grid - and never an
+ * /api/event* request. The loads are settled independently rather than with
+ * `Promise.all`, so one failing endpoint degrades one panel instead of
+ * blanking the dashboard. That matters here because the panels answer
+ * different questions: a selection that breaks the energy fit still has
+ * perfectly good spatial projections, and the physicist should keep them.
+ *
+ * On the Event viewer no ensemble request is sent: Entire selection is marked
+ * stale and asks when it is next shown, and the viewer loads only when it is
+ * stale itself (an experiment switch).
  */
 /* The refresh in charge of the panels' busy state and of the banner: a
  * refresh that a newer one overtook leaves both to the newer one. */
@@ -1484,6 +1666,12 @@ let refreshToken = 0;
 
 const refreshAll = debounce(async () => {
   requestPreview.cancel();
+  if (subnav.current() === 'event') {
+    stale.selection = true;
+    if (stale.event) await loadViewer();
+    return;
+  }
+  stale.selection = false;
   const token = ++refreshToken;
   setBusy(true);
   // What the experiment can show (capabilities.js): no projections without
@@ -1496,10 +1684,8 @@ const refreshAll = debounce(async () => {
   else if (pagePlan.plot4 === 'response-b3') jobs.push(['response grid', () => loadPlot4Grid()]);
   if (pagePlan.performance) jobs.push(['model performance', () => loadPerformance()]);
   if (pagePlan.physics.length) jobs.push(['physics panels', () => physics.refresh()]);
-  // The grid on show follows the selection too: the pinned event's neighbours
-  // and in-selection flag, or the three frames of the comparison.
-  if (state.get('event') !== null && pagePlan.eventInspector) jobs.push(['event inspector', () => inspector.load()]);
-  else if (state.get('compare') && pagePlan.compare) jobs.push(['frame comparison', () => loadCompare()]);
+  // The compare grid follows the selection too, while it is on.
+  if (state.get('compare') && pagePlan.compare) jobs.push(['frame comparison', () => loadCompare()]);
   try {
     const results = await Promise.allSettled(jobs.map(([, run]) => run()));
     // Overtaken - by a newer refresh or an experiment switch: the newer one speaks.
@@ -1612,9 +1798,16 @@ async function activateExperiment(experiment) {
   pagePlan = page1Plan(experiment);
   state.set({ table_name: experiment.table_name }, { silent: true });
   const notices = [];
+  // Both subpages ask afresh, each when it is (next) on show.
+  stale.selection = true;
+  stale.event = true;
   if (previous && previous.table_name !== experiment.table_name) {
     clearExperimentViews();
     kindBanner.dismissed.clear();
+    // The previous experiment's event goes, drawn or parked: the viewer draws
+    // the new experiment's first (only a link's event, at boot, is kept).
+    inspector.forget();
+    parked = null;
     // The frame across a change of kind: Local carries over; a frame the new
     // experiment's radios do not offer falls back to Absolute, with one line
     // saying so. A #frame=trans link or a saved default is not a switch, so
@@ -1626,7 +1819,24 @@ async function activateExperiment(experiment) {
     }
   }
   notices.push(...applyCapabilities(experiment));
+  // The Event viewer is offered with the Event Inspector, else its tab is shut
+  // with the server's reason; a link that opened it falls back to Entire
+  // selection (written), and the kind banner says so.
+  subnav.setEnabled('event', pagePlan.viewer.enabled, pagePlan.viewer.reason ?? '');
+  const viewerShut = !pagePlan.viewer.enabled && subnav.current() === 'event';
+  if (viewerShut) {
+    notices.push(`The Event viewer is not available for this experiment: ${pagePlan.viewer.reason} `
+      + 'Showing Entire selection.');
+  }
   applyKindPlan(pagePlan, notices);
+  if (viewerShut) {
+    activating = true;
+    try {
+      subnav.show('selection');
+    } finally {
+      activating = false;
+    }
+  }
   // The Longitudinal Channels partition the experiment's own depth lattice
   // (L = lattice.z.n), before the first request is built; an experiment with
   // no hits has no depth panel to draw them on.
@@ -1635,14 +1845,16 @@ async function activateExperiment(experiment) {
   // The experiment's own filter axes and bounds; the domains are recorded
   // before the one hash write, so a link carries no raw dataset bound.
   filters.adopt(experiment, pagePlan.axes);
-  // The Particle Filter after the filters: shown where the Event Inspector is
-  // offered, θ alone on one shower; the draws start again on a new experiment only.
+  // The Particle Filter after the filters: offered where the Event viewer is,
+  // p and θ on either kind; it counts only while the viewer is on show. The
+  // draws start again on a new experiment only.
   inspector.setExperiment({ nShowers: pagePlan.nShowers });
-  particle.adopt(experiment, {
+  countPromise = particle.adopt(experiment, {
     enabled: pagePlan.eventInspector,
     nShowers: pagePlan.nShowers,
     reason: pagePlan.eventInspector ? null : (pagePlan.reasons?.['event-inspector'] ?? null),
-  })?.catch((error) => {
+  }) ?? null;
+  countPromise?.catch((error) => {
     if (!isAbort(error)) reportError(error, 'particle filter');
   });
 
@@ -1692,6 +1904,10 @@ function clearExperimentViews() {
   metricsPanel.renderError('—');
   for (const id of STATUS_IDS) setText(id, '—');
   setHidden('stat-wneg-item', true);
+  latency.selection = { ms: '—', cache: '' };
+  latency.event = { ms: '—', cache: '' };
+  windowAxisMissed = false;
+  writeEventStatus(null);
   for (const key of Object.keys(endpointWarnings)) endpointWarnings[key] = [];
   for (const kind of GRID_ROWS) comparePayloads[kind] = null;
   physics.reset();
@@ -1802,7 +2018,7 @@ dom.compare.addEventListener('change', () => {
   state.set({ compare: dom.compare.checked });
   applyViewMode();
   // Three requests for the comparison alone; the ensemble panels keep theirs.
-  if (state.get('compare') && state.get('event') === null) refreshCompare();
+  if (state.get('compare')) refreshCompare();
 });
 document.getElementById('compare-grid-close')?.addEventListener('click', () => {
   state.set({ compare: false });
@@ -2026,9 +2242,12 @@ const REQUIRED_IDS = [
   'colormap', 'colormap-hint', 'opt-lock-scale', 'opt-undefined-d',
   'experiment-select', 'fit-table', 'metrics', 'model-caption',
   'plot-xy', 'plot-yz', 'plot-xz', 'plot-energy', 'ensemble-grid',
-  'event-grid', 'event-grid-rows', 'event-grid-label', 'event-grid-close', 'info-event',
-  'event-number', 'event-prev', 'event-next', 'event-pick', 'event-close', 'event-status', 'event-caption',
-  'event-pick-tilted', 'event-open-3d',
+  'event-grid', 'event-grid-rows', 'event-grid-label', 'info-event',
+  'event-number', 'event-prev', 'event-next', 'event-pick', 'event-status', 'event-caption',
+  'event-pick-tilted', 'event-open-3d', 'event-empty', 'event-empty-title', 'event-empty-text',
+  'physics-head', 'physics-subnav', 'psub-tab-selection', 'psub-tab-event', 'psub-selection', 'psub-event',
+  'stat-mode', 'stat-event', 'stat-shower-item', 'stat-shower', 'stat-p', 'stat-theta', 'stat-cells',
+  'stat-ev-edep', 'stat-place', 'channel-shut', 'group-filters', 'group-event', 'group-model',
   'group-particle', 'particle-heading', 'ctl-particle-p', 'particle-p-label', 'pp-num-lo', 'pp-num-hi', 'pp-fill',
   'pp-lo', 'pp-hi', 'particle-p-hint', 'ctl-particle-theta', 'particle-theta-label', 'pt-num-lo', 'pt-num-hi',
   'pt-fill', 'pt-lo', 'pt-hi', 'particle-theta-hint', 'particle-count', 'particle-scope', 'particle-clear',
@@ -2075,14 +2294,22 @@ async function landDeepLink(link) {
   if (!activeExperiment) return;
   const back = returnLink(link);
   if (link.panel && back) shell.setReturnLink(link.panel, back);
+  // A card lives on one subpage: an Event Inspector cell on the viewer (unless
+  // it is shut), every other Physics card on Entire selection, which parks any
+  // event. Switched to before the card is looked for; a link to no card of this
+  // page switches nothing.
+  const home = psubOfCard(link.panel ?? '');
+  const known = link.panel ? document.querySelector(`.card[data-panel="${link.panel}"]`) : null;
+  if (known && home !== subnav.current() && (home === 'selection' || pagePlan.viewer.enabled)) subnav.show(home);
   // A cell of the compare or Event Inspector grid is drawn with its row, when the row's response
   // arrives, after this landing: wait for the row before looking for the card.
   const cell = link.panel ? document.querySelector(`.frame-grid-row .card[data-panel="${link.panel}"]`) : null;
   if (cell) await rowDrawn(cell);
   let result = revealPanel(link.panel ?? '', { shell, reveal: (id) => physics.reveal(id) });
   if (result.ok) return;
-  // A pinned event or the compare view replaces the ensemble panels (applyViewMode): that is the view's doing.
-  const viewHides = (state.get('event') !== null && pagePlan.eventInspector) || (state.get('compare') && pagePlan.compare);
+  // The compare view replaces the ensemble panels (applyViewMode): that is the view's doing. A pinned
+  // event no longer hides them - it lives on the viewer, which the switch above left.
+  const viewHides = state.get('compare') && pagePlan.compare;
   if (result.reason === 'hidden' && viewHides && result.card?.closest?.('#ensemble-grid, #physics-grid')) {
     result = { ...result, reason: 'view' };
   }
@@ -2108,6 +2335,10 @@ async function boot() {
       + '(Ctrl+Shift+R). The dashboard will continue with those readouts blank.',
     ], true);
   }
+
+  // A link that names an event on Entire selection (an explicit psub=selection): the event waits,
+  // parked, for the viewer. After the query was read: parking writes the hash, which drops it.
+  if (subnav.current() === 'selection' && state.get('event') !== null) parked = inspector.park();
 
   try {
     restoreControlsFromState();

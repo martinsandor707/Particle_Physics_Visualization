@@ -928,6 +928,11 @@ def test_each_entry_point_keeps_the_other_pages_modules_out():
     # The particle filter (2026-11-15): one block and one sentence module, shared by both pages.
     for module in ("controls/particle_filter.js", "event_picker.js"):
         assert module in physics and module in models, module
+    # Each page's subpage tab bar is its own (physics-subpages, 2026-11-16): the Physics page's is
+    # reached from main.js alone, and never pulls the Models page's, which brings its card graph.
+    assert "physics_subpages.js" in physics
+    assert "physics_subpages.js" not in models and "physics_subpages.js" not in methodology
+    assert "models_subpages.js" not in physics
     # The article draws no panel and holds no experiment: it may share the
     # leaves (the palettes, the scale, the page helpers), never a page's own.
     for module in ("main.js", "models_main.js", "physics_section.js", "models_cards.js", "voxel_views.js",

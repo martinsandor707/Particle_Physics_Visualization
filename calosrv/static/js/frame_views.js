@@ -1125,11 +1125,27 @@ export function eventRowLabel(event) {
     + `θ = ${num(s.theta_deg, 1)}°, φ = ${num(s.phi_deg, 1)}°, P₀ = ${p0}, ${tilt}.`;
 }
 
-/** The event's own kinematics, and whether the current filters select it. */
-export function eventSelectionLine(event) {
+/**
+ * The event's own kinematics, and whether the current filters select it.
+ *
+ * Under `basis=experiment` (`event.candidates.basis`, the Event viewer's pool:
+ * the whole experiment, which E₁, E₂ and D do not narrow) the line states the
+ * kinematics alone, for there is no selection to be inside or outside of: on
+ * two showers E₁, E₂ and D, on one its incident momentum p (the response's
+ * `e1`). `nShowers` names the kind; without it, an event with neither E₂ nor D
+ * is read as one shower. Without `basis` the sentence is unchanged.
+ */
+export function eventSelectionLine(event, { nShowers } = {}) {
   if (!event || !Number.isFinite(event.event_number)) return '';
   const energy = (v) => (Number.isFinite(v) ? `${num(v, 2)} GeV` : '—');
   const d = Number.isFinite(event.d) ? `${num(event.d, 0)} mm` : 'undefined';
+  if (event.candidates?.basis === 'experiment') {
+    const one = nShowers === 1
+      || (nShowers !== 2 && !Number.isFinite(event.e2) && !Number.isFinite(event.d));
+    const head = `Event ${formatInt(event.event_number)}: ${formatInt(event.n_hits)} hits in all, `;
+    return one ? `${head}p = ${energy(event.e1)}.`
+      : `${head}E₁ = ${energy(event.e1)}, E₂ = ${energy(event.e2)}, D = ${d}.`;
+  }
   return `Event ${formatInt(event.event_number)}: ${formatInt(event.n_hits)} hits in all, `
     + `E₁ = ${energy(event.e1)}, E₂ = ${energy(event.e2)}, D = ${d}; `
     + (event.in_selection

@@ -352,6 +352,14 @@ def test_main_hides_the_physics_cards_with_the_ensemble_grid_and_lays_them_out()
     assert view, "applyViewMode is missing"
     for token in ("setHidden('ensemble-grid'", "setHidden('physics-grid'", "setHidden('kind-notice'"):
         assert token in view.group(1), token
+    # The router (physics-subpages §10.1): only the compare view hides the 2 x 2 and the cards, never a
+    # pinned event, which lives on the Event viewer; each grid is shown only on its subpage on show.
+    for token in ("setHidden('ensemble-grid', compare || !pagePlan.spatial);",
+                  "setHidden('kind-notice', compare || pagePlan.spatial);",
+                  "setHidden('physics-grid', compare || !pagePlan.physics.length);",
+                  "compareGrid.show(compare && psub === 'selection');",
+                  "eventGrid.show(pinned && psub === 'event');"):
+        assert token in view.group(1), token
     relayout = re.search(r"function relayoutAll\(\) \{(.*?)\n\}", main, re.DOTALL)
     assert "physics.relayout()" in relayout.group(1)
     # The cards exist before the export menus are wired, so their Export buttons are.
