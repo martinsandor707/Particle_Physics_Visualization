@@ -586,11 +586,13 @@ const LATER_FIXTURES = ['selection_cells_', 'res_scaling_median_', 'res_scaling_
  * cases the walks derived from them, 34 were new hashes - so they are exercised through their panels'
  * own cases instead (the Longitudinal Channels section), and the walks stay the record of distinct
  * scale shapes. The two particle-filter recordings (2026-11-15) carry the same event shapes on another
- * event or with the pickers' candidates, and are skipped for the same reason. Matched by exact name,
- * so a later fixture that shares a prefix is still walked. */
+ * event or with the pickers' candidates, and are skipped for the same reason, as are the three
+ * whole-experiment recordings (basis=experiment, 2026-11-16), which carry the same event shapes drawn
+ * from another pool. Matched by exact name, so a later fixture that shares a prefix is still walked. */
 const WALK_SKIPPED = ['event_raster_base', 'projections_base_canonical', 'projections_base_lab_pooled',
   'projections_base_trans', 'projections_base_trans_pooled', 'event_raster_base_particle',
-  'event_voxels_base_lab_particle'];
+  'event_voxels_base_lab_particle', 'event_raster_base_experiment', 'event_raster_single_experiment',
+  'event_voxels_base_lab_experiment'];
 const walked = (file) => !WALK_SKIPPED.includes(file.replace(/\.json$/, ''));
 // Every distinct scale block the recorded payloads carry.
 {

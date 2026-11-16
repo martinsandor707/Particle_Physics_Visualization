@@ -40,6 +40,18 @@ with ``event.prev`` / ``event.next``; ``/api/event/pick`` draws from them, by
 the notebook rules or a seeded uniform shuffle (``rule=uniform``, ``draw``);
 ``GET /api/event/candidates`` counts them without reading a hit. With no
 bound set a pick that names no rule is answered as before the filter existed.
+
+**The basis** (``basis``, read by all three routes; ``deps.resolve_basis``)
+is what the candidates are drawn from. ``selection``, the default, is the
+E1/E2/D selection, and every response that names no basis is what it was.
+``experiment`` is every event of the experiment (``filters.unbounded``), so
+the pickers ignore E1, E2 and D (Martin, 2026-11-16); a bound or
+``include_undefined_d=true`` sent with it is a 422 naming the parameter.
+Under ``experiment`` the candidates block, ``event.candidates``, the pick
+body and the ``filter`` echo carry ``"basis": "experiment"``,
+``event.in_selection`` is true for every event of the experiment, a pick
+always carries ``rule_id``, ``seed_used``, ``matched`` and ``particle``, and
+the outside-selection warning cannot fire. The geometry never depends on it.
 """
 
 from __future__ import annotations
@@ -58,7 +70,7 @@ from ..query import showers as showers_mod
 from ..query.particle import ParticleSpec
 from ..text import typographic
 from . import budget, frame_canonical
-from .deps import CursorDep, FilterDep, ParticleDep, RecordDep, capable
+from .deps import CursorDep, ParticleDep, PoolFilterDep, RecordDep, capable
 
 router = APIRouter()
 
@@ -95,7 +107,7 @@ EventRecordDep = Annotated[ExperimentRecord, Depends(_event_record)]
 def get_event(
     con: CursorDep,
     record: EventRecordDep,
-    spec: FilterDep,
+    spec: PoolFilterDep,
     particle: ParticleDep,
     event_number: int = Query(..., description="The event to draw."),
     format: str = Query(voxel_event.FORMAT_RASTER, description=_FORMAT_HELP),
@@ -185,7 +197,7 @@ def get_event(
         notes={"event": int(event_number), "shower": shower, "coordinates": coordinates,
                "notices": notices},
     )
-    return envelope(meta, **body, filter=spec.as_dict())
+    return envelope(meta, **body, filter=particle_mod.filter_echo(spec))
 
 
 def _check_coordinates(coordinates: str) -> None:
@@ -211,10 +223,11 @@ def _outside(body: dict[str, Any], event_number: int, particle: ParticleSpec) ->
     """The warning for an event drawn although the pickers would not offer it.
 
     Outside the selection, today's sentence (previous / next walk the
-    candidates once the particle filter is set). Inside the selection but
-    outside an active filter's candidates because none of its showers matches,
-    the particle filter's own sentence. An event the frame gate alone keeps
-    out (no defined separation, or no direction or entry point) is drawn
+    candidates once the particle filter is set); under the experiment basis
+    ``in_selection`` is always true, so it cannot fire. Inside the selection
+    but outside an active filter's candidates because none of its showers
+    matches, the particle filter's own sentence. An event the frame gate alone
+    keeps out (no defined separation, or no direction or entry point) is drawn
     without one, as it always was.
     """
     event = body["event"]
@@ -269,7 +282,7 @@ def _voxels(con, record: ExperimentRecord, spec, timer: Timer, event_number: int
                    "model": builder.network,
                    "coordinates": coordinates, "window": window, "cam": cam, "notices": notices},
         )
-        return envelope(meta, **body, filter=spec.as_dict())
+        return envelope(meta, **body, filter=particle_mod.filter_echo(spec))
 
     def shrink(state: tuple[int, float | None], size: int, limit: int):
         drawn_cap, pitch = state
@@ -302,7 +315,7 @@ def _voxels(con, record: ExperimentRecord, spec, timer: Timer, event_number: int
 def pick_event(
     con: CursorDep,
     record: InspectableDep,
-    spec: FilterDep,
+    spec: PoolFilterDep,
     particle: ParticleDep,
     seed: int = Query(event_inspector.DEFAULT_SEED, ge=0,
                       description="Seed of the random draw (tilted) or of the shuffle (uniform)."),
@@ -315,8 +328,9 @@ def pick_event(
             "the mean (local-coords notebook, Page 1's Most tilted); densest: the event with the most "
             "cells, ties to the lowest number (High_energy notebook, Page 2's 3-D displays); uniform: "
             "entry draw mod N of a seeded shuffle of the candidates in event-number order (Pick for "
-            "me). Every rule draws from the candidates: the selection, the events the per-shower "
-            "frames can place and, when a particle bound is set, the events holding a matching shower."
+            "me). Every rule draws from the candidates: the selection (or, under basis=experiment, "
+            "the whole experiment), the events the per-shower frames can place and, when a particle "
+            "bound is set, the events holding a matching shower."
         ),
     ),
     draw: int = Query(
@@ -329,20 +343,21 @@ def pick_event(
     body = event_inspector.pick(con, record, spec, seed=seed, pool_size=pool_size,
                                 rule=event_inspector.RULE_TILTED if rule is None else rule,
                                 particle=particle, draw=draw)
-    if rule is None and not particle.active:
-        # A request that names no rule and no particle bound is answered as before rules
-        # existed: the two-shower golden snapshot pins that body byte for byte.
+    if rule is None and not particle.active and particle_mod.basis_of(spec) == particle_mod.BASIS_SELECTION:
+        # A request that names no rule, no particle bound and no basis is answered as before
+        # rules existed: the two-shower golden snapshot pins that body byte for byte. Under the
+        # experiment basis every body names its rule, its seed's use, the match and the echo.
         for key in ("rule_id", "seed_used", "matched", "particle"):
             body.pop(key)
     meta = ApiMeta(table_name=record.table_name, exact=True, total_ms=timer.elapsed_ms)
-    return envelope(meta, **body, filter=spec.as_dict())
+    return envelope(meta, **body, filter=particle_mod.filter_echo(spec))
 
 
 @router.get("/api/event/candidates", summary="The event pickers' candidates, counted")
 def event_candidates(
     con: CursorDep,
     record: InspectableDep,
-    spec: FilterDep,
+    spec: PoolFilterDep,
     particle: ParticleDep,
     event_number: int | None = Query(
         None,
@@ -353,7 +368,9 @@ def event_candidates(
     """The pool the pickers draw from: its counts, the dataset's slider bounds, one event's place.
 
     Reads the event table only, never the hits: the count is cheap enough to
-    ask for on every particle-filter commit.
+    ask for on every particle-filter commit. Under ``basis=experiment`` the
+    counts block opens with ``"basis": "experiment"`` and ``n_selection`` is
+    the experiment's event count; ``bounds`` never depend on the basis.
     """
     timer = Timer()
     counts = particle_mod.candidates(con, record, spec, particle)
@@ -362,4 +379,5 @@ def event_candidates(
              else particle_mod.membership(con, record, spec, particle, event_number))
     meta = ApiMeta(table_name=record.table_name, exact=True, query_ms=timer.elapsed_ms,
                    total_ms=timer.elapsed_ms, notes={"notes": {}})
-    return envelope(meta, candidates=counts, bounds=bounds, event=event, filter=spec.as_dict())
+    return envelope(meta, candidates=counts, bounds=bounds, event=event,
+                    filter=particle_mod.filter_echo(spec))

@@ -13,6 +13,15 @@ previous / next and the matching showers of an event and its neighbours;
 the geometry, which the filter never moves; the refusals, the empty pool,
 the budget that now measures the event block, and the typography.
 
+**The experiment basis** (``basis=experiment``, physics-subpages brief §3):
+the same brute force with every row of the event table in place of the
+selection - the pool, the counts, previous / next, the rules and their
+sentences, ``in_selection`` true for every event; the whole-experiment spec
+(``filters.unbounded``) selecting every row on every kind, NULL momenta and
+undefined D included; the refusals of an E1/E2/D bound, the 404 sentences,
+the geometry equal under both bases, the budget, and ``basis=selection``
+answered byte for byte as a request that names no basis.
+
 ``synthetic_client`` tests come first: a booted ``single_client`` resets
 the database singleton the other server reads.
 """
@@ -32,8 +41,9 @@ from conftest import BASELINE_TABLE, SINGLE_EVENTS_TABLE, SINGLE_HITS_TABLE
 
 from calosrv.db import ddl, naming, registry
 from calosrv.db.naming import quote
+from calosrv.errors import NotFoundError
 from calosrv.query import canonical, density, event_inspector, filters, particle
-from calosrv.text import signed_hyphens
+from calosrv.text import signed_hyphens, typographic
 
 CANDIDATES = "/api/event/candidates"
 PICK = "/api/event/pick"
@@ -115,8 +125,11 @@ def _bounds(case: dict) -> tuple:
             rad(case.get("particle_theta_min")), rad(case.get("particle_theta_max")))
 
 
-def _brute(rows: list[dict], record, selection: dict, case: dict) -> list[dict]:
-    """Per event: in the selection, placeable, its matching showers, in the pool - in plain Python."""
+def _brute(rows: list[dict], record, selection: dict, case: dict, whole: bool = False) -> list[dict]:
+    """Per event: in the selection, placeable, its matching showers, in the pool - in plain Python.
+
+    ``whole`` is the experiment basis: every row of the event table is "selected".
+    """
     two = record.kind == ddl.KIND_TWO_SHOWER
     spec = filters.build(record, **selection)
     p_min, p_max, t_min, t_max = _bounds(case)
@@ -136,6 +149,8 @@ def _brute(rows: list[dict], record, selection: dict, case: dict) -> list[dict]:
         else:
             placeable = all(row[c] is not None for c in ("theta_a", "phi_a", "p0ax"))
             showers = [("a", row["e1"], row["theta_a"], row["n_hits"] > 0)]
+        if whole:
+            selected = True
         matched = [key for key, p, theta, present in showers
                    if present and _within(p, p_min, p_max) and _within(theta, t_min, t_max)]
         out.append({"event": int(row["event_number"]), "selected": selected, "placeable": placeable,
@@ -430,6 +445,208 @@ def test_the_route_walks_the_candidates_and_names_the_matches(synthetic_client):
                     "candidates."]
             else:
                 assert warnings == []
+
+
+# ------------------------------------------- the experiment basis (synthetic) --
+
+#: The pickers' whole-experiment basis (physics-subpages brief §3).
+EXPERIMENT = {"basis": "experiment"}
+#: The refusal of an E1/E2/D parameter sent with it (brief §3.1).
+NOT_WITH_EXPERIMENT = ("{name} does not apply with basis=experiment: the event pickers draw from the whole "
+                       "experiment, narrowed by the particle filter alone.")
+
+
+def _event_count(client, record) -> int:
+    with client.app.state.database.read_cursor() as con:
+        return int(con.execute(f"SELECT count(*) FROM {quote(naming.event_table(record.table_name))}")
+                   .fetchone()[0])
+
+
+def _experiment_echo(record) -> dict:
+    return {**filters.unbounded(record).as_dict(), "basis": "experiment"}
+
+
+def _check_experiment_pool(client, record, base: dict, case: dict) -> list[dict]:
+    """The experiment basis's counts and every sampled event's place against the whole-table brute force."""
+    brute = _brute(_rows(client, record), record, {}, case, whole=True)
+    two = record.kind == ddl.KIND_TWO_SHOWER
+    body = _ok(client, CANDIDATES, **base, **EXPERIMENT, **case)
+    contract_check.check(body, "event_candidates")
+    assert list(body["candidates"])[0] == "basis" and body["candidates"]["basis"] == "experiment"
+    counts = {k: v for k, v in body["candidates"].items() if k not in ("particle", "basis")}
+    assert counts == _expected_counts(brute, two), case
+    # n_selection is the experiment's event count: every row of the event table.
+    assert counts["n_selection"] == _event_count(client, record) == len(brute)
+    assert body["candidates"]["particle"] == _particle(record, case).as_dict()
+    assert body["filter"] == _experiment_echo(record)
+    assert body["event"] is None
+    # The slider bounds never depend on the basis.
+    assert body["bounds"] == _ok(client, CANDIDATES, **base, **case)["bounds"]
+    for event in _samples(brute):
+        placed = _ok(client, CANDIDATES, **base, **EXPERIMENT, **case, event_number=event)
+        contract_check.check(placed, "event_candidates")
+        assert placed["event"] == _expected_member(brute, event), (case, event)
+        assert placed["event"]["in_selection"] is True
+    with client.app.state.database.read_cursor() as con:
+        pool = particle.pool_events(con, record, filters.unbounded(record), _particle(record, case))
+    assert pool.tolist() == [b["event"] for b in brute if b["pool"]]
+    return brute
+
+
+@pytest.mark.parametrize("case", list(TWO_CASES))
+def test_the_two_shower_experiment_pool_is_the_brute_force_one(synthetic_client, case):
+    record = _record(synthetic_client)
+    brute = _check_experiment_pool(synthetic_client, record, {}, TWO_CASES[case])
+    n_pool = sum(b["pool"] for b in brute)
+    if case == "empty":
+        assert n_pool == 0
+    elif case == "off":
+        assert n_pool == sum(b["placeable"] for b in brute)
+    else:
+        assert 0 < n_pool < sum(b["placeable"] for b in brute)
+    # An E1 cut the selection basis applies never reaches the experiment's pool.
+    cut = _brute(_rows(synthetic_client, record), record, SELECTIONS["e1_cut"], TWO_CASES[case])
+    assert {b["event"] for b in cut if b["pool"]} <= {b["event"] for b in brute if b["pool"]}
+    if case == "off":
+        assert sum(b["pool"] for b in cut) < n_pool
+
+
+def test_the_whole_experiment_spec_selects_every_two_shower_row(synthetic_client):
+    record = _record(synthetic_client)
+    spec = filters.unbounded(record)
+    assert spec.where_sql() == "TRUE" and spec.where_sql("h") == "TRUE" and spec.params() == {}
+    with synthetic_client.app.state.database.read_cursor() as con:
+        table = quote(naming.event_table(record.table_name))
+        n = con.execute(f"SELECT count(*) FROM {table} WHERE {spec.where_sql()}", spec.params()).fetchone()[0]
+        total = con.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+    assert n == total > 0
+
+
+def test_the_uniform_rule_cycles_under_the_experiment_basis(synthetic_client):
+    """N consecutive draws visit every candidate of the whole experiment once; draw N wraps."""
+    record = _record(synthetic_client)
+    case = TWO_CASES["both"]
+    brute = _brute(_rows(synthetic_client, record), record, {}, case, whole=True)
+    pool = [b["event"] for b in brute if b["pool"]]
+    n = len(pool)
+    assert n > 2
+    drawn = []
+    for draw in range(n):
+        body = _ok(synthetic_client, PICK, rule="uniform", seed=7, draw=draw, **EXPERIMENT, **case)
+        contract_check.check(body, "event_candidates", at="pick_uniform")
+        assert body["basis"] == "experiment" and body["filter"] == _experiment_echo(record)
+        assert body["n_events"] == n and body["entry"] == draw + 1 and body["draw"] == draw
+        assert body["event_number"] == pool[int(np.random.default_rng(7).permutation(n)[draw])]
+        assert body["matched"] == next(b["matched"] for b in brute if b["event"] == body["event_number"])
+        drawn.append(body["event_number"])
+    assert sorted(drawn) == pool and len(set(drawn)) == n
+    wrapped = _ok(synthetic_client, PICK, rule="uniform", seed=7, draw=n + 3, **EXPERIMENT, **case)
+    assert wrapped["event_number"] == drawn[3] and wrapped["entry"] == 4
+    # With no bound the shuffle runs over every placeable event of the experiment. The viewer's first
+    # draw is the default seed's draw 0, and its sentence names both.
+    first = _ok(synthetic_client, PICK, rule="uniform", **EXPERIMENT)
+    placeable = [b["event"] for b in brute if b["placeable"]]
+    assert first["n_events"] == len(placeable) and first["particle"]["active"] is False
+    assert first["seed"] == event_inspector.DEFAULT_SEED and first["draw"] == 0
+    assert first["event_number"] == placeable[int(np.random.default_rng(42).permutation(len(placeable))[0])]
+    assert f"(seed {event_inspector.DEFAULT_SEED}, draw 0)" in first["rule"]
+
+
+@pytest.mark.parametrize("case", ["off", "p", "theta", "both", "theta_min"])
+def test_the_notebook_rules_draw_from_the_experiment_pool(synthetic_client, case):
+    record = _record(synthetic_client)
+    params = TWO_CASES[case]
+    brute = _brute(_rows(synthetic_client, record), record, {}, params, whole=True)
+    pool = {b["event"] for b in brute if b["pool"]}
+    active = bool(params)
+    for rule in (None, "tilted"):
+        body = _ok(synthetic_client, PICK, seed=43, **EXPERIMENT, **params, **({} if rule is None else {"rule": rule}))
+        contract_check.check(body, "event_candidates", at="pick_ranked")
+        # Whatever the rule, the experiment basis's body names it, the seed's use, the match and the echo.
+        assert body["basis"] == "experiment" and body["rule_id"] == "tilted" and body["seed_used"] is True
+        assert body["particle"] == _particle(record, params).as_dict()
+        assert body["pool"] == _expected_tilted(brute, active), case
+        assert body["event_number"] in pool and body["n_events"] == len(pool)
+        assert body["matched"] == next(b["matched"] for b in brute if b["event"] == body["event_number"])
+    densest = _ok(synthetic_client, PICK, rule="densest", **EXPERIMENT, **params)
+    contract_check.check(densest, "event_candidates", at="pick_ranked")
+    ranked = sorted((b for b in brute if b["pool"]), key=lambda b: (-b["n_cells"], b["event"]))
+    assert densest["pool"] == [b["event"] for b in ranked[:event_inspector.DEFAULT_POOL_SIZE]]
+    assert densest["event_number"] == ranked[0]["event"] and densest["basis"] == "experiment"
+    assert densest["filter"] == _experiment_echo(record)
+
+
+def test_the_experiment_pick_sentences_name_the_experiment(synthetic_client):
+    params = TWO_CASES["both"]
+    interval = "p in 5.00–9.00 GeV and θ in 20.0–30.0° (0.349–0.524 rad)"
+    population = (f"events of the experiment with a defined separation holding a shower with {interval} "
+                  "that deposited energy")
+    uniform = _ok(synthetic_client, PICK, rule="uniform", seed=5, draw=2, **EXPERIMENT, **params)
+    n = uniform["n_events"]
+    # The brief's template (§3.4), with this file's counts.
+    assert uniform["rule"] == (
+        f"Drawn uniformly at random from the {n:,} {population}: entry 3 of a seeded shuffle of them in "
+        f"event-number order (seed 5, draw 2), so no event repeats until all {n:,} have been drawn.")
+    tilted = _ok(synthetic_client, PICK, rule="tilted", seed=42, **EXPERIMENT, **params)
+    assert tilted["rule"] == (
+        f"Among the {tilted['n_events']:,} {population}, none has more hits than the mean "
+        f"({tilted['mean_hits']:.1f}), so the {len(tilted['pool'])} with the most hits are taken "
+        "instead; one drawn at random with seed 42 - the reference notebook's selection rule, with the "
+        "service's fallback.")
+    densest = _ok(synthetic_client, PICK, rule="densest", **EXPERIMENT, **params)
+    assert densest["rule"].startswith(
+        f"Among the {densest['n_events']:,} {population}, the one with the most detector cells")
+    # Inactive: the population phrase alone.
+    bare = _ok(synthetic_client, PICK, seed=7, **EXPERIMENT)
+    assert bare["rule"].startswith(
+        f"Among the {bare['n_events']:,} events of the experiment with a defined separation, ")
+    for body in (uniform, tilted, densest, bare):
+        assert "selected" not in body["rule"]
+        _no_hyphen_signs(body)
+
+
+def test_the_route_walks_the_experiment_candidates(synthetic_client):
+    """event.prev / event.next walk the whole experiment's pool; in_selection is always true."""
+    record = _record(synthetic_client)
+    params = TWO_CASES["both"]
+    brute = _brute(_rows(synthetic_client, record), record, {}, params, whole=True)
+    pool = [b["event"] for b in brute if b["pool"]]
+    outside = next(b["event"] for b in brute if not b["pool"] and not b["matched"])
+    for event in (pool[0], pool[len(pool) // 2], pool[-1], outside):
+        expected = _expected_member(brute, event)
+        for fmt in ("raster", "voxels"):
+            body = _ok(synthetic_client, EVENT, event_number=event, format=fmt, frame="lab", **EXPERIMENT, **params)
+            if fmt == "voxels":
+                contract_check.check(body, "event_voxels")
+            block = body["event"]
+            assert block["in_selection"] is True
+            assert (block["prev"], block["next"]) == (expected["prev"], expected["next"])
+            contract_check.check(block["candidates"], "event_candidates", at="event_block")
+            assert block["candidates"] == {
+                "basis": "experiment", "particle": _particle(record, params).as_dict(),
+                "in_pool": expected["in_pool"], "index": expected["index"], "n_events": expected["n_events"],
+                "matched": expected["matched"], "prev_matched": expected["prev_matched"],
+                "next_matched": expected["next_matched"]}
+            assert body["filter"] == _experiment_echo(record)
+            warnings = body["meta"]["warnings"]
+            if event == outside:
+                # The outside-pool warning, unchanged.
+                assert warnings == [particle.outside_pool_warning(event, _particle(record, params))]
+            else:
+                assert warnings == []
+    # An event an E1 cut leaves out: the selection basis draws it with its warning; the experiment
+    # basis, which no cut reaches, holds it and says nothing.
+    cut = filters.build(record, **SELECTIONS["e1_cut"])
+    left_out = next(b["event"] for b in brute if b["placeable"] and not _within(
+        next(r["e1"] for r in _rows(synthetic_client, record) if r["event_number"] == b["event"]),
+        cut.e1_min, cut.e1_max))
+    for fmt in ("raster", "voxels"):
+        under_cut = _ok(synthetic_client, EVENT, event_number=left_out, format=fmt, frame="lab",
+                        **SELECTIONS["e1_cut"])
+        assert under_cut["event"]["in_selection"] is False and under_cut["meta"]["warnings"]
+        whole = _ok(synthetic_client, EVENT, event_number=left_out, format=fmt, frame="lab", **EXPERIMENT)
+        assert whole["event"]["in_selection"] is True and whole["meta"]["warnings"] == []
+        assert whole["event"]["candidates"]["in_pool"] is True
 
 
 # ============================================= the baseline and one shower ==
@@ -878,3 +1095,427 @@ def test_no_candidates_body_signs_a_number_with_a_hyphen(single_client):
                        else 3, **case)
             _no_hyphen_signs(body)
             assert '"hits"' not in json.dumps(body) and '"points"' not in json.dumps(body)
+
+
+# ================================== the experiment basis: baseline and one shower ==
+
+
+@pytest.mark.parametrize("case", list(BASE_CASES))
+def test_the_baseline_experiment_pool_is_the_brute_force_one(single_client, case):
+    record = _record(single_client, BASELINE_TABLE)
+    brute = _check_experiment_pool(single_client, record, BASE, BASE_CASES[case])
+    if case == "p_2_3":
+        assert [(b["event"], b["matched"]) for b in brute if b["pool"]] == [(0, ["a"])]
+    if case == "p_5_6":
+        assert not any(b["pool"] for b in brute)
+
+
+@pytest.mark.parametrize("case", list(SINGLE_CASES))
+def test_the_single_shower_experiment_pool_is_the_brute_force_one(single_client, case):
+    record = _record(single_client, SINGLE_HITS_TABLE)
+    brute = _check_experiment_pool(single_client, record, HITS, SINGLE_CASES[case])
+    body = _ok(single_client, CANDIDATES, **HITS, **EXPERIMENT, **SINGLE_CASES[case])
+    assert body["candidates"]["n_both"] is None and body["candidates"]["showers"] == ["a"]
+    # One shower has no separation: the whole experiment's echo says so.
+    assert body["filter"]["include_undefined_d"] is False and body["filter"]["basis"] == "experiment"
+    if case == "theta":
+        assert 0 < sum(b["pool"] for b in brute) < len(brute)
+    # The single shower's p window of the ensemble views never reaches the experiment's pool.
+    cut = _brute(_rows(single_client, record), record, SINGLE_SELECTIONS["e1_cut"], SINGLE_CASES[case])
+    assert {b["event"] for b in cut if b["pool"]} <= {b["event"] for b in brute if b["pool"]}
+
+
+@pytest.mark.parametrize("table", [BASELINE_TABLE, SINGLE_HITS_TABLE, SINGLE_EVENTS_TABLE])
+def test_the_whole_experiment_spec_selects_every_row(single_client, table):
+    """Brief §3.2: count under filters.unbounded = count(*), NULL momenta and undefined D included.
+
+    On every kind's event table (the aggregate's too), then on a copy in which
+    events lost a momentum or their separation: the whole experiment keeps them,
+    where the full-range selection of ``filters.build`` drops them.
+    """
+    record = _record(single_client, table)
+    spec = filters.unbounded(record)
+    assert spec.whole_experiment is True and spec.where_sql() == "TRUE" and spec.params() == {}
+    assert spec.include_undefined_d is (record.kind == ddl.KIND_TWO_SHOWER)
+    two = record.kind == ddl.KIND_TWO_SHOWER
+    probe = dataclasses.replace(record, table_name=f"{table}_null_probe")
+    view = quote(naming.event_table(probe.table_name))
+    source = quote(naming.event_table(table))
+    with single_client.app.state.database.read_cursor() as con:
+        def count(name: str, where: str = "TRUE", params=None) -> int:
+            return int(con.execute(f"SELECT count(*) FROM {name} WHERE {where}", params or {}).fetchone()[0])
+
+        assert count(source, spec.where_sql(), spec.params()) == count(source) > 0
+        events = [r[0] for r in con.execute(f"SELECT event_number FROM {source} ORDER BY 1").fetchall()]
+        first, last = events[0], events[-1]
+        nulls = f"CASE WHEN event_number = {first} THEN NULL ELSE e1 END AS e1"
+        if two:
+            nulls += (f", CASE WHEN event_number = {last} THEN NULL ELSE e2 END AS e2"
+                      f", CASE WHEN event_number = {last} THEN NULL ELSE d END AS d")
+        con.execute(f"CREATE TEMP VIEW {view} AS SELECT * REPLACE ({nulls}) FROM {source}")
+        try:
+            whole = filters.unbounded(probe)
+            assert count(view, whole.where_sql(), whole.params()) == count(view) == len(events)
+            full_range = filters.build(probe)
+            dropped = count(view) - count(view, full_range.where_sql(), full_range.params())
+            assert dropped == (2 if two and first != last else 1)
+        finally:
+            con.execute(f"DROP VIEW {view}")
+
+
+def test_the_selection_specs_are_unchanged(single_client):
+    """Brief §3.2: the whole-experiment flag moves no spec ``filters.build`` makes."""
+    for table in (BASELINE_TABLE, SINGLE_HITS_TABLE):
+        record = _record(single_client, table)
+        two = record.kind == ddl.KIND_TWO_SHOWER
+        for selection in ({}, {"e1_min": 1.5, "e1_max": 9.5}, *(({"include_undefined_d": True},) if two else ())):
+            spec = filters.build(record, **selection)
+            assert spec.whole_experiment is False and spec.clamped(record).whole_experiment is False
+            e1 = (selection.get("e1_min", record.e1_min), selection.get("e1_max", record.e1_max))
+            if two:
+                d_clause = ("(h.d IS NULL OR h.d BETWEEN $d_min AND $d_max)" if spec.include_undefined_d
+                            else "h.d IS NOT NULL AND h.d BETWEEN $d_min AND $d_max")
+                assert spec.where_sql("h") == (
+                    f"h.e1 BETWEEN $e1_min AND $e1_max AND h.e2 BETWEEN $e2_min AND $e2_max AND {d_clause}")
+                assert spec.params() == {"e1_min": e1[0], "e1_max": e1[1], "e2_min": record.e2_min,
+                                         "e2_max": record.e2_max, "d_min": record.d_min, "d_max": record.d_max}
+                assert spec.as_dict() == {"e1": list(e1), "e2": [record.e2_min, record.e2_max],
+                                          "d": [record.d_min, record.d_max],
+                                          "include_undefined_d": spec.include_undefined_d}
+                assert spec.cache_key() == (
+                    table, round(e1[0], 6), round(e1[1], 6), round(record.e2_min, 6), round(record.e2_max, 6),
+                    round(record.d_min, 4), round(record.d_max, 4), spec.include_undefined_d)
+            else:
+                assert spec.where_sql() == "e1 BETWEEN $e1_min AND $e1_max"
+                assert spec.params() == {"e1_min": e1[0], "e1_max": e1[1]}
+                assert spec.as_dict() == {"e1": list(e1), "e2": [None, None], "d": [None, None],
+                                          "include_undefined_d": False}
+                assert spec.cache_key() == (table, round(e1[0], 6), round(e1[1], 6), None, None, None, None,
+                                            False)
+            # The whole experiment never shares a cache entry with a selection.
+            assert filters.unbounded(record).cache_key() != spec.cache_key()
+        whole = filters.unbounded(record)
+        assert whole.clamped(record) is whole
+        assert whole.as_dict() == {"e1": [None, None], "e2": [None, None], "d": [None, None],
+                                   "include_undefined_d": two}
+
+
+# ------------------------------------------------------- the experiment refusals --
+
+_POOL_ROUTES = ((CANDIDATES, {}), (PICK, {}), (PICK, {"rule": "uniform"}), (EVENT, {"event_number": 0}),
+                (EVENT, {"event_number": 0, "format": "voxels"}))
+
+
+@pytest.mark.parametrize("name, value", [
+    # Each one looser than the data, so the selection basis takes it (and selects everything).
+    ("e1_min", 0.0), ("e1_max", 1000.0), ("e2_min", 0.0), ("e2_max", 1000.0), ("d_min", 0.0),
+    ("d_max", 100000.0), ("include_undefined_d", "true"),
+])
+def test_a_selection_parameter_is_refused_under_the_experiment_basis(single_client, name, value):
+    """Brief §3.1: a silently ignored cut is a selection the reader believes was made."""
+    detail = NOT_WITH_EXPERIMENT.format(name=name)
+    for table in (BASELINE_TABLE, SINGLE_HITS_TABLE):
+        for url, extra in _POOL_ROUTES:
+            if table == SINGLE_HITS_TABLE and url == EVENT:
+                extra = {**extra, "event_number": 3}
+            response = single_client.get(url, params={"table_name": table, **extra, **EXPERIMENT, name: value})
+            assert response.status_code == 422, (table, url, response.text[:300])
+            problem = response.json()
+            assert problem["type"] == "/problems/validation-error"
+            # On one shower too: the basis's sentence, not the kind's own refusal of E2 and D.
+            assert problem["field"] == name and problem["detail"] == detail, (table, url, problem)
+    # The selection basis still takes it, and include_undefined_d=false is the default.
+    assert single_client.get(CANDIDATES, params={**BASE, "basis": "selection", name: value}).status_code == 200
+    assert single_client.get(CANDIDATES, params={**BASE, **EXPERIMENT,
+                                                 "include_undefined_d": "false"}).status_code == 200
+    # Two refused at once: the first in the order E1, E2, D, include_undefined_d is named.
+    both = single_client.get(CANDIDATES, params={**BASE, **EXPERIMENT, "d_max": 100000.0, "e2_min": 0.0})
+    assert both.json()["field"] == "e2_min"
+
+
+@pytest.mark.parametrize("value", ["x", "Experiment", "", "all", "-1"])
+def test_an_unknown_basis_is_refused_naming_it(single_client, value):
+    for url, extra in _POOL_ROUTES:
+        response = single_client.get(url, params={**BASE, **extra, "basis": value})
+        assert response.status_code == 422, (url, response.text[:300])
+        problem = response.json()
+        assert problem["field"] == "basis"
+        assert problem["detail"] == typographic(f"basis must be selection or experiment; got {value!r}.")
+        assert not signed_hyphens(problem["detail"])
+    if value == "x":
+        assert problem["detail"] == "basis must be selection or experiment; got 'x'."
+
+
+def test_the_aggregate_is_refused_by_its_capability_under_either_basis(single_client):
+    gates = {CANDIDATES: "event-inspector", PICK: "event-inspector"}
+    for url, extra in _POOL_ROUTES:
+        for params in (EXPERIMENT, {**EXPERIMENT, "e1_min": 1.0}, {"basis": "bogus"}):
+            response = single_client.get(url, params={**EVENTS, **extra, **params})
+            assert response.status_code == 422
+            problem = response.json()
+            contract_check.check(problem, "capability_problem")
+            gate = gates.get(url) or ("vox-event" if extra.get("format") == "voxels" else "event-inspector")
+            assert problem["field"] == "table_name" and problem["capability"] == gate, (url, params, problem)
+
+
+def test_an_empty_experiment_pool_is_a_404_with_its_sentence(single_client):
+    for rule in (None, "tilted", "densest", "uniform"):
+        params = {**BASE, **EXPERIMENT, **BASE_CASES["p_5_6"], **({} if rule is None else {"rule": rule})}
+        response = single_client.get(PICK, params=params)
+        assert response.status_code == 404
+        assert response.json()["detail"] == (
+            "The experiment holds no candidate event: none of its events with a defined separation holds "
+            "a shower with p in 5.00–6.00 GeV that deposited energy.")
+        response = single_client.get(PICK, params={**HITS, **EXPERIMENT, **SINGLE_CASES["empty"],
+                                                   **({} if rule is None else {"rule": rule})})
+        assert response.status_code == 404
+        assert response.json()["detail"] == (
+            "The experiment holds no candidate event: none of its events with an incident direction and an "
+            "entry point has its shower at θ in 0.0–5.0° (0.000–0.087 rad).")
+    # Inactive: copies of the event tables in which no event can be placed.
+    for table, alter, detail in (
+            (BASELINE_TABLE, "NULL::DOUBLE AS d",
+             "The experiment holds no event with a defined separation to pick from."),
+            (SINGLE_HITS_TABLE, "NULL::DOUBLE AS theta_a",
+             "The experiment holds no event with an incident direction and an entry point to pick from.")):
+        record = _record(single_client, table)
+        probe = dataclasses.replace(record, table_name=f"{table}_empty_probe")
+        view = quote(naming.event_table(probe.table_name))
+        with single_client.app.state.database.read_cursor() as con:
+            con.execute(f"CREATE TEMP VIEW {view} AS SELECT * REPLACE ({alter}) "
+                        f"FROM {quote(naming.event_table(table))}")
+            try:
+                for rule in event_inspector.RULES:
+                    with pytest.raises(NotFoundError) as caught:
+                        event_inspector.pick(con, probe, filters.unbounded(probe), rule=rule)
+                    assert caught.value.detail == detail, rule
+                counts = particle.candidates(con, probe, filters.unbounded(probe), particle.INACTIVE)
+                assert counts["n_events"] == 0 and counts["n_unplaceable"] == counts["n_selection"] > 0
+            finally:
+                con.execute(f"DROP VIEW {view}")
+    # The counts are never a 404: N = 0 is an answer.
+    body = _ok(single_client, CANDIDATES, **BASE, **EXPERIMENT, **BASE_CASES["p_5_6"], event_number=0)
+    assert body["candidates"]["n_events"] == 0 and body["event"]["in_pool"] is False
+    assert body["event"]["in_selection"] is True
+
+
+def test_an_unplaceable_event_is_counted_under_the_experiment_basis(single_client):
+    """The whole experiment holds the events the frame gate refuses: counted, never offered, stepped over.
+
+    The probes of :func:`test_an_unplaceable_event_is_counted_and_never_offered`,
+    without include_undefined_d: the experiment basis holds an event without D
+    by itself.
+    """
+    for table, alter, two in (
+            (BASELINE_TABLE, "CASE WHEN event_number = 1 THEN NULL ELSE d END AS d, "
+                             "CASE WHEN event_number = 1 THEN 0 ELSE n_a_rows END AS n_a_rows", True),
+            (SINGLE_HITS_TABLE, "CASE WHEN event_number = {mid} THEN NULL ELSE theta_a END AS theta_a", False)):
+        record = _record(single_client, table)
+        probe = dataclasses.replace(record, table_name=f"{table}_unplaceable_whole_probe")
+        view = quote(naming.event_table(probe.table_name))
+        with single_client.app.state.database.read_cursor() as con:
+            events = [r[0] for r in con.execute(
+                f"SELECT event_number FROM {quote(naming.event_table(table))} ORDER BY 1").fetchall()]
+            mid = events[len(events) // 2]
+            con.execute(f"CREATE TEMP VIEW {view} AS "
+                        f"SELECT * REPLACE ({alter.format(mid=mid)}) FROM {quote(naming.event_table(table))}")
+            try:
+                target = 1 if two else mid
+                spec = filters.unbounded(probe)
+                for spec_particle in (particle.INACTIVE, particle.build(probe, theta_min=10.0)):
+                    counts = particle.candidates(con, probe, spec, spec_particle)
+                    assert counts["basis"] == "experiment"
+                    assert counts["n_unplaceable"] == 1 and counts["n_selection"] == len(events)
+                    assert counts["n_events"] == len(events) - 1
+                    pool = particle.pool_events(con, probe, spec, spec_particle).tolist()
+                    assert target not in pool and len(pool) == len(events) - 1
+                    member = particle.membership(con, probe, spec, spec_particle, target)
+                    assert member["in_selection"] is True and member["in_pool"] is False
+                    for neighbour in (e for e in events if e != target):
+                        around = particle.membership(con, probe, spec, spec_particle, neighbour)
+                        assert around["in_selection"] is True
+                        assert target not in (around["prev"], around["next"])
+                    drawn = {event_inspector.pick(con, probe, spec, rule="uniform", particle=spec_particle,
+                                                  draw=d)["event_number"] for d in range(len(pool))}
+                    assert drawn == set(pool)
+            finally:
+                con.execute(f"DROP VIEW {view}")
+
+
+# -------------------------------------------- the experiment basis: the bodies --
+
+
+def test_the_single_shower_experiment_sentences(single_client):
+    record = _record(single_client, SINGLE_HITS_TABLE)
+    params = {**HITS, **EXPERIMENT, **SINGLE_CASES["theta"]}
+    interval = "θ in 20.0–25.0° (0.349–0.436 rad)"
+    population = f"events of the experiment with an incident direction and an entry point whose shower has {interval}"
+    uniform = _ok(single_client, PICK, **params, rule="uniform", draw=1)
+    n = uniform["n_events"]
+    assert uniform["rule"] == (
+        f"Drawn uniformly at random from the {n:,} {population}: entry 2 of a seeded shuffle of them in "
+        f"event-number order (seed 42, draw 1), so no event repeats until all {n:,} have been drawn.")
+    tilted = _ok(single_client, PICK, **params)
+    assert tilted["rule_id"] == "tilted" and tilted["rule"] == (
+        f"Among the {tilted['n_events']:,} {population}, those with more hits than the mean "
+        f"({tilted['mean_hits']:.1f}); of those the {len(tilted['pool'])} with the largest incident polar "
+        "angle of a matching shower; one drawn at random with seed 42 - the reference notebook's "
+        "selection rule.")
+    # Inactive: the whole experiment's phrase, and the body names its rule, match and echo anyway.
+    bare = _ok(single_client, PICK, **HITS, **EXPERIMENT, seed=7)
+    placeable = sum(b["placeable"] for b in _brute(_rows(single_client, record), record, {}, {}, whole=True))
+    assert bare["n_events"] == placeable
+    assert bare["rule"].startswith(f"Among the {placeable:,} events of the experiment with an incident direction "
+                                   "and an entry point, those with more hits than the mean")
+    assert bare["basis"] == "experiment" and bare["rule_id"] == "tilted" and bare["matched"] == ["a"]
+    assert bare["particle"]["active"] is False and bare["filter"] == _experiment_echo(record)
+    for body in (uniform, tilted, bare):
+        _no_hyphen_signs(body)
+
+
+def test_one_experiment_candidate_is_the_only_one(single_client):
+    population = ("events of the experiment with a defined separation holding a shower with p in "
+                  "2.00–3.00 GeV that deposited energy")
+    body = _ok(single_client, PICK, **BASE, **EXPERIMENT, **BASE_CASES["p_2_3"], rule="uniform", seed=11, draw=5)
+    assert body["event_number"] == 0 and body["n_events"] == 1
+    assert body["rule"] == f"The only one of the {population} (seed 11, draw 5)."
+    tilted = _ok(single_client, PICK, **BASE, **EXPERIMENT, **BASE_CASES["p_2_3"], seed=11)
+    assert tilted["rule"] == (f"The only one of the {population}: the reference notebook's selection rule has "
+                              "one event to choose from (seed 11).")
+    densest = _ok(single_client, PICK, **BASE, **EXPERIMENT, **BASE_CASES["p_2_3"], rule="densest", seed=11)
+    assert densest["rule"].startswith(f"The only one of the {population}: the reference notebook's densest event")
+
+
+def test_the_experiment_warnings(single_client):
+    """in_selection is always true, so only the outside-pool warning can fire; it is unchanged."""
+    for fmt in ("raster", "voxels"):
+        extra = {"format": fmt, **({"frame": "lab"} if fmt == "voxels" else {})}
+        missed = _ok(single_client, EVENT, **BASE, **EXPERIMENT, **extra, event_number=1, **BASE_CASES["p_2_3"])
+        assert missed["meta"]["warnings"] == [
+            "Event 1 holds no shower matching the particle filter (p in 2.00–3.00 GeV); it is drawn as asked, "
+            "and the previous / next controls walk the candidates."]
+        assert missed["event"]["in_selection"] is True and missed["event"]["candidates"]["basis"] == "experiment"
+        assert missed["event"]["prev"] == 0 and missed["event"]["candidates"]["prev_matched"] == ["a"]
+        kept = _ok(single_client, EVENT, **BASE, **EXPERIMENT, **extra, event_number=0, **BASE_CASES["p_2_3"])
+        assert kept["meta"]["warnings"] == [] and kept["event"]["candidates"]["index"] == 0
+        plain = _ok(single_client, EVENT, **BASE, **EXPERIMENT, **extra, event_number=0)
+        assert plain["meta"]["warnings"] == []
+        for body in (missed, kept, plain):
+            assert "outside the current selection" not in json.dumps(body)
+
+
+def _meta_notes(body: dict) -> dict:
+    return {k: v for k, v in body["meta"].items() if k not in ("query_ms", "total_ms", "cached", "warnings")}
+
+
+def _keys(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield key
+            yield from _keys(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _keys(value)
+
+
+_GEOMETRY = {"raster": ("frames", "scale", "grid", "window", "coordinates", "footprint_mm"),
+             "voxels": ("voxels", "window", "coordinates", "footprint_mm")}
+
+
+@pytest.mark.parametrize("fmt, frame", [("raster", None), ("voxels", "lab"), ("voxels", "local")])
+@pytest.mark.parametrize("table, event", [(BASELINE_TABLE, 0), (BASELINE_TABLE, 1), (SINGLE_HITS_TABLE, 3)])
+def test_the_basis_never_moves_the_geometry(single_client, fmt, frame, table, event):
+    """Brief §3.3: one event and shower under either basis - the same frames, voxels, window, scale
+    and layer planes; the event block differs only where it places the event among the candidates."""
+    request = {"table_name": table, "event_number": event, "shower": "a", "format": fmt,
+               **({} if frame is None else {"frame": frame})}
+    record = _record(single_client, table)
+    top = record.e1_max
+    selections = ({}, {"e1_min": top + 5.0, "e1_max": top + 6.0})
+    whole = _ok(single_client, EVENT, **request, **EXPERIMENT)
+    narrowed = _ok(single_client, EVENT, **request, **EXPERIMENT,
+                   **(BASE_CASES["p_2_3"] if table == BASELINE_TABLE else SINGLE_CASES["theta"]))
+    if fmt == "voxels":
+        contract_check.check(whole, "event_voxels")
+    for selection in selections:
+        plain = _ok(single_client, EVENT, **request, **selection)
+        for other in (whole, narrowed):
+            for key in _GEOMETRY[fmt]:
+                assert other[key] == plain[key], (key, selection)
+            if fmt == "raster":
+                for kind, block in plain["frames"].items():
+                    assert other["frames"][kind]["layer_planes"] == block["layer_planes"]
+            a, b = dict(plain["event"]), dict(other["event"])
+            for key in ("candidates", "prev", "next", "in_selection"):
+                a.pop(key), b.pop(key)
+            assert a == b
+            # The notes the meta carries (the notices, the window rule, the format's own keys).
+            assert _meta_notes(other) == _meta_notes(plain)
+        assert whole["event"]["in_selection"] is True
+        if not selection:
+            # The default selection holds every placeable event of these files: the same pool.
+            assert {k: v for k, v in whole["event"]["candidates"].items() if k != "basis"} == \
+                plain["event"]["candidates"]
+            assert (whole["event"]["prev"], whole["event"]["next"]) == (plain["event"]["prev"], plain["event"]["next"])
+        else:
+            assert plain["event"]["in_selection"] is False
+
+
+def test_the_experiment_raster_budget_measures_the_event_block(single_client):
+    """Under the experiment basis too, the event block (its basis included) is inside the measured body."""
+    with single_client.app.state.database.read_cursor() as con:
+        record = registry.require_ready(con, BASELINE_TABLE)
+        spec = filters.unbounded(record)
+        footprint = canonical.cell_footprint(con, record)
+        body = event_inspector.inspect(con, record, spec, 0, "a", "file", footprint)
+        assert body["event"]["candidates"]["basis"] == "experiment" and body["event"]["in_selection"] is True
+        size = density.wire_size({k: body[k] for k in ("frames", "scale", "grid", "event")})
+        without = density.wire_size({k: body[k] for k in ("frames", "scale", "grid")})
+        assert without < size < density.RESPONSE_LIMIT
+        tight = event_inspector.inspect(con, record, spec, 0, "a", "file", footprint, limit=size)
+    trimmed = any((frame.get("layer_planes") or {}).get("trimmed") for frame in tight["frames"].values())
+    assert trimmed or tight["grid"]["pitch_mm"] > body["grid"]["pitch_mm"]
+    assert tight["event"] == body["event"]
+
+
+def test_every_experiment_body_fits_the_contract_and_its_typography(single_client):
+    """Every route under the experiment basis: under 100 KB (``_ok``), no number signed with a hyphen."""
+    for table, cases, event in ((BASELINE_TABLE, BASE_CASES, 0), (SINGLE_HITS_TABLE, SINGLE_CASES, 3)):
+        for name, case in cases.items():
+            params = {"table_name": table, **EXPERIMENT, **case}
+            bodies = [_ok(single_client, CANDIDATES, **params, event_number=event)]
+            if name not in ("empty", "p_5_6"):
+                bodies += [_ok(single_client, PICK, **params, rule=rule) for rule in event_inspector.RULES]
+            bodies += [_ok(single_client, EVENT, **params, event_number=event),
+                       *(_ok(single_client, EVENT, **params, event_number=event, format="voxels", frame=frame)
+                         for frame in ("lab", "local"))]
+            for body in bodies:
+                _no_hyphen_signs(body)
+                assert '"hits"' not in json.dumps(body) and '"points"' not in json.dumps(body)
+
+
+def test_basis_selection_is_the_request_that_names_none(single_client):
+    """Brief §3.3: under basis=selection every response is byte for byte today's (timings aside)."""
+    requests = [
+        (CANDIDATES, {**BASE, "event_number": 0}), (CANDIDATES, {**BASE, **BASE_CASES["p_2_3"], "event_number": 1}),
+        (CANDIDATES, {**HITS, "event_number": 3, "e1_min": 4.0, "e1_max": 12.0}),
+        (PICK, {**BASE, "seed": 7}), (PICK, {**BASE, "rule": "uniform", "draw": 1}),
+        (PICK, {**HITS, "rule": "densest"}), (PICK, {**BASE, **BASE_CASES["p_2_3"]}),
+        (EVENT, {**BASE, "event_number": 0}), (EVENT, {**BASE, "event_number": 1, **BASE_CASES["p_2_3"]}),
+        (EVENT, {**BASE, "event_number": 0, "format": "voxels", "frame": "lab"}),
+        (EVENT, {**HITS, "event_number": 3, "format": "voxels", "frame": "local"}),
+    ]
+
+    def comparable(response) -> dict:
+        assert response.status_code == 200, response.text[:300]
+        body = response.json()
+        for key in ("total_ms", "query_ms", "cached"):
+            body["meta"].pop(key, None)
+        body.pop("elapsed_ms", None)
+        return body
+
+    for url, params in requests:
+        today = comparable(single_client.get(url, params=params))
+        named = comparable(single_client.get(url, params={**params, "basis": "selection"}))
+        assert named == today, (url, params)
+        assert "basis" not in set(_keys(named)), (url, params)
