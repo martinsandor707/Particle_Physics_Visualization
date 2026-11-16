@@ -5,7 +5,9 @@ Brief ``data/dev/design/particle-filter/brief.md`` §4–§6:
 * ``state.js``: the four particle keys are view state (null by default,
   checked and rounded like every numeric key, never Admin defaults);
   ``filterParams()`` is unchanged, ``particleParams()`` holds only the set
-  bounds and ``eventParams()`` adds them;
+  bounds; ``eventPoolParams()`` is the experiment, ``basis=experiment`` and
+  those bounds, never an E₁/E₂/D key, and ``eventParams()`` adds the event to
+  it; ``psub`` and its legacy rule (physics-subpages brief §4);
 * ``event_picker.js``: the pick and candidates queries, the follow policy, the
   shower focus, every sentence of §5.1 on the recorded payloads of the
   backend (``tests/fixtures/payloads/candidates_*.json``,
@@ -16,6 +18,12 @@ Brief ``data/dev/design/particle-filter/brief.md`` §4–§6:
   bound at the domain edge stored as null, the bounds a new domain cannot
   hold, the block's lines), then the block itself on the fake document of
   ``test_js_physics_shell.py`` with a recorded fetch.
+
+The physics-subpages brief (``data/dev/design/physics-subpages/brief.md``
+§4–§6) adds the experiment basis: every sentence under ``basis=experiment`` is
+checked on the Stage 1 recordings (``candidates_*_experiment*``,
+``pick_*_experiment``, ``event_raster_*_experiment``), and every sentence
+without ``basis`` keeps its earlier wording, checked on the older recordings.
 
 Skipped when ``node`` is not on the PATH.
 """
@@ -74,6 +82,7 @@ out.state = {
 };
 s = fresh('#event=12&shower=b&particle_p_min=5.123&particle_theta_max=15.04');
 out.state.read = { p_min: s.get('particle_p_min'), theta_max: s.get('particle_theta_max'), coldBoot: s.coldBoot };
+out.state.legacyPsub = s.get('psub');
 out.state.params = s.particleParams();
 out.state.active = s.particleActive();
 out.state.event = s.eventParams();
@@ -90,6 +99,37 @@ for (const hash of ['#particle_p_min=-1', '#particle_theta_min=200', '#particle_
   out.state.invalid[hash] = { params: t.particleParams(), coldBoot: t.coldBoot };
 }
 out.state.edges = fresh('#particle_p_min=0&particle_theta_min=0&particle_theta_max=180').particleParams();
+// The pickers' pool: the experiment and the particle bounds, never an E₁/E₂/D key, whatever the link narrows.
+s = fresh('#table_name=demo&e1_min=2&e1_max=9&e2_max=4&d_min=100&include_undefined_d=true&particle_theta_min=10&event=4');
+out.state.pool = s.eventPoolParams();
+out.state.poolEvent = s.eventParams();
+out.state.poolFilters = s.filterParams();
+out.state.poolNone = fresh('#table_name=demo').eventPoolParams();
+// psub: Entire selection by default and never written; a pre-split `event=` link opens the Event viewer.
+const psubOf = (hash) => { const t = fresh(hash); return { psub: t.get('psub'), hash: t.hashString() }; };
+out.psub = {
+  constants: { psubs: st.PSUBS, frozen: Object.isFrozen(st.PSUBS), defaultPsub: st.DEFAULTS.psub,
+    after: Object.keys(st.DEFAULTS)[Object.keys(st.DEFAULTS).indexOf('compare') + 1] },
+  cold: psubOf(''),
+  legacy: psubOf('#event=5'),
+  legacyZero: psubOf('#event=0&shower=b'),
+  explicitSelection: psubOf('#event=5&psub=selection'),
+  explicitEvent: psubOf('#psub=event'),
+  explicitBoth: psubOf('#psub=event&event=5'),
+  invalidPsub: psubOf('#event=5&psub=bogus'),
+  invalidEvent: psubOf('#event=1.5'),
+  bogusAlone: psubOf('#psub=bogus'),
+};
+s = fresh('');
+s.set({ psub: 'event' });
+out.psub.writtenEvent = window.location.hash;
+s.set({ psub: 'selection' });
+out.psub.writtenSelection = window.location.hash;
+s.set({ event: 7 });
+out.psub.setEventOnly = { psub: s.get('psub'), hash: window.location.hash };
+s = fresh('');
+out.psub.defaultable = s.applyDefaults({ table_name: 'x', psub: 'event' });
+out.psub.afterDefaults = s.get('psub');
 s = fresh('');
 out.state.defaultable = s.applyDefaults({ table_name: 'x', particle_p_min: 5, particle_theta_max: 10 });
 out.state.afterDefaults = s.particleParams();
@@ -117,6 +157,10 @@ for (const rule of ep.PICK_RULES) {
 out.pick.default = ep.pickParams({ filters });
 s = fresh('#particle_theta_min=10');
 out.pick.fromState = ep.pickParams({ filters: s.filterParams(), particle: s.particleParams(), rule: 'tilted', seed: 43 });
+s = fresh('#table_name=demo&e1_min=2&particle_theta_min=10');
+out.pick.fromPool = ep.pickParams({ filters: s.eventPoolParams(), particle: s.particleParams(), draw: 2 });
+out.candidates_fromPool = ep.candidatesParams({ filters: s.eventPoolParams(), particle: s.particleParams(),
+  eventNumber: 5 });
 out.candidates = {
   plain: ep.candidatesParams({ filters }),
   bounded: ep.candidatesParams({ filters, particle: bounded }),
@@ -192,6 +236,74 @@ out.unplaceable = {
   singleOne: ep.unplaceableLine(one({ n_unplaceable: 1 })),
   none: ep.unplaceableLine(P.off),
 };
+// The experiment basis (physics-subpages brief §5.1).
+const twoX = (over) => two({ basis: 'experiment', n_selection: 20325, ...over });
+const oneX = (over) => one({ basis: 'experiment', ...over });
+out.exp = {
+  count: {
+    brief: ep.countLine(twoX()),
+    noBoth: ep.countLine(twoX({ n_both: 0 })),
+    twoBoth: ep.countLine(twoX({ n_both: 2 })),
+    singular: ep.countLine(twoX({ n_selection: 3, n_events: 1, n_showers: 1, by_shower: { a: 1, b: 0 }, n_both: 0 })),
+    oneTotal: ep.countLine(twoX({ n_selection: 1, n_events: 1, n_showers: 1, by_shower: { a: 1, b: 0 }, n_both: 0 })),
+    single: ep.countLine(oneX()),
+    singleOne: ep.countLine(oneX({ n_events: 1, n_showers: 1 })),
+    off: ep.countLine(twoX({ particle: echo(), n_selection: 20268, n_events: 20268 })),
+    offOne: ep.countLine(twoX({ particle: echo(), n_selection: 1, n_events: 1 })),
+    offEmpty: ep.countLine(twoX({ particle: echo(), n_selection: 4, n_unplaceable: 4, n_events: 0 })),
+    offGated: ep.countLine(twoX({ particle: echo(), n_unplaceable: 57, n_events: 20268 })),
+    offGatedOne: ep.countLine(twoX({ particle: echo(), n_selection: 2, n_unplaceable: 1, n_events: 1 })),
+    offGatedSingle: ep.countLine(oneX({ particle: echo(), n_unplaceable: 3, n_events: 4997 })),
+    fixtureOff: ep.countLine(P.expOff),
+    fixtureParticle: ep.countLine(P.expParticle),
+    fixtureSingle: ep.countLine(P.expSingle),
+    fixtureSingleNamed: ep.countLine(P.expSingle, { nShowers: 1 }),
+  },
+  empty: {
+    off: ep.emptyLine(twoX({ particle: echo(), n_events: 0 })),
+    offSingle: ep.emptyLine(oneX({ particle: echo(), n_events: 0 })),
+    two: ep.emptyLine(twoX({ n_events: 0, particle: echo([5, 6]) })),
+    single: ep.emptyLine(oneX({ n_events: 0 })),
+    nonEmpty: ep.emptyLine(P.expParticle),
+    titles: ep.PICK_RULES.map((rule) => ep.pickerTitle(rule, twoX({ n_events: 0, particle: echo([5, 6]) }))),
+  },
+  unplaceable: {
+    two: ep.unplaceableLine(twoX({ n_unplaceable: 57 })),
+    twoOne: ep.unplaceableLine(twoX({ n_unplaceable: 1 })),
+    single: ep.unplaceableLine(oneX({ n_unplaceable: 57 })),
+    singleOne: ep.unplaceableLine(oneX({ n_unplaceable: 1 })),
+    none: ep.unplaceableLine(P.expOff),
+  },
+  pool: {
+    fixtureOff: ep.poolLine(P.expOff),
+    fixtureParticle: ep.poolLine(P.expParticle),
+    fixtureSingle: ep.poolLine(P.expSingle),
+    fixtureSingleBlock: ep.poolLine(P.expSingle.candidates),
+    singleActive: ep.poolLine(oneX(), { nShowers: 1 }),
+    twoActive: ep.poolLine(twoX()),
+    rasterTwo: ep.poolLine(P.rasterExp.event),
+    rasterSingle: ep.poolLine(P.rasterSingleExp.event),
+    voxels: ep.poolLine(P.voxelsExp.event),
+    pickTwo: ep.poolLine(P.pickBase, { nShowers: 2 }),
+    pickSingle: ep.poolLine(P.pickSingle, { nShowers: 1 }),
+    explicitOne: ep.poolLine(P.expOff, { nShowers: 1 }),
+    oldCandidates: ep.poolLine(P.off),
+    oldParticle: ep.poolLine(P.particle),
+    oldRaster: ep.poolLine(P.raster.event),
+    none: ep.poolLine(null),
+  },
+  place: {
+    raster: ep.placeLine(P.rasterExp.event),
+    rasterSingle: ep.placeLine(P.rasterSingleExp.event),
+    membership: ep.placeLine(P.expParticle.event),
+    voxels: ep.placeLine(P.voxelsExp.event),
+  },
+  match: {
+    raster: ep.matchLine({ candidates: P.rasterExp.event.candidates, drawn: 'a', showers: P.rasterExp.event.shower }),
+  },
+  picks: { two: P.pickBase.rule, single: P.pickSingle.rule, basis: [P.pickBase.basis, P.pickSingle.basis],
+    keys: [Object.keys(P.pickBase), Object.keys(P.pickSingle)] },
+};
 out.place = {
   brief: ep.placeLine({ in_pool: true, index: 36, n_events: 107, matched: ['a'] }),
   raster: ep.placeLine(P.rasterParticle.event),
@@ -263,6 +375,8 @@ out.links = {
   twoDBoth: ep.eventIn2dHref({ hash: 'voxel_event=7&voxel_shower=both', event: 7, shower: 'both', matched: ['b'] }),
   twoDBothNone: ep.eventIn2dHref({ hash: 'shower=b', event: 7, shower: 'both', matched: [] }),
   twoDA: ep.eventIn2dHref({ hash: 'event=3&shower=b', event: 9, shower: 'a' }),
+  twoDKeepsSelection: ep.eventIn2dHref({ hash: 'psub=selection&e1_min=2', event: 9, shower: 'a' }),
+  viewer3d: ep.eventIn3dHref({ hash: 'psub=event&event=9&shower=b', event: 9, shower: 'b', frame: 'lab' }),
 };
 
 // ---- the block's pure parts
@@ -315,6 +429,8 @@ byId('particle-clear').disabled = true;
 byId('particle-count').textContent = '—';
 const THETA_HINT = 'Polar angle of the same shower (incoming_theta_A or _B), in degrees.';
 byId('particle-theta-hint').append(document.createTextNode(THETA_HINT));
+const P_HINT = 'Incident momentum of either shower (incoming_momentum_A or _B), in GeV.';
+byId('particle-p-hint').append(document.createTextNode(P_HINT));
 const requests = [];
 let respond = () => P.off;
 globalThis.fetch = async (url) => {
@@ -331,7 +447,7 @@ const byQuery = (query) => {
 };
 respond = byQuery;
 const block = {};
-window.location.hash = '#table_name=experiment_baseline&particle_theta_max=40&particle_p_max=3';
+window.location.hash = '#table_name=experiment_baseline&particle_theta_max=40&particle_p_max=3&e1_min=3&d_max=900';
 const state = new st.State();
 let commits = 0;
 const seen = [];
@@ -393,14 +509,15 @@ block.clear = { params: state.particleParams(), requests: requests.map((r) => r.
   sliderP: control.sliders.p.value(), active: control.active, clearDisabled: byId('particle-clear').disabled,
   count: byId('particle-count').textContent };
 
-// A single-shower experiment: θ alone, p's keys cleared silently.
+// A single-shower experiment: p and θ both shown, p's keys kept (the pool ignores the ensemble's p window).
 state.set({ table_name: 'single_hits', particle_p_min: 3 }, { silent: true });
 requests.length = 0;
 await control.adopt({ table_name: 'single_hits' }, { enabled: true, nShowers: 1 });
 block.single = { pHidden: byId('ctl-particle-p').hidden, params: state.particleParams(),
   scope: byId('particle-scope').textContent, requests: requests.map((r) => r.query),
   count: byId('particle-count').textContent, thetaHint: byId('particle-theta-hint').textContent,
-  singleHint: pf.SINGLE_THETA_HINT };
+  singleHint: pf.SINGLE_THETA_HINT, pHint: byId('particle-p-hint').textContent, singlePHint: pf.SINGLE_P_HINT };
+state.set({ particle_p_min: null }, { silent: true });
 
 // Disabled: hidden, no request, refresh null.
 requests.length = 0;
@@ -410,7 +527,39 @@ block.disabled = { hidden: byId('group-particle').hidden, requests: requests.len
 
 // A failure that is not an abort is rethrown; an abort is null.
 await control.adopt({ table_name: 'experiment_baseline' }, { enabled: true, nShowers: 2 });
-block.restoredHint = { text: byId('particle-theta-hint').textContent, markup: THETA_HINT };
+block.restoredHint = { text: byId('particle-theta-hint').textContent, markup: THETA_HINT,
+  pText: byId('particle-p-hint').textContent, pMarkup: P_HINT };
+
+// Counted only while shown: hidden, a refresh, an adopt and a commit send nothing and leave the count stale;
+// shown again, one count; shown when fresh, none.
+const shownCommits = commits;
+state.set({ table_name: 'experiment_baseline' }, { silent: true });
+await control.setShown(false);
+requests.length = 0;
+const hiddenRefresh = await control.refresh();
+const hiddenAdopt = await control.adopt({ table_name: 'experiment_baseline' }, { enabled: true, nShowers: 2 });
+const hiddenCount = byId('particle-count').textContent;
+byId('particle-clear').disabled = false;
+state.set({ particle_theta_min: 20 });
+byId('particle-clear').click();
+await settle();
+block.hiddenState = { refresh: hiddenRefresh, adopt: hiddenAdopt, requests: requests.length, stale: control.stale,
+  shown: control.shown, count: hiddenCount, commits: commits - shownCommits, params: state.particleParams() };
+const shownPayload = await control.setShown(true);
+block.shownAgain = { requests: requests.map((r) => r.query), n: shownPayload?.candidates?.n_events ?? null,
+  stale: control.stale, count: byId('particle-count').textContent, domains: control.domains };
+requests.length = 0;
+block.shownFresh = { result: await control.setShown(true), requests: requests.length };
+const failingFetch = globalThis.fetch;
+await control.setShown(false);
+await control.refresh();
+const reportedBefore = reported.length;
+globalThis.fetch = async () => ({ ok: false, status: 500, statusText: 'Boom', json: async () => ({ detail: 'Boom.' }) });
+block.shownFails = { result: await control.setShown(true), reported: reported.slice(reportedBefore),
+  count: byId('particle-count').textContent };
+globalThis.fetch = failingFetch;
+await control.refresh();
+reported.length = 0;
 const okFetch = globalThis.fetch;
 globalThis.fetch = async () => ({ ok: false, status: 500, statusText: 'Boom', json: async () => ({ detail: 'Boom.' }) });
 seen.length = 0;
@@ -450,6 +599,7 @@ out.sentences = [
   ...Object.values(out.count), ...Object.values(out.empty), ...Object.values(out.unplaceable),
   ...Object.values(out.place), ...Object.values(out.match), ...Object.values(out.misc).flat(),
   ...out.intervals, out.pure.droppedLine, block.adopt.count, ...block.adopt.lines,
+  ...Object.values(out.exp).flatMap((group) => Object.values(group)).flat(),
 ].filter((x) => typeof x === 'string');
 console.log(JSON.stringify(out));
 """
@@ -463,6 +613,14 @@ def r() -> dict:
         "raster": _path("event_raster_base"), "rasterParticle": _path("event_raster_base_particle"),
         "voxelsParticle": _path("event_voxels_base_lab_particle"),
         "voxelsSingle": _path("event_voxels_single_local"),
+        "expOff": _path("candidates_base_experiment"),
+        "expParticle": _path("candidates_base_experiment_particle"),
+        "expSingle": _path("candidates_single_experiment"),
+        "pickBase": _path("pick_base_uniform_experiment"),
+        "pickSingle": _path("pick_single_uniform_experiment"),
+        "rasterExp": _path("event_raster_base_experiment"),
+        "rasterSingleExp": _path("event_raster_single_experiment"),
+        "voxelsExp": _path("event_voxels_base_lab_experiment"),
     }
     return _run(_SCRIPT, [(JS / "state.js").as_uri(), (JS / "event_picker.js").as_uri(),
                           (JS / "controls" / "particle_filter.js").as_uri(), paths, INTERVALS])
@@ -480,7 +638,9 @@ def test_the_particle_keys_are_null_by_default_and_out_of_the_filter_params(r):
                                    "include_undefined_d"]
     assert state["filterWith"] == state["filterKeys"], "filterParams never carries a particle bound"
     assert state["none"] == {} and state["noneActive"] is False
-    assert list(state["eventNone"]) == [*state["filterKeys"], "event_number", "shower"]
+    # The Event Inspector asks in the pickers' pool, which no E₁/E₂/D key narrows (physics-subpages §4).
+    assert list(state["eventNone"]) == ["table_name", "basis", "event_number", "shower"]
+    assert state["eventNone"]["basis"] == "experiment"
 
 
 def test_a_link_carries_the_set_bounds_rounded_to_their_steps(r):
@@ -488,7 +648,7 @@ def test_a_link_carries_the_set_bounds_rounded_to_their_steps(r):
     assert state["read"] == {"p_min": 5.123, "theta_max": 15.04, "coldBoot": False}
     assert state["params"] == {"particle_p_min": 5.123, "particle_theta_max": 15.04}
     assert state["active"] is True
-    assert state["eventKeys"] == [*state["filterKeys"], "particle_p_min", "particle_theta_max",
+    assert state["eventKeys"] == ["table_name", "basis", "particle_p_min", "particle_theta_max",
                                   "event_number", "shower"]
     assert state["event"]["event_number"] == 12 and state["event"]["shower"] == "b"
     assert "particle_p_min=5.12" in state["hash"] and "particle_theta_max=15" in state["hash"]
@@ -506,6 +666,49 @@ def test_an_invalid_or_inverted_bound_keeps_the_built_in_null(r, link):
 def test_an_inverted_angle_drops_only_its_own_pair(r):
     got = r["state"]["invalid"]["#particle_theta_min=20&particle_theta_max=10&particle_p_min=1"]
     assert got["params"] == {"particle_p_min": 1}
+
+
+def test_the_pickers_pool_carries_no_selection_key(r):
+    """physics-subpages §4: the experiment, basis=experiment and the set bounds, whatever E₁, E₂ and D say."""
+    state = r["state"]
+    assert state["pool"] == {"table_name": "demo", "basis": "experiment", "particle_theta_min": 10}
+    assert state["poolEvent"] == {**state["pool"], "event_number": 4, "shower": "a"}
+    assert state["poolNone"] == {"table_name": "demo", "basis": "experiment"}
+    for params in (state["pool"], state["poolEvent"], state["poolNone"], state["eventNone"]):
+        assert not {"e1_min", "e1_max", "e2_min", "e2_max", "d_min", "d_max", "include_undefined_d"} & set(params)
+    # The ensemble's own filter params are untouched: the seven keys, the narrowed bounds kept.
+    filters = state["poolFilters"]
+    assert list(filters) == state["filterKeys"]
+    assert filters["e1_min"] == 2 and filters["d_min"] == 100 and filters["include_undefined_d"] is True
+
+
+def test_psub_is_entire_selection_by_default_and_never_written(r):
+    ps = r["psub"]
+    assert ps["constants"] == {"psubs": ["selection", "event"], "frozen": True, "defaultPsub": "selection",
+                               "after": "psub"}
+    assert ps["cold"] == {"psub": "selection", "hash": ""}
+    assert ps["explicitEvent"] == {"psub": "event", "hash": "psub=event"}
+    assert ps["writtenEvent"] == "#psub=event"
+    assert ps["writtenSelection"] == "", "psub=selection is never written"
+    assert ps["bogusAlone"] == {"psub": "selection", "hash": ""}
+
+
+def test_a_pre_split_event_link_opens_the_event_viewer(r):
+    """The legacy rule: a valid `event` and no valid `psub` open the viewer; an explicit psub always wins."""
+    ps = r["psub"]
+    assert ps["legacy"] == {"psub": "event", "hash": "event=5&psub=event"}
+    assert ps["legacyZero"]["psub"] == "event", "event 0 is an event"
+    assert ps["explicitSelection"] == {"psub": "selection", "hash": "event=5"}
+    assert ps["explicitBoth"]["psub"] == "event"
+    assert ps["invalidPsub"]["psub"] == "event", "an unreadable psub names nothing, so the legacy rule holds"
+    assert ps["invalidEvent"]["psub"] == "selection", "an unreadable event pins nothing"
+    assert r["state"]["legacyPsub"] == "event", "the particle link of the state tests pins event 12"
+    # Pinning an event by hand is not a subpage switch: the page writes psub itself (physics_subpages.js).
+    assert ps["setEventOnly"] == {"psub": "selection", "hash": "#event=7"}
+
+
+def test_psub_is_never_an_admin_default(r):
+    assert r["psub"]["defaultable"] is True and r["psub"]["afterDefaults"] == "selection"
 
 
 def test_the_ranges_admit_their_ends(r):
@@ -587,6 +790,13 @@ def test_no_particle_key_reaches_a_pick_without_a_bound(r):
     from_state = r["pick"]["fromState"]
     assert from_state["particle_theta_min"] == 10 and from_state["rule"] == "tilted" and from_state["seed"] == 43
     assert not {"particle_p_min", "particle_p_max", "particle_theta_max", "draw"} & set(from_state)
+
+
+def test_pick_and_candidates_params_from_the_pool(r):
+    """physics-subpages §5.2: the callers pass state.eventPoolParams(); its bounds again as `particle` are harmless."""
+    pool = {"table_name": "demo", "basis": "experiment", "particle_theta_min": 10}
+    assert r["pick"]["fromPool"] == {**pool, "rule": "uniform", "seed": 42, "draw": 2}
+    assert r["candidates_fromPool"] == {**pool, "event_number": 5}
 
 
 def test_candidates_params(r):
@@ -672,6 +882,108 @@ def test_count_lines_one_shower_and_off(r):
                                 "defined separation.")
 
 
+def test_count_lines_under_the_experiment_basis(r):
+    """physics-subpages §5.1: the pool counted against the whole experiment, one shower and two."""
+    c = r["exp"]["count"]
+    t1015 = f"θ in 10.0{EN}15.0° (0.175{EN}0.262 rad)"
+    assert c["brief"] == ("N = 107 events hold a matching particle (108 matching showers: 43 A, 65 B; 1 event "
+                          "matches with both), of the 20,325 events of the experiment.")
+    assert c["noBoth"] == ("N = 107 events hold a matching particle (108 matching showers: 43 A, 65 B), of the "
+                           "20,325 events of the experiment.")
+    assert "; 2 events match with both), of the 20,325 events of the experiment." in c["twoBoth"]
+    assert c["singular"] == ("N = 1 event holds a matching particle (1 matching shower: 1 A, 0 B), of the 3 events "
+                             "of the experiment.")
+    assert c["oneTotal"].endswith("of the 1 event of the experiment.")
+    assert c["fixtureParticle"] == ("N = 1 event holds a matching particle (1 matching shower: 1 A, 0 B), of the 2 "
+                                    "events of the experiment.")
+    assert c["single"] == f"N = 312 events whose shower has {t1015}, of the 5,000 events of the experiment."
+    assert c["singleOne"] == f"N = 1 event whose shower has {t1015}, of the 5,000 events of the experiment."
+    assert c["off"] == "Particle filter off: the pickers draw from all 20,268 events of the experiment."
+    assert c["offOne"] == "Particle filter off: the pickers draw from the 1 event of the experiment."
+    assert c["offEmpty"] == "Particle filter off: the experiment holds no event the pickers can place."
+    assert c["offGated"] == ("Particle filter off: the pickers draw from the 20,268 of the experiment's 20,325 events "
+                             "with a defined separation.")
+    assert c["offGatedOne"] == ("Particle filter off: the pickers draw from the 1 of the experiment's 2 events with a "
+                                "defined separation.")
+    assert c["offGatedSingle"] == ("Particle filter off: the pickers draw from the 4,997 of the experiment's 5,000 "
+                                   "events with an incident direction and an entry point.")
+    assert c["fixtureOff"] == "Particle filter off: the pickers draw from all 2 events of the experiment."
+    assert c["fixtureSingle"] == "Particle filter off: the pickers draw from all 287 events of the experiment."
+    assert c["fixtureSingleNamed"] == c["fixtureSingle"]
+    assert not any("selected" in line for line in c.values()), "the experiment basis never names the selection"
+
+
+def test_empty_and_unplaceable_lines_under_the_experiment_basis(r):
+    e = r["exp"]["empty"]
+    assert e["off"] == "N = 0: the experiment holds no event the pickers can place."
+    assert e["offSingle"] == e["off"]
+    assert e["two"] == (f"N = 0: no event of the experiment with a defined separation holds a shower with p in "
+                        f"5.00{EN}6.00 GeV that deposited energy. Widen the particle filter.")
+    assert e["single"] == (f"N = 0: no event of the experiment with an incident direction and an entry point has its "
+                           f"shower at θ in 10.0{EN}15.0° (0.175{EN}0.262 rad). Widen the particle filter.")
+    assert e["nonEmpty"] == ""
+    assert e["titles"] == [e["two"]] * 3, "at N = 0 every picker's title is the empty line"
+    u = r["exp"]["unplaceable"]
+    assert u["two"] == ("57 events of the experiment have no defined separation (shower A deposited no energy) and "
+                        "are never offered; to draw one, type its number and choose shower B.")
+    assert u["twoOne"] == ("1 event of the experiment has no defined separation (shower A deposited no energy) and "
+                           "is never offered; to draw it, type its number and choose shower B.")
+    assert u["single"] == ("57 events of the experiment have no incident direction or entry point, so the per-shower "
+                           "frames cannot place them and they are never offered.")
+    assert u["singleOne"] == ("1 event of the experiment has no incident direction or entry point, so the per-shower "
+                              "frames cannot place it and it is never offered.")
+    assert u["none"] == ""
+
+
+def test_the_pool_line(r):
+    """physics-subpages §5.1 poolLine: '' without basis; the whole experiment, and what does not narrow it."""
+    p = r["exp"]["pool"]
+    off_two = ("The candidates are the events of the whole experiment that the pickers can place; E₁, E₂ and D do "
+               "not narrow them.")
+    off_one = ("The candidates are the events of the whole experiment that the pickers can place; the ensemble "
+               "views' p window does not narrow them.")
+    assert p["fixtureOff"] == off_two
+    assert p["fixtureParticle"] == (f"The candidates are the events of the whole experiment holding a matching "
+                                    f"particle (p in 2.00{EN}3.00 GeV); E₁, E₂ and D do not narrow them.")
+    assert p["twoActive"] == (f"The candidates are the events of the whole experiment holding a matching particle "
+                              f"(p in 5.00{EN}6.00 GeV and θ in 10.0{EN}15.0° (0.175{EN}0.262 rad)); E₁, E₂ and D do "
+                              "not narrow them.")
+    assert p["singleActive"] == (f"The candidates are the events of the whole experiment whose shower has θ in "
+                                 f"10.0{EN}15.0° (0.175{EN}0.262 rad); the ensemble views' p window does not narrow "
+                                 "them.")
+    # One shower is read from the payload: the candidates' `showers`, or the drawn event's shower label.
+    assert p["fixtureSingle"] == off_one and p["fixtureSingleBlock"] == off_one
+    assert p["rasterTwo"] == off_two and p["voxels"] == off_two
+    assert p["rasterSingle"] == off_one
+    assert p["pickTwo"] == off_two and p["pickSingle"] == off_one
+    assert p["explicitOne"] == off_one, "an explicit nShowers wins"
+    for key in ("oldCandidates", "oldParticle", "oldRaster", "none"):
+        assert p[key] == "", key
+
+
+def test_the_drawn_events_lines_under_the_experiment_basis(r):
+    """placeLine and matchLine are unchanged; every event of the experiment is in its basis."""
+    p = r["exp"]["place"]
+    assert p["raster"] == "Candidate 1 of 2, in event-number order."
+    assert p["rasterSingle"] == "Candidate 3 of 287, in event-number order."
+    assert p["voxels"] == p["raster"]
+    assert p["membership"] == ("Not a candidate: no shower matches the particle filter; drawn as asked, and "
+                               "previous / next walk the candidates.")
+    assert r["exp"]["match"]["raster"] == "", "the particle filter is off in the recording"
+
+
+def test_the_recorded_pick_sentences_name_the_experiment(r):
+    """The server's sentences (Stage 1) that the captions carry beside these lines."""
+    picks = r["exp"]["picks"]
+    assert picks["basis"] == ["experiment", "experiment"]
+    assert picks["two"].startswith("Drawn uniformly at random from the 2 events of the experiment with a defined "
+                                   "separation: ")
+    assert picks["single"].startswith("Drawn uniformly at random from the 287 events of the experiment with an "
+                                      "incident direction and an entry point: ")
+    for keys in picks["keys"]:
+        assert {"rule_id", "seed_used", "matched", "particle"} <= set(keys)
+
+
 def test_empty_lines(r):
     e = r["empty"]
     # Review S2: qualified as the server's 404 detail is, by the frame gate.
@@ -746,12 +1058,15 @@ def test_the_other_lines_and_titles(r):
     assert m["ensembleState"] == ("The particle filter (θ ≥ 10.0° (0.175 rad)) narrows the event pickers only; this "
                                   "view draws the whole selection of E₁, E₂ and D.")
     assert m["ensembleOff"] == "" and m["ensembleEmpty"] == ""
-    assert m["scope"] == ("Narrows only which events the pickers offer (Pick for me, Most tilted, previous / next, "
-                          "and the 3-D view's Densest). The ensemble panels follow E₁, E₂ and D.")
-    assert m["scopeSingle"] == m["scope"].replace("follow E₁, E₂ and D.", "follow p.")
-    assert m["pickTitle"] == ("A candidate event drawn uniformly at random under the filters and the particle "
-                              "filter: a seeded shuffle, so no event repeats until all have been drawn. Each click "
-                              "takes the next draw.")
+    assert m["scope"] == ("Narrows which events the pickers offer (Pick for me, Most tilted, previous / next, and "
+                          "the 3-D view's Densest), drawn from the whole experiment. E₁, E₂ and D do not narrow "
+                          "them; they steer the ensemble views alone.")
+    assert m["scopeSingle"] == ("Narrows which events the pickers offer (Pick for me, Most tilted, previous / next, "
+                                "and the 3-D view's Densest), drawn from the whole experiment. The ensemble views' p "
+                                "window does not narrow them.")
+    assert m["pickTitle"] == ("A candidate event drawn uniformly at random from the whole experiment under the "
+                              "particle filter: a seeded shuffle, so no event repeats until all have been drawn. "
+                              "Each click takes the next draw.")
     assert m["tiltedTitle"] == ("The reference notebook's showcase rule on the candidates: events with more hits "
                                 "than the mean, the 20 with the largest incident angle of a matching shower, one "
                                 "drawn at random. Each click takes the next seed.")
@@ -763,8 +1078,8 @@ def test_the_other_lines_and_titles(r):
                            "Physics page keeps its own event.")
     assert m["open3dCanonical"] == (m["open3d"] + " The D-frame draws no single event, so the 3-D view opens in "
                                     "the Absolute frame.")
-    assert m["open2d"] == ("Open this event in the Physics page's Event Inspector: one shower in the Absolute, "
-                           "per-shower translated and Local frames, with every filter.")
+    assert m["open2d"] == ("Open this event in the Physics page's Event viewer: one shower in the Absolute, "
+                           "per-shower translated and Local frames, with the particle filter.")
 
 
 def test_no_sentence_signs_a_number_with_a_hyphen(r):
@@ -787,13 +1102,20 @@ def test_the_3d_link_keeps_every_filter_and_opens_the_absolute_frame_for_the_d_f
     assert links["empty"] == "/models#voxel_event=3&voxel_scope=event"
 
 
-def test_the_2d_link_draws_one_shower(r):
+def test_the_2d_link_draws_one_shower_in_the_event_viewer(r):
     links = r["links"]
     assert links["twoD"] == ("/#voxel_event=7&voxel_shower=b&voxel_scope=event&particle_theta_min=10&msub=views"
-                             "&event=7&shower=b")
-    assert links["twoDBoth"] == "/#voxel_event=7&voxel_shower=both&event=7&shower=b"
-    assert links["twoDBothNone"] == "/#event=7", "no match: shower A, the built-in, left out"
-    assert links["twoDA"] == "/#event=9"
+                             "&event=7&shower=b&psub=event")
+    assert links["twoDBoth"] == "/#voxel_event=7&voxel_shower=both&event=7&shower=b&psub=event"
+    assert links["twoDBothNone"] == "/#event=7&psub=event", "no match: shower A, the built-in, left out"
+    assert links["twoDA"] == "/#event=9&psub=event"
+    assert links["twoDKeepsSelection"] == "/#psub=event&e1_min=2&event=9", "the link lands in the viewer"
+
+
+def test_the_3d_link_keeps_page_1s_subpage(r):
+    """physics-subpages §5.2: the hash keeps psub and event, so the Physics tab returns to the viewer."""
+    assert r["links"]["viewer3d"] == ("/models#psub=event&event=9&shower=b&voxel_event=9&voxel_shower=b"
+                                      "&voxel_scope=event")
 
 
 # ------------------------------------------------------------ the block's parts --
@@ -856,6 +1178,10 @@ def test_adopting_an_experiment_takes_its_domains_and_drops_what_does_not_fit(r)
     # The link's θ ≤ 40° lies beyond 16.2–26.5°: asked once with it, dropped, asked again.
     assert [q.get("particle_theta_max") for q in adopt["requests"]] == ["40", None]
     assert all(q["particle_p_max"] == "3" for q in adopt["requests"])
+    # The pickers' pool: the experiment, basis=experiment, never the link's E₁ or D window (physics-subpages §6).
+    for query in adopt["requests"]:
+        assert query["basis"] == "experiment" and query["table_name"] == "experiment_baseline"
+        assert not {"e1_min", "e1_max", "e2_min", "e2_max", "d_min", "d_max", "include_undefined_d"} & set(query)
     assert adopt["params"] == {"particle_p_max": 3}
     assert "particle_theta_max" not in adopt["hash"] and "particle_p_max=3" in adopt["hash"]
     assert adopt["lines"] == [
@@ -906,18 +1232,43 @@ def test_clear_sets_every_bound_to_null_and_asks_again(r):
     assert clear["count"] == r["count"]["fixtureOff"]
 
 
-def test_one_shower_filters_on_theta_alone(r):
+def test_one_shower_filters_on_p_and_theta(r):
+    """physics-subpages §6: the pool ignores the ensemble's p window, so p is shown and its bounds kept."""
     single = r["block"]["single"]
-    assert single["pHidden"] is True
-    assert single["params"] == {}, "p's keys are cleared silently"
+    assert single["pHidden"] is False
+    assert single["params"] == {"particle_p_min": 3}, "p's keys are kept"
     assert single["scope"] == r["misc"]["scopeSingle"]
     assert [q["table_name"] for q in single["requests"]] == ["single_hits"]
+    assert single["requests"][0]["particle_p_min"] == "3" and single["requests"][0]["basis"] == "experiment"
     assert single["count"] == r["count"]["fixtureSingle"]
-    # The θ hint names the one shower's own column, and two showers get the markup's text back.
+    # The hints name the one shower's own columns, and two showers get the markup's text back.
     assert single["thetaHint"] == single["singleHint"]
     assert "incoming_theta)" in single["thetaHint"] and "_A" not in single["thetaHint"]
+    assert single["singlePHint"] == "Incident momentum of the shower (incoming_momentum), in GeV."
+    assert single["pHint"] == single["singlePHint"]
     restored = r["block"]["restoredHint"]
     assert restored["text"] == restored["markup"]
+    assert restored["pText"] == restored["pMarkup"]
+
+
+def test_the_block_counts_only_while_shown(r):
+    """physics-subpages §6 setShown: hidden, nothing is asked and the count goes stale; shown, one count."""
+    hidden = r["block"]["hiddenState"]
+    assert hidden["requests"] == 0, "no refresh, adopt or commit asks while the block is hidden"
+    assert hidden["refresh"] is None and hidden["adopt"] is None
+    assert hidden["stale"] is True and hidden["shown"] is False
+    assert hidden["count"] == "—"
+    assert hidden["commits"] == 1, "a commit while hidden still tells the page"
+    assert hidden["params"] == {}
+    again = r["block"]["shownAgain"]
+    assert len(again["requests"]) == 1 and again["requests"][0]["basis"] == "experiment"
+    assert again["n"] == 2 and again["stale"] is False
+    assert again["count"] == r["count"]["fixtureOff"]
+    assert again["domains"] == {"p": [2.7, 17.9], "theta": [16.2, 26.5]}
+    assert r["block"]["shownFresh"] == {"result": None, "requests": 0}, "a fresh count is not asked again"
+    fails = r["block"]["shownFails"]
+    assert fails["result"] is None and fails["reported"] == ["particle filter: Boom."]
+    assert fails["count"].startswith("The candidates could not be counted")
 
 
 def test_a_disabled_block_hides_and_asks_nothing(r):

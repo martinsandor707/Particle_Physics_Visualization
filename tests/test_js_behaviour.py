@@ -1969,9 +1969,15 @@ def test_the_event_and_shower_are_view_state(event_results):
     r = event_results
     assert r["state"]["event"] == 12 and r["state"]["shower"] == "b" and r["state"]["compare"] is True
     assert r["state"]["params"]["event_number"] == 12 and r["state"]["params"]["shower"] == "b"
-    assert "table_name" in r["state"]["params"] and "d_min" in r["state"]["params"]
+    # The Event Inspector asks in the pickers' pool: the whole experiment, never an E₁/E₂/D key
+    # (physics-subpages brief §4).
+    assert "table_name" in r["state"]["params"] and r["state"]["params"]["basis"] == "experiment"
+    assert "d_min" not in r["state"]["params"] and "e1_min" not in r["state"]["params"]
     assert r["state"]["hash"] == "#event=12&shower=b&compare=true"
-    assert "event=" not in r["unpinned"] and "shower=b" in r["unpinned"]
+    # The pre-split link pinned an event, so it opened the Event viewer (psub's legacy rule); unpinning the
+    # event leaves the subpage to the page.
+    assert "event=" not in r["unpinned"].replace("psub=event", "") and "shower=b" in r["unpinned"]
+    assert "psub=event" in r["unpinned"]
     assert r["invalid"] == {"event": None, "shower": "a", "compare": False}
     assert r["negative"] is None
     assert r["defaults"] == {"event": None, "shower": "a", "compare": False, "showers": ["a", "b"]}
