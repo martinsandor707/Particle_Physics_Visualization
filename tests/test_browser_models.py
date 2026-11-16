@@ -4337,23 +4337,22 @@ _SHUT_LINE = """(id) => {
 
 #: The standing lines brief physics-subpages §10.2 fixes, by experiment and card: the labels in menu order, then
 #: the reason (labels.js labels; the reason is the server's, pinned by the Node tests, and read as a sentence here).
+#: They name the network channels alone (Martin's decision of 2026-11-16), so the two-shower baseline, which lacks
+#: only the species columns, has none (`test_a_two_shower_card_has_no_line_and_the_species_option_its_title`).
 SHUT_LINES = [
     (SINGLE_HITS_TABLE, "&voxel_scope=event", "vox-event",
      "Unavailable for this experiment: Grad-CAM Model Attention, Shap-CAM Attribution, Segmentation error. "),
     (SINGLE_HITS_TABLE, "&frame=local", "vox-ensemble", "Unavailable for this experiment: Energy-weighted Grad-CAM"),
-    (BASELINE_TABLE, "&model=energy&voxel_scope=event", "vox-event",
-     "Unavailable for this experiment: Particle species. "),
 ]
 
 
 @pytest.mark.parametrize("scheme", ["dark", "light"])
-@pytest.mark.parametrize(("table", "fragment", "card", "prefix"), SHUT_LINES,
-                         ids=["single-event", "single-cloud", "baseline-event"])
+@pytest.mark.parametrize(("table", "fragment", "card", "prefix"), SHUT_LINES, ids=["single-event", "single-cloud"])
 def test_the_3d_card_states_the_channels_the_experiment_cannot_serve(models_live_server, table, fragment, card,
                                                                      prefix, scheme):
     """The standing "Unavailable for this experiment" line (brief §10.2): visible text between the caption and the
-    plot, never a tooltip alone, on the single-shower hits' event and cloud cards and on the two-shower baseline's
-    event card (Particle species), in both themes, its text at 4.5:1 or more on the card."""
+    plot, never a tooltip alone, on the single-shower hits' event and cloud cards, in both themes, its text at 4.5:1
+    or more on the card."""
     theme = _theme_module()
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, _ = _open(p, models_live_server["base"], table, fragment=fragment, scheme=scheme)
@@ -4373,6 +4372,27 @@ def test_the_3d_card_states_the_channels_the_experiment_cannot_serve(models_live
     assert len(reason) == 2 and reason[1].strip().endswith("."), line["text"]
     assert not line["hidden"] and line["laidOut"] and line["abovePlot"], line
     assert line["ratio"] >= 4.5, (scheme, line)
+
+
+def test_a_two_shower_card_has_no_line_and_the_species_option_its_title(models_live_server):
+    """Martin's decision of 2026-11-16: the standing line names the network channels alone. The two-shower baseline
+    serves every network channel and lacks only the species columns, so its 3-D event card shows no line, and the
+    species option stays in the menu, disabled, with the server's reason as its title, as before the line existed."""
+    theme = _theme_module()
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, _ = _open(p, models_live_server["base"], BASELINE_TABLE,
+                                           fragment="&model=energy&voxel_scope=event")
+        _scroll_to(page, "vox-event")
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        line = page.evaluate(_SHUT_LINE, "vox-event")
+        species = page.evaluate("""() => { const o = document.querySelector(
+          '.main .card[data-panel="vox-event"] select option[value="species"]');
+          return o ? { disabled: o.disabled, title: o.title } : null; }""")
+        browser.close()
+    assert problems == [], problems
+    assert line is not None and line["hidden"] and line["text"] == "", line
+    assert species is not None and species["disabled"], species
+    assert species["title"].startswith("Needs the particle_type and is_secondary columns"), species
 
 
 def test_open_in_3d_from_the_event_viewer_and_2d_back_land_on_the_same_event_and_shower(models_live_server):

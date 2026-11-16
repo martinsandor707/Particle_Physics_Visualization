@@ -2397,8 +2397,11 @@ the top of `.main` as the Models page's bar is.
   experiment lacks. `#channel-shut` states it in words ("Grad-CAM and Shap-CAM,
   raw and energy-weighted, are not available for this experiment: … The panels
   show the summed energy density."). The Models page's 3-D cards carry the same
-  standing line, `Unavailable for this experiment: {labels}. {reason}`, in visible
-  text beside their channel select, never a tooltip alone.
+  standing line for the network channels they cannot draw (Grad-CAM, Shap-CAM, the
+  segmentation error), `Unavailable for this experiment: {labels}. {reason}`, in
+  visible text beside their channel select, never a tooltip alone. A shut *Particle
+  species* option, which no two-shower file can serve, keeps its reason as its title
+  only (Martin's decision, 2026-11-16).
 - **The aggregate shuts the tab.** Events-only data holds no hits, so the Event
   viewer tab is disabled (`aria-disabled`, a dashed border, the server's reason as
   its title) and ignores clicks and keys. A link that asked for it opens Entire

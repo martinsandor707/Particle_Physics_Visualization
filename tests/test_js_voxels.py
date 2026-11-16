@@ -2339,10 +2339,10 @@ def test_each_3d_card_with_shut_channels_carries_a_standing_line(out):
                                               f"Energy-weighted Shap-CAM. {reason}")
     # The same line in the Selection scope, whose per-event channels the scope (not the experiment) shuts.
     assert out["section"]["selectionSingle"]["cards"]["vox-event"]["shut"] == single["vox-event"]["shut"]
-    # The two-shower baseline lacks the species columns only.
+    # The two-shower baseline lacks the species columns only: no network channel is shut, so no line (Martin's
+    # decision of 2026-11-16: the line names the networks' outputs and attention maps alone).
     base = out["section"]["base"]["cards"]
-    assert base["vox-event"]["shut"].startswith("Unavailable for this experiment: Particle species. Needs the "
-                                                "particle_type and is_secondary columns")
+    assert base["vox-event"]["shut"] is None
     assert base["vox-ensemble"]["shut"] is None
     # The projections carry none, and an events-only experiment, whose views are shut whole, shows none.
     assert "shut" not in single["vproj-xy"]
@@ -3147,6 +3147,9 @@ const BOUND = { particle_p_min: 2, particle_p_max: 3 };
     shutNone: vv.shutChannelsLine(vv.EVENT_CHANNEL_NAMES, { enabled: true,
       channels: ['energy', 'gradcam', 'shapcam', 'segerr', 'species'], disabledChannels: {} }),
     shutView: vv.shutChannelsLine(vv.EVENT_CHANNEL_NAMES, { enabled: false, channels: [], disabledChannels: { energy: 'No hits.' } }),
+    shutSpeciesOnly: vv.shutChannelsLine(vv.EVENT_CHANNEL_NAMES, { enabled: true,
+      channels: ['energy', 'gradcam', 'shapcam', 'segerr'], disabledChannels: { species: 'No species columns.' } }),
+    networkChannels: vv.NETWORK_CHANNELS,
     shutFallback: vv.shutChannelsLine(vv.ENSEMBLE_CHANNEL_NAMES, { enabled: true, channels: ['density'], disabledChannels: {} }),
   };
 }
@@ -3867,10 +3870,12 @@ def test_the_e1_commit_runs_carry_the_pool_line_in_the_event_caption(pickers):
 
 def test_the_standing_line_groups_its_reasons_and_names_the_options_in_menu_order(pickers):
     pure = pickers["pure"]
-    assert pure["shutMixed"] == ("Unavailable for this experiment: Grad-CAM Model Attention, Shap-CAM Attribution, "
-                                 "Particle species. Reason one. Unavailable for this experiment: Segmentation error. "
-                                 "Reason two.")
+    # Particle species is shut with "Reason one" too, but it is no network channel: the line leaves it to its title.
+    assert pure["shutMixed"] == ("Unavailable for this experiment: Grad-CAM Model Attention, Shap-CAM Attribution. "
+                                 "Reason one. Unavailable for this experiment: Segmentation error. Reason two.")
     assert pure["shutNone"] == "" and pure["shutView"] == ""
+    assert pure["shutSpeciesOnly"] == ""
+    assert pure["networkChannels"] == ["gradcam", "shapcam", "segerr", "gradcam_energy", "shapcam_energy"]
     assert pure["shutFallback"] == ("Unavailable for this experiment: Energy-weighted Grad-CAM, Energy-weighted "
                                     "Shap-CAM. Not available for this experiment.")
 

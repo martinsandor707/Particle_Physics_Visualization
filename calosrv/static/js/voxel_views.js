@@ -135,11 +135,15 @@
  *
  * ## Channels the experiment cannot serve
  *
- * A 3-D card whose channel menu holds options the experiment cannot serve
- * says so in a standing line under its caption (`shutChannelsLine`), visible
- * text and not a tooltip alone: "Unavailable for this experiment: …" with the
- * server's reason, one sentence per distinct reason. The options stay in the
- * menu, disabled, each with its reason as its title.
+ * A 3-D card whose channel menu holds network channels the experiment cannot
+ * serve (Grad-CAM, Shap-CAM, the segmentation error, raw or energy-weighted:
+ * the networks' outputs and attention maps) says so in a standing line under
+ * its caption (`shutChannelsLine`), visible text and not a tooltip alone:
+ * "Unavailable for this experiment: …" with the server's reason, one sentence
+ * per distinct reason. Any other shut option (Particle species, which no
+ * two-shower file carries) is named by its own title alone, as every shut
+ * option is (Martin's decision, 2026-11-16). The options stay in the menu,
+ * disabled, each with its reason as its title.
  */
 
 import { getJson, abortRequest, isAbort } from './api.js';
@@ -222,19 +226,28 @@ export const ENSEMBLE_CHANNEL_NAMES = choiceNames(MODELS_LABELS.ens_channel);
 const SHUT_FALLBACK = 'Not available for this experiment.';
 
 /**
- * The standing line of a 3-D card whose channel menu holds options the
- * experiment cannot serve (brief physics-subpages, section 10.2):
- * "Unavailable for this experiment: {labels}. {reason}", the labels in the
- * menu's order, one such sentence per distinct reason (in the order each
- * first appears). '' when every option is served, or when the view serves
- * none (its card then carries the view's own reason). `names` maps each
- * option's value to its label; `view` is a `normaliseOffer` view. Pure.
+ * The channels drawn from the reconstruction networks' outputs and attention
+ * maps, the only ones the standing line names (Martin's decision of
+ * 2026-11-16): a missing species channel is no network's absence, and its
+ * option's title already says why.
+ */
+export const NETWORK_CHANNELS = Object.freeze(['gradcam', 'shapcam', 'segerr', 'gradcam_energy', 'shapcam_energy']);
+
+/**
+ * The standing line of a 3-D card whose channel menu holds network channels
+ * the experiment cannot serve (brief physics-subpages, section 10.2, and
+ * `NETWORK_CHANNELS`): "Unavailable for this experiment: {labels}. {reason}",
+ * the labels in the menu's order, one such sentence per distinct reason (in
+ * the order each first appears). '' when every network channel is served, or
+ * when the view serves none (its card then carries the view's own reason).
+ * `names` maps each option's value to its label; `view` is a
+ * `normaliseOffer` view. Pure.
  */
 export function shutChannelsLine(names, view) {
   if (!view?.enabled || !(view.channels ?? []).length) return '';
   const groups = new Map();
   for (const [value, label] of Object.entries(names ?? {})) {
-    if (view.channels.includes(value)) continue;
+    if (!NETWORK_CHANNELS.includes(value) || view.channels.includes(value)) continue;
     let reason = String(view.disabledChannels?.[value] ?? SHUT_FALLBACK).trim() || SHUT_FALLBACK;
     if (!/[.!?]$/.test(reason)) reason += '.';
     if (!groups.has(reason)) groups.set(reason, []);
