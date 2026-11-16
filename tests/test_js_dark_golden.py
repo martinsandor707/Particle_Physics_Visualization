@@ -268,6 +268,9 @@ selection | Event viewer) added 72 case ids and moved none; the theme map did no
   And Martin's decision of the same day, that the 3-D cards' standing line names the network channels alone
   (voxel_views.js `NETWORK_CHANNELS`), moved 2: `voxels/shut/experiment_baseline` (the two-shower card has no line
   now) and `voxels/shut/doctored` (its shut species option is no longer named).
+  The review fix R2 (panel_notes.js `outsideCandidates`: under the experiment basis every event outside the pool
+  is flagged, the particle filter on or off) moved 2 more, each by the hazard "event outside the candidates"
+  alone: `notes/experiment/{event,voxel_projection}/event_raster_base_experiment/unplaceable`.
 
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
