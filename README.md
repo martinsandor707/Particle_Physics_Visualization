@@ -2348,11 +2348,14 @@ the top of `.main` as the Models page's bar is.
 | **Event viewer** | `event` | the Event Inspector's nine panels for one shower of one event, or the reason none is drawn (`#event-empty`) | Event Picker, Particle Filter, Longitudinal Channels, colour map | `/api/event*` only (the candidates through the Particle Filter block, the pick, the event); no ensemble request |
 
 - **A status chip names the subpage** (`#stat-mode`, "Entire selection" or "Event
-  viewer"). The status bar then shows that subpage's own items: the selection's
-  events, hits, deposited energy, mean D, undefined D, ρ_ref and Clipped; or the
-  viewer's event number, shower (hidden on single-shower data), p, θ, cells,
-  deposited energy and place in the pool ("12 of 107", or "not a candidate"). The
-  Query latency and cache items show the last response of the subpage on show.
+  viewer"; a plain label, since the tab itself announces the switch). The status bar
+  then shows that subpage's own items: the selection's events, hits, deposited
+  energy, mean D, undefined D, ρ_ref and Clipped; or the viewer's event number,
+  shower (hidden on single-shower data), p, θ, cells, deposited energy and Place in
+  the pool ("12 of 107", or "not a candidate"). The Query latency and cache items
+  show the last response of the subpage on show. The Entire selection tab's title
+  is written for the experiment's kind: E₁, E₂ and D on two showers, the p window
+  on one, the physics cards alone on the event-level aggregate.
 - **Two filters, two scopes.** E₁, E₂ and D govern Entire selection and every card;
   they never narrow the viewer. The particle filter (p, θ) governs the event
   pickers alone, on both pages. An E₁/E₂/D commit refreshes Entire selection only
@@ -2370,9 +2373,13 @@ the top of `.main` as the Models page's bar is.
 - **Parking.** Leaving the viewer for Entire selection parks the event (its
   number, shower, origin, rule sentence and any replacement) in memory and sets
   `event` to null, so the link carries neither `event` nor `psub`. Coming back
-  restores the parked event from the response in hand, with no request. An
-  experiment switch drops it. An explicit `#psub=selection&event=N` link parks N at
-  boot instead of drawing it.
+  restores the parked event from the response in hand, with no request, when
+  nothing was owed at the park and the particle filter has not moved since.
+  Otherwise (a load, a pick or a follow was still in flight when the reader left,
+  or the experiment was re-activated meanwhile) the event is asked for again and
+  the follow policy applies, so the caption, the place line and the status bar
+  always describe the filter in force. An experiment switch drops the parked event.
+  An explicit `#psub=selection&event=N` link parks N at boot instead of drawing it.
 - **The first draw.** Entering the viewer with no event (none parked, none in the
   link) waits for the Particle Filter block's count; with N > 0 the inspector draws
   the first *Pick for me* at the current draw (draw 0, seed 42, after an experiment
@@ -2381,13 +2388,18 @@ the top of `.main` as the Models page's bar is.
   sent; the first draw stays armed and fires when a particle commit widens the
   pool. A failed pick says "The first event could not be drawn: …" there. A cleared
   event-number box shows "No event drawn: type an event number, or press Pick for me
-  or Most tilted."
+  or Most tilted.", and a cleared viewer never draws by itself, even after a park.
+  Whatever the empty state says is also written to an always-present, visually
+  hidden live region (`#event-live`), so a screen reader hears it.
 - **A subpage loads when first shown, and again when stale** (after an experiment
   switch, or, for Entire selection, after a change that needed a request while the
   viewer was on show, such as Longitudinal Channels' Pooled). A switch to a fresh
   subpage sends nothing. A response that arrives after a switch or a park is dropped.
 - **Deep links.** `?panel=event-…` opens the viewer first; any other Physics card
   opens Entire selection first (parking any event) before it scrolls.
+- **A Details drawer belongs to its subpage.** A switch closes a drawer that
+  describes the other subpage's card, and returning reopens it if its card still
+  has notes; an experiment switch forgets both.
 - **The tab is the way back.** The Event Inspector no longer replaces the
   ensemble grid, so it has no close button of its own; the compare grid's close
   button stays.
@@ -2404,9 +2416,13 @@ the top of `.main` as the Models page's bar is.
   only (Martin's decision, 2026-11-16).
 - **The aggregate shuts the tab.** Events-only data holds no hits, so the Event
   viewer tab is disabled (`aria-disabled`, a dashed border, the server's reason as
-  its title) and ignores clicks and keys. A link that asked for it opens Entire
-  selection, written to the hash, and the kind banner says "The Event viewer is
-  not available for this experiment: {reason} Showing Entire selection."
+  its title) and activates nothing: the arrow, Home and End keys still reach it, so
+  it is announced, but Enter, Space and clicks switch nothing. A sentence under the
+  tab bar (`#psub-shut`, the tab's `aria-describedby`) says "The Event viewer is
+  not available for this experiment: {reason}" in visible text. A link that asked
+  for the viewer opens Entire selection, written to the hash, and the kind banner
+  says "The Event viewer is not available for this experiment: {reason} Showing
+  Entire selection."
 - **Unchanged:** the 2 × 2's projections, the windowed axis, plot 4, the cards,
   the compare grid, `/api/selection-cells`, `/api/voxels` and the exports. The
   3-D view stays on the Models page (Views); the viewer's *Open in 3-D →* opens it
