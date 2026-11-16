@@ -402,3 +402,46 @@ def test_the_subpage_rules_are_tokens_only_and_never_animate():
     section = css[css.index(".physics-head {"):css.index("#group-lgroups[hidden]")]
     assert not COLOUR_LITERAL.findall(section), COLOUR_LITERAL.findall(section)
     assert "transition" not in section and "animation" not in section
+
+
+def _properties(body: str) -> dict[str, str]:
+    """Every declaration of a rule body (properties and custom properties), whitespace collapsed."""
+    return {name: " ".join(value.split()) for name, value in re.findall(r"([\w-]+)\s*:\s*([^;]+);", body)}
+
+
+def test_every_tab_state_and_the_chip_clear_4_5_against_both_card_tokens():
+    """Stage 4 (ps-nodetests): each text state of the tab bar and the chip, measured from tokens.css in both themes
+    and pinned to two decimals, with the declarations read from controls.css so a change of either side is caught.
+
+    - an unselected tab: --control-text on --control-bg, 9.86 dark, 13.76 light;
+    - a hovered tab: --accent on --control-hover, 5.04 dark, 5.31 light;
+    - the selected tab: --accent on the accent wash over the canvas (the sticky head's ground), 5.98 dark, 4.89 light,
+      and over the card, should the head ever sit on one, 4.94 dark, 5.18 light (the chip's ground);
+    - a disabled tab: --muted on --control-bg (pinned above), and on the card 5.26 dark, 6.11 light.
+    """
+    css = _strip_comments(_read("controls.css"))
+    base = _properties(_block(css, ".physics-subtab {"))
+    hover = _properties(_block(css, ".physics-subtab:hover {"))
+    selected = _properties(_block(css, '.physics-subtab[aria-selected="true"] {'))
+    chip = _properties(_block(css, ".mode-chip {"))
+    head = _properties(_block(css, ".physics-head {"))
+    assert (base["background"], base["color"]) == ("var(--control-bg)", "var(--control-text)")
+    assert (hover["background"], hover["color"]) == ("var(--control-hover)", "var(--accent)")
+    assert (selected["background"], selected["color"]) == ("var(--accent-wash)", "var(--accent)")
+    assert (chip["background"], chip["color"]) == ("var(--accent-wash)", "var(--accent)")
+    assert head["background"] == "var(--canvas)"
+    expected = {
+        "dark": {"unselected": 9.86, "hover": 5.04, "selected_canvas": 5.98, "selected_card": 4.94, "muted_card": 5.26},
+        "light": {"unselected": 13.76, "hover": 5.31, "selected_canvas": 4.89, "selected_card": 5.18, "muted_card": 6.11},
+    }
+    for name, tokens in (("dark", _dark()), ("light", _light())):
+        measured = {
+            "unselected": contrast(tokens["--control-text"], tokens["--control-bg"]),
+            "hover": contrast(tokens["--accent"], tokens["--control-hover"]),
+            "selected_canvas": contrast(tokens["--accent"], _wash(tokens, tokens["--canvas"])),
+            "selected_card": contrast(tokens["--accent"], _wash(tokens, tokens["--card"])),
+            "muted_card": contrast(tokens["--muted"], tokens["--card"]),
+        }
+        for state, ratio in measured.items():
+            assert ratio >= 4.5, (name, state, ratio)
+            assert abs(ratio - expected[name][state]) < 0.02, (name, state, ratio)

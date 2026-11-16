@@ -1630,3 +1630,101 @@ def test_the_particle_block_texts_are_the_same_on_both_pages():
         hint = re.search(r'<div class="hint" id="particle-p-hint">(.*?)</div>', block, re.DOTALL).group(1)
         assert _unescape(re.sub(r"<[^>]+>", "", hint)) == (
             "Incident momentum of either shower (incoming_momentum_A or _B), in GeV.")
+
+
+# Stage 4 (ps-nodetests, 2026-11-16): the integrated pages, held to brief 9.1, 10.1 and 13.
+
+#: The ids brief 9.1 adds to the Physics page, every one of which main.js requires (brief 10.1, REQUIRED_IDS).
+NEW_PHYSICS_IDS = ("physics-head", "physics-subnav", "psub-tab-selection", "psub-tab-event", "psub-selection",
+                   "psub-event", "event-empty", "event-empty-title", "event-empty-text", "stat-mode", "stat-event",
+                   "stat-shower-item", "stat-shower", "stat-p", "stat-theta", "stat-cells", "stat-ev-edep",
+                   "stat-place", "channel-shut", "group-filters", "group-event", "group-model")
+#: The Event Inspector's two "Back to the ensemble" buttons, gone: the tab is the way back (brief 0, 9.1).
+REMOVED_IDS = ("event-close", "event-grid-close")
+
+
+def _required_ids() -> list[str]:
+    main = (JS / "main.js").read_text(encoding="utf-8")
+    block = re.search(r"const REQUIRED_IDS = \[(.*?)\];", main, re.DOTALL).group(1)
+    return re.findall(r"'([\w-]+)'", block)
+
+
+def test_the_removed_buttons_are_gone_from_every_page_script_and_sheet():
+    """Neither id survives anywhere under static/ (markup, scripts, styles); the compare grid keeps its own close."""
+    for path in sorted(STATIC.rglob("*")):
+        if path.suffix not in (".html", ".js", ".css") or "vendor" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for removed in REMOVED_IDS:
+            assert not re.search(rf"['\"#]{removed}['\"\s>,)]", text), (path.relative_to(STATIC), removed)
+    html = _html()
+    assert html.count('id="compare-grid-close"') == 1
+    assert 'id="compare-grid-close"' in _div_span(html, '<div class="physics-subpage" id="psub-selection"')
+
+
+def test_main_requires_every_new_id_and_none_of_the_removed_ones():
+    required = _required_ids()
+    html = _html()
+    for element_id in NEW_PHYSICS_IDS:
+        assert element_id in required, element_id
+        assert html.count(f'id="{element_id}"') == 1, element_id
+    for removed in REMOVED_IDS:
+        assert removed not in required, removed
+    assert "compare-grid-close" in required
+    # Every id main.js requires is in the markup exactly once.
+    missing = [i for i in required if html.count(f'id="{i}"') != 1]
+    assert not missing, missing
+
+
+def test_data_psub_only_lives_in_the_status_bar_and_names_a_subpage():
+    """The per-subpage items are the status bar's: every data-psub-only sits inside it and names selection or event;
+    the Models page has no subpage of this kind."""
+    html = _html()
+    bar = _div_span(html, '<div class="statusbar">')
+    markup = re.sub(r"<!--.*?-->", "", html, flags=re.DOTALL)
+    values = re.findall(r'data-psub-only="([^"]*)"', markup)
+    assert values and set(values) == {"selection", "event"}
+    assert len(re.findall(r'data-psub-only="', bar)) == len(values), "every data-psub-only is in the status bar"
+    for page in (_models_html(), (STATIC / "methodology.html").read_text(encoding="utf-8")):
+        assert "data-psub" not in page
+        assert 'id="physics-subnav"' not in page and 'class="mode-chip"' not in page
+
+
+def test_each_tab_controls_its_own_panel_and_the_panel_names_its_tab():
+    """aria-controls and aria-labelledby point at each other, once each, and no other element is a tab or a
+    tabpanel on the Physics page."""
+    html = _html()
+    main = _main(html)
+    for psub in ("selection", "event"):
+        tab = _tag(main, f"psub-tab-{psub}")
+        panel = re.search(rf'<div class="physics-subpage" id="psub-{psub}"[^>]*>', main).group(0)
+        assert f'aria-controls="psub-{psub}"' in tab and f'aria-labelledby="psub-tab-{psub}"' in panel
+        assert f'data-psub="{psub}"' in tab and f'data-psub="{psub}"' in panel
+    assert len(re.findall(r'role="tab"', main)) == 2
+    assert len(re.findall(r'role="tabpanel"', main)) == 2
+    assert len(re.findall(r'role="tablist"', main)) == 1
+    # Only the selected tab is in the tab order (roving tabindex), and the chip names the selected tab's label.
+    assert len(re.findall(r'tabindex="0"', _div_span(main, '<div class="physics-head" id="physics-head">'))) == 1
+    chip = re.search(r'<span class="mode-chip" id="stat-mode" role="status">([^<]*)</span>', main).group(1)
+    assert chip == TAB_TITLES["selection"][0]
+
+
+def test_every_sidebar_group_is_hidden_on_exactly_the_subpage_the_brief_names():
+    """Brief 9.2: the viewer hides the ensemble's groups and the two per-card colour controls; Entire selection hides
+    the particle and event groups; Longitudinal Channels and Colour Map show on both. Nothing else is hidden by
+    data-psub, and every id a rule names exists in the markup."""
+    css = _controls_css()
+    html = _html()
+    hidden = {"event": set(), "selection": set()}
+    for selectors in re.findall(r"([^{}]*)\{\s*display: none;\s*\}", css):
+        for psub, target in re.findall(r'\.app\[data-psub="(\w+)"\]\s+(#[\w-]+)', selectors):
+            hidden[psub].add(target)
+    assert hidden["event"] == {"#group-filters", "#group-frame", "#group-resolution", "#group-channel",
+                               "#group-model", "#ctl-lock-scale", "#ctl-rho-norm"}
+    assert hidden["selection"] == {"#group-particle", "#group-event"}
+    for target in hidden["event"] | hidden["selection"]:
+        assert html.count(f'id="{target[1:]}"') == 1, target
+    # The two per-card controls the viewer hides live in the Colour Map group, which stays.
+    colormap = _div_span(html, '<div class="sidebar-group" id="group-colormap">')
+    for control in ("ctl-lock-scale", "ctl-rho-norm"):
+        assert f'id="{control}"' in colormap, control

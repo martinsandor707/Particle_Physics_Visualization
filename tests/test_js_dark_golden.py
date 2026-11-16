@@ -242,6 +242,27 @@ removed (measured against the 8087a89 golden): θ's bounds now carry their radia
 drawer's disclosure walks the candidates while a bound is set (S1), and the doctored `in_pool` 3-D event echoes a
 bound shower B meets (p 6–7 GeV) with no server warning (S10).
 
+The physics subpages (2026-11-16, physics-subpages/brief.md: Martin's decisions of that day, the pickers' pool drawn
+from the whole experiment under the particle filter alone, `basis=experiment`, and the Physics page split into Entire
+selection | Event viewer) added 72 case ids and moved none; the theme map did not move (measured against
+`data/dev/design/physics-subpages/dark_base.json`, the golden before Stage 1, whose cases this run reproduces exactly):
+  - 35 `picker/*`: the block's count, empty, unplaceable and pool lines (event_picker.js) on the three Stage 1
+    candidates recordings, doctored into 16 states (two showers and one; the filter on and off; N = 0, N = 1, events
+    the frame gate refuses, one and many; the production counts of the brief as doctored numbers), each with
+    `basis=experiment` (`picker/experiment/*`) and without it (`picker/selection/*`, today's wording, which an old
+    recording keeps); the pool line on the two pick bodies; the block's titles and scope notes.
+  - 19 `notes/experiment/*`: the event drawers of both pages under the experiment basis (eventNotes in every frame and
+    panel, its hazards, eventSelectionLine, the place and pool lines; the Models page's paired projections; the 3-D
+    event's voxelEventNotes) on the raster recordings of two showers and one and the Absolute voxels, recorded and
+    doctored (an active filter in the pool, through the other shower, outside the pool; an event the frame gate
+    refuses).
+  - 10 `physics/subpages/*`: physics_subpages.js eventStatus on those rasters and on missing fields, the labels and
+    psubOfCard.
+  - 8 `physics/plan/*` and `voxels/shut/*`: capabilities.js page1Plan's viewer, channelReasons, modelReasons and
+    channelsShut, and voxel_views.js shutChannelsLine on both 3-D views, on the recorded catalogue
+    (`experiments.json`: the two-shower baseline, single_hits, single_events), with channelsShutLine and
+    shutChannelsLine on doctored offers.
+
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
 behaviour, never code, so a refactor that reorders an object literal or
@@ -297,6 +318,7 @@ FAMILIES = [
     "catalog/payload", "catalog/distill-pysr", "catalog/distill-triangle", "catalog/distill-curves",
     "catalog/perf-catalog", "catalog/perf-overlap", "catalog/perf-momentum-bias", "catalog/perf-diagnostics",
     "catalog/notes",
+    "picker/experiment", "picker/selection", "physics/subpages", "physics/plan", "voxels/shut", "notes/experiment",
 ]
 
 _SCRIPT = r"""
@@ -356,6 +378,12 @@ const catMomentum = await imp('panels/bench_momentum.js');
 const catDiagnostics = await imp('panels/bench_diagnostics.js');
 const catNotesDistill = await imp('catalog_notes_distill.js');
 const catNotesPerf = await imp('catalog_notes_perf.js');
+// The physics subpages (added 2026-11-16, new `picker/*`, `physics/subpages/*`, `physics/plan/*`, `voxels/shut/*`
+// and `notes/experiment/*` case ids only).
+const picker = await imp('event_picker.js');
+const psub = await imp('physics_subpages.js');
+const caps = await imp('capabilities.js');
+const vviews = await imp('voxel_views.js');
 
 const { THEME } = scale;
 
@@ -1693,6 +1721,177 @@ put('voxels/geometry', { camera: v.CAMERA, axes: v.cameraAxes(), heights: [300, 
   put('notes/particle/ensemble_lines', {
     two: pn.particleEnsembleLine(pState, two), one: pn.particleEnsembleLine(tState, one),
     off: pn.particleEnsembleLine(offState, two), none: pn.particleEnsembleLine(null, two),
+  });
+}
+
+/* ---- the physics subpages and the experiment basis (added 2026-11-16, new case ids only) -------------------- */
+// The pickers' pool drawn from the whole experiment (`basis=experiment`, physics-subpages/brief.md §3–§11), on the
+// Stage 1 recordings (all on the synthetic `single_client`), each also doctored into the states the sentences tell
+// apart: the block's count, empty, unplaceable and pool lines, two showers and one, active and inactive, beside the
+// same states without `basis` (today's wording, which an old recording keeps); the event drawers of both pages under
+// the experiment basis; the viewer's status bar (physics_subpages.js eventStatus); Page 1's plan for the standalone
+// gating (capabilities.js page1Plan's viewer, channelReasons, modelReasons, channelsShut) and the 3-D cards' standing
+// line (voxel_views.js shutChannelsLine).
+{
+  const two = { display_name: 'Demo', capabilities: { n_showers: 2 } };
+  const one = { display_name: 'Demo', capabilities: { n_showers: 1 } };
+  const stubWith = (params) => ({ isTouched: (a) => a === 'e1', get: (k) => ({ e1_min: 2, e1_max: 5 })[k] ?? null,
+    particleParams: () => ({ ...params }), particleActive: () => Object.keys(params).length > 0 });
+  const echo = (p = [null, null], theta = [null, null]) => ({ active: [...p, ...theta].some((x) => x !== null), p_gev: p,
+    theta_deg: theta, theta_rad: theta.map((t) => (t === null ? null : (t * Math.PI) / 180)) });
+  const patched = (payload, patch) => { const out = clone(payload); out.candidates = { ...out.candidates, ...patch }; return out; };
+  const legacy = (payload) => { const out = clone(payload); delete out.candidates.basis; return out; };
+
+  /* The block's lines. */
+  const baseC = load('candidates_base_experiment');
+  const baseP = load('candidates_base_experiment_particle');
+  const singleC = load('candidates_single_experiment');
+  const lineStates = {
+    two_inactive: [baseC, 2],
+    two_inactive_unplaceable: [patched(baseC, { n_selection: 20325, n_events: 20268, n_unplaceable: 57 }), 2],
+    two_inactive_unplaceable_one: [patched(baseC, { n_selection: 3, n_events: 2, n_unplaceable: 1 }), 2],
+    two_inactive_one_event: [patched(baseC, { n_selection: 1, n_events: 1, n_showers: 2, by_shower: { a: 1, b: 1 }, n_both: 1 }), 2],
+    two_inactive_empty: [patched(baseC, { n_events: 0, n_showers: 0, by_shower: { a: 0, b: 0 }, n_both: 0 }), 2],
+    two_active: [baseP, 2],
+    two_active_grouped: [patched(baseP, { particle: echo([5, 6], [10, 15]), n_selection: 20325, n_events: 107, n_showers: 108,
+      by_shower: { a: 43, b: 65 }, n_both: 1 }), 2],
+    two_active_both: [patched(baseP, { particle: echo([5, 6]), n_selection: 20325, n_events: 1070, n_showers: 1088,
+      by_shower: { a: 441, b: 647 }, n_both: 18 }), 2],
+    two_active_empty: [patched(baseP, { particle: echo([null, 1], [40, null]), n_events: 0, n_showers: 0, by_shower: { a: 0, b: 0 },
+      n_both: 0 }), 2],
+    one_inactive: [singleC, 1],
+    one_inactive_unplaceable: [patched(singleC, { n_selection: 290, n_unplaceable: 3 }), 1],
+    one_inactive_unplaceable_one: [patched(singleC, { n_selection: 288, n_unplaceable: 1 }), 1],
+    one_inactive_empty: [patched(singleC, { n_events: 0, n_showers: 0, by_shower: { a: 0 } }), 1],
+    one_active: [patched(singleC, { particle: echo([7, 8]), n_events: 14, n_showers: 14, by_shower: { a: 14 } }), 1],
+    one_active_theta: [patched(singleC, { particle: echo([null, null], [20, 25]), n_events: 1, n_showers: 1, by_shower: { a: 1 } }), 1],
+    one_active_empty: [patched(singleC, { particle: echo([30, null]), n_events: 0, n_showers: 0, by_shower: { a: 0 } }), 1],
+  };
+  const lines = (payload, nShowers) => ({
+    count: picker.countLine(payload, { nShowers }), empty: picker.emptyLine(payload, { nShowers }),
+    unplaceable: picker.unplaceableLine(payload, { nShowers }), pool: picker.poolLine(payload, { nShowers }),
+    // The block's own shower count read from the payload (`showers`), as a caller without nShowers gets.
+    inferred: { count: picker.countLine(payload), empty: picker.emptyLine(payload), unplaceable: picker.unplaceableLine(payload),
+      pool: picker.poolLine(payload) },
+    block: picker.poolLine(payload.candidates, { nShowers }),
+  });
+  for (const [name, [payload, nShowers]] of Object.entries(lineStates)) {
+    put(`picker/experiment/${name}`, lines(payload, nShowers));
+    put(`picker/selection/${name}`, lines(legacy(payload), nShowers));
+  }
+  // The pick bodies: the pool line reads them too.
+  for (const [name, nShowers] of [['pick_base_uniform_experiment', 2], ['pick_single_uniform_experiment', 1]]) {
+    const body = load(name);
+    put(`picker/experiment/pick/${name}`, { pool: picker.poolLine(body, { nShowers }), title: picker.pickerTitle('uniform', body, { nShowers }) });
+  }
+  put('picker/experiment/consts', { scopeTwo: picker.scopeNote({ nShowers: 2 }), scopeOne: picker.scopeNote({ nShowers: 1 }),
+    scopeDefault: picker.scopeNote(), pick: picker.PICK_TITLE, open2d: picker.OPEN_2D_TITLE, open3d: picker.OPEN_3D_TITLE,
+    tilted: picker.TILTED_TITLE, steps: picker.STEP_TITLES });
+
+  /* The event drawers of both pages. */
+  const pState = stubWith({ particle_p_min: 2, particle_p_max: 3 });
+  const withEvent = (payload, patch, event = {}) => {
+    const out = clone(payload);
+    Object.assign(out.event, event);
+    out.event.candidates = { ...out.event.candidates, ...patch };
+    return out;
+  };
+  const rasterBase = load('event_raster_base_experiment');
+  const rasterSingle = load('event_raster_single_experiment');
+  const rasters = {
+    // Two showers: event 0, A at 2.71 GeV and B at 12.54 GeV.
+    event_raster_base_experiment: [two, {
+      recorded: rasterBase,
+      active_in_pool: withEvent(rasterBase, { particle: echo([2, 3]), in_pool: true, index: 0, n_events: 1, matched: ['a'],
+        prev_matched: null, next_matched: null }, { prev: null, next: null }),
+      active_other_shower: withEvent(rasterBase, { particle: echo([12, 13]), in_pool: true, index: 0, n_events: 1, matched: ['b'],
+        prev_matched: null, next_matched: null }, { prev: null, next: null }),
+      active_outside_pool: withEvent(rasterBase, { particle: echo([6, 7]), in_pool: false, index: null, n_events: 0, matched: [],
+        prev_matched: null, next_matched: null }, { prev: null, next: null }),
+      // The frame gate refuses it (no D): drawn by its number with shower B.
+      unplaceable: withEvent(rasterBase, { in_pool: false, index: null, matched: [] }, { d: null }),
+    }],
+    // One shower: event 3 at 7.31 GeV, the third of 287.
+    event_raster_single_experiment: [one, {
+      recorded: rasterSingle,
+      active_in_pool: withEvent(rasterSingle, { particle: echo([7, 8]), in_pool: true, index: 0, n_events: 14, matched: ['a'] }),
+      active_outside_pool: withEvent(rasterSingle, { particle: echo([2, 3]), in_pool: false, index: null, n_events: 30, matched: [] }),
+    }],
+  };
+  const kinds = ['lab', 'trans', 'local'];
+  const panelIds = ['xy', 'xz', 'yz'];
+  for (const [file, [experiment, variants]] of Object.entries(rasters)) {
+    const nShowers = experiment.capabilities.n_showers;
+    for (const [name, payload] of Object.entries(variants)) {
+      put(`notes/experiment/event/${file}/${name}`, {
+        notes: Object.fromEntries(kinds.flatMap((kind) => panelIds.map((panelId) => [`${kind}:${panelId}`,
+          pn.eventNotes({ payload, kind, panelId, state: pState, experiment })]))),
+        bare: pn.eventNotes({ payload, kind: 'lab', panelId: 'xy' }),
+        hazards: pn.hazards(payload, 'xy'),
+        outside: pn.outsideCandidates(payload.event),
+        lines: pn.particleEventLines({ event: payload.event, drawn: payload.event.shower.key, showers: payload.event.shower, experiment }),
+        selectionLine: fv.eventSelectionLine(payload.event, { nShowers }),
+        selectionLineInferred: fv.eventSelectionLine(payload.event),
+        place: picker.placeLine(payload.event, { nShowers }),
+        pool: picker.poolLine(payload.event, { nShowers }),
+        poolInferred: picker.poolLine(payload.event),
+      });
+      // The Models page's paired projections of the 3-D event: the same lines through eventNotes.
+      put(`notes/experiment/voxel_projection/${file}/${name}`, Object.fromEntries(kinds.flatMap((kind) => panelIds.map(
+        (panelId) => [`${kind}:${panelId}`, vn.voxelProjectionNotes({ pair: 'event', payload, panelId, frameKind: kind,
+          state: pState, experiment })]))));
+      // The Event viewer's status bar.
+      put(`physics/subpages/status/${file}/${name}`, { given: psub.eventStatus(payload, { nShowers }), block: psub.eventStatus(payload.event, { nShowers }),
+        asTwo: psub.eventStatus(payload) });
+    }
+  }
+  put('physics/subpages/status/missing', { none: psub.eventStatus(null), empty: psub.eventStatus({}), bare: psub.eventStatus({ event: {} }),
+    noCandidates: psub.eventStatus({ event: { event_number: 20324, shower: { key: 'b', label: 'B', n_hits: 12345, energy_gev: 0.0123,
+      momentum_gev: 5.405, theta_deg: 12.34 } } }) });
+  put('physics/subpages/consts', { labels: psub.PSUB_LABELS, default: psub.DEFAULT_PSUB,
+    cards: ['xy', 'yz', 'xz', 'energy', 'compare-xy', 'event-lab-xy', 'event-local-yz', 'res-scaling', '', null].map((id) => psub.psubOfCard(id)) });
+
+  const voxels = load('event_voxels_base_lab_experiment');
+  const voxelVariants = {
+    recorded: voxels,
+    active_in_pool: withEvent(voxels, { particle: echo([2, 3]), in_pool: true, index: 0, n_events: 1, matched: ['a'],
+      prev_matched: null, next_matched: null }, { prev: null, next: null }),
+    active_outside_pool: withEvent(voxels, { particle: echo([6, 7]), in_pool: false, index: null, n_events: 0, matched: [],
+      prev_matched: null, next_matched: null }, { prev: null, next: null }),
+  };
+  for (const [name, payload] of Object.entries(voxelVariants)) {
+    const model = v.decodeEventVoxels(payload);
+    const drawn = v.voxelOption(model, { palette: 'viridis' });
+    put(`notes/experiment/voxel_event/event_voxels_base_lab_experiment/${name}`, {
+      notes: vn.voxelEventNotes({ payload, drawn, state: pState, experiment: two }),
+      bare: vn.voxelEventNotes({ payload, drawn }),
+      outside: pn.outsideCandidates(payload.event),
+      hazards: vn.voxelEventNotes({ payload, drawn, state: pState, experiment: two })?.hazards ?? null,
+    });
+  }
+
+  /* Standalone gating: Page 1's plan, and the 3-D cards' standing line, on the recorded catalogue. */
+  const catalogue = load('experiments').experiments;
+  for (const experiment of catalogue) {
+    const plan = caps.page1Plan(experiment);
+    put(`physics/plan/${experiment.table_name}`, { viewer: plan.viewer, channelReasons: plan.channelReasons,
+      modelReasons: plan.modelReasons, channelsShut: plan.channelsShut, channels: plan.channels, models: plan.models,
+      eventInspector: plan.eventInspector });
+    const offer = vviews.normaliseOffer(caps.page2Plan(experiment).voxels);
+    put(`voxels/shut/${experiment.table_name}`, {
+      event: vviews.shutChannelsLine(vviews.EVENT_CHANNEL_NAMES, offer.event),
+      ensemble: vviews.shutChannelsLine(vviews.ENSEMBLE_CHANNEL_NAMES, offer.ensemble),
+    });
+  }
+  put('physics/plan/channelsShutLine', {
+    none: caps.channelsShutLine([], 'Why.'), attention: caps.channelsShutLine(['shapcam_energy', 'gradcam', 'shapcam', 'gradcam_energy'], 'Why.'),
+    some: caps.channelsShutLine(['shapcam', 'gradcam'], 'Why.'), nothing: caps.channelsShutLine(null, 'Why.'),
+  });
+  put('voxels/shut/doctored', {
+    mixed: vviews.shutChannelsLine(vviews.EVENT_CHANNEL_NAMES, { enabled: true, channels: ['energy'],
+      disabledChannels: { gradcam: 'No network outputs', shapcam: 'No network outputs.', species: 'No species column.' } }),
+    fallback: vviews.shutChannelsLine(vviews.ENSEMBLE_CHANNEL_NAMES, { enabled: true, channels: ['density'], disabledChannels: {} }),
+    viewShut: vviews.shutChannelsLine(vviews.EVENT_CHANNEL_NAMES, { enabled: false, channels: [], disabledChannels: { energy: 'No hits.' } }),
   });
 }
 
