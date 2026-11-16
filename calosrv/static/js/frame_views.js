@@ -1120,7 +1120,9 @@ export function eventRowLabel(event) {
     ? `principal axis ${num(axis.tilt_deg, 1)}° from +w`
     : 'principal axis untestable (fewer than 3 cells)';
   const label = s.label ?? String(s.key ?? '').toUpperCase();
-  return `Event ${formatInt(event.event_number)}, shower ${label}: `
+  // An event of one shower labels it "Shower": "Event 179: …", never "Event 179, shower Shower: …".
+  const which = /^[AB]$/.test(label) ? `, shower ${label}` : '';
+  return `Event ${formatInt(event.event_number)}${which}: `
     + `${formatInt(s.n_hits)} cell${s.n_hits === 1 ? '' : 's'}, ${formatSci(s.energy_gev, 3)} GeV deposited, `
     + `θ = ${num(s.theta_deg, 1)}°, φ = ${num(s.phi_deg, 1)}°, P₀ = ${p0}, ${tilt}.`;
 }

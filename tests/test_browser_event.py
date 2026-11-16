@@ -653,6 +653,35 @@ def test_an_event_from_a_link_is_kept_and_flagged_when_it_leaves_the_pool(live_s
     assert problems == [], problems
 
 
+#: The viewer's empty state once the reader has emptied the event number (event_inspector.js CLEARED_LINE).
+CLEARED_LINE = "No event drawn: type an event number, or press Pick for me or Most tilted."
+#: The server's warning for a drawn event inside the experiment but outside the particle filter's pool.
+OUTSIDE_WARNING = "Event 1 holds no shower matching the particle filter"
+
+
+def test_clearing_the_event_number_takes_its_warning_off_the_banner(live_server):
+    """A flagged event's warning leaves the banner with the event: once the reader empties the event number, the
+    viewer shows its empty state and the banner no longer speaks of an event that is not drawn (found by the
+    Stage 4 browser tests, fixed by the lead)."""
+    base = live_server["base"]
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, net = _open_particle(p, base, "&event=1&shower=b")
+        _commit(page, net, [("pp-num-hi", 3)], wait_for="N = 1 event")
+        page.wait_for_function("(w) => !document.getElementById('banner').hidden"
+                               " && document.getElementById('banner-text').textContent.includes(w)",
+                               arg=OUTSIDE_WARNING, timeout=10_000)
+        page.fill("#event-number", "")
+        page.press("#event-number", "Enter")
+        page.wait_for_function("() => !document.getElementById('event-empty').hidden", timeout=10_000)
+        _idle(page, net)
+        assert page.evaluate(_TEXT, "event-empty-text") == CLEARED_LINE
+        banner = page.evaluate("() => ({ hidden: document.getElementById('banner').hidden,"
+                               " text: document.getElementById('banner-text').textContent })")
+        assert banner["hidden"] or OUTSIDE_WARNING not in banner["text"], banner
+        browser.close()
+    assert problems == [], problems
+
+
 def test_an_empty_pool_shuts_every_picker_with_its_reason_and_raises_no_banner(live_server):
     """N = 0 on entering the viewer: no request but the pool's (no pick), every picker and step disabled with the
     empty line as its title, the block's count line replaced by that line, the viewer's empty state showing it,

@@ -1322,10 +1322,9 @@ def test_a_link_to_an_ensemble_card_from_the_viewer_parks_its_event(physics_live
 
 def test_a_link_to_an_event_cell_of_the_aggregate_says_it_does_not_show(physics_live_server):
     """The aggregate shuts the Event viewer: a link to one of its cells stays on Entire selection and the banner
-    says the experiment does not show it.
-
-    The wait is long on purpose: as built at 2b494e6 the banner comes only after `landDeepLink` has waited out
-    `rowDrawn`'s 20 s for a row the shut viewer never draws (reported to the lead as a product bug)."""
+    says the experiment does not show it, at once: `landDeepLink` does not wait for a row the shut viewer never
+    draws (it waited out `rowDrawn`'s 20 s before the lead's fix after Stage 4). The 10 s bound is half of that
+    20 s, so the old wait would fail this test."""
     base = physics_live_server["base"]
     with physics_live_server["playwright"].sync_playwright() as p:
         browser = p.chromium.launch()
@@ -1336,7 +1335,7 @@ def test_a_link_to_an_event_cell_of_the_aggregate_says_it_does_not_show(physics_
         page.goto(f"{base}/?panel=event-lab-xy#table_name={SINGLE_EVENTS_TABLE}")
         page.wait_for_function(
             "() => (document.getElementById('kind-banner-text')?.textContent ?? '').includes('The Methodology linked')",
-            timeout=45_000)
+            timeout=10_000)
         assert _subpage(page) == "Entire selection"
         text = page.inner_text("#kind-banner-text")
         assert "does not show." in text, text

@@ -586,7 +586,15 @@ const inspector = new EventInspector({
     showBanner(mergedWarnings());
   },
   onError: (error, context) => reportError(error, context),
-  onViewMode: () => applyViewMode(),
+  onViewMode: () => {
+    // No event on the viewer (the reader cleared the number, or a switch of experiment): the
+    // drawn event's warnings go with it, so the banner never contradicts the empty state.
+    if (state.get('event') === null && subnav.current() === 'event') {
+      endpointWarnings.event = [];
+      if (!banner.root?.classList?.contains('is-error')) showBanner(mergedWarnings());
+    }
+    applyViewMode();
+  },
   // Each row in its own frame; one event is never pooled.
   layerGroups: (kind) => layerFor(kind),
 });
@@ -2302,9 +2310,10 @@ async function landDeepLink(link) {
   const known = link.panel ? document.querySelector(`.card[data-panel="${link.panel}"]`) : null;
   if (known && home !== subnav.current() && (home === 'selection' || pagePlan.viewer.enabled)) subnav.show(home);
   // A cell of the compare or Event Inspector grid is drawn with its row, when the row's response
-  // arrives, after this landing: wait for the row before looking for the card.
+  // arrives, after this landing: wait for the row before looking for the card. Not on a subpage
+  // that cannot be shown (the Event viewer of an experiment with no hits), whose row is never drawn.
   const cell = link.panel ? document.querySelector(`.frame-grid-row .card[data-panel="${link.panel}"]`) : null;
-  if (cell) await rowDrawn(cell);
+  if (cell && (home === 'selection' || pagePlan.viewer.enabled)) await rowDrawn(cell);
   let result = revealPanel(link.panel ?? '', { shell, reveal: (id) => physics.reveal(id) });
   if (result.ok) return;
   // The compare view replaces the ensemble panels (applyViewMode): that is the view's doing. A pinned

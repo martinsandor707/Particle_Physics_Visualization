@@ -262,6 +262,9 @@ selection | Event viewer) added 72 case ids and moved none; the theme map did no
     channelsShut, and voxel_views.js shutChannelsLine on both 3-D views, on the recorded catalogue
     (`experiments.json`: the two-shower baseline, single_hits, single_events), with channelsShutLine and
     shutChannelsLine on doctored offers.
+  Then a lead fix after Stage 4 (frame_views.js eventRowLabel) moved 6 of those new cases, by that phrase alone: on
+  one shower the row label reads "Event 3: 66 cells, …", no longer "Event 3, shower Shower: …"
+  (`notes/experiment/{event,voxel_projection}/event_raster_single_experiment/*`).
 
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
