@@ -13,6 +13,10 @@ so what is checked here is what only a browser can tell:
 * the Physics and Models tabs carry the hash without ``at``;
 * a badge opens ``/?panel=…&from=…&from_sec=…`` (or ``/models?…``) with the
   view keys (where it lands is the landing pages' own test);
+* a Physics badge opens Entire selection: its link names no ``psub`` and no
+  ``event`` even when the reader arrives from the Event viewer, and the
+  landing page shows the ensemble card with its drawer open (brief
+  physics-subpages §8, ``links.js`` ``PHYSICS_VIEW_MODES``);
 * print emulation hides the header and the outline and paints black on white;
 * the Export button downloads one zip (busy while it works): the TeX, the
   BibTeX and each figure as a well-formed SVG and a 1890 px PNG with a 300 dpi
@@ -282,10 +286,11 @@ CATALOG_SUBPAGE = {c: "distill" if c.startswith("distill-") else "perf" for c in
 def test_every_badge_lands_on_its_card_or_says_why(live_server):
     """Each distinct badge target opens its card with the drawer and the way back, or the banner says the
     experiment does not show that card. None names a card its page lacks, and none is hidden by a view mode
-    the reader brought: the page arrives with an event pinned, which every Physics badge leaves. A badge to a
+    the reader brought: the page arrives from the Event viewer with an event pinned (psub=event), which every
+    Physics badge leaves. A badge to a
     catalogue card (§3.7) must land, on the card's own subpage: the catalogue shows for every experiment."""
     with live_server["playwright"].sync_playwright() as p:
-        browser, page, problems = _open(p, live_server["base"], fragment=f"{VIEW}&event=0")
+        browser, page, problems = _open(p, live_server["base"], fragment=f"{VIEW}&psub=event&event=0")
         targets = page.evaluate(_BADGE_TARGETS)
         assert targets
         outcomes = []
@@ -317,6 +322,55 @@ def test_every_badge_lands_on_its_card_or_says_why(live_server):
     for panel, (target, outcome) in catalogue.items():
         assert target["key"] in landed, (panel, "a catalogue badge did not land", outcome["banner"])
         assert outcome["msub"] == CATALOG_SUBPAGE[panel], (panel, outcome)
+
+
+#: The ensemble cards of the Physics page's Entire selection a badge can name (the 2 × 2 diagnostic).
+ENSEMBLE_CARDS = ("xy", "yz", "xz", "energy")
+
+#: Where a Physics badge landed: the subpage on show (physics_subpages.js), the card laid out, the drawer.
+_PHYSICS_LANDING = """(id) => {
+  const card = document.querySelector(`.main .card[data-panel="${id}"]`);
+  const hash = new URLSearchParams(location.hash.slice(1));
+  return {
+    psub: document.querySelector('.app')?.dataset.psub ?? null,
+    selection: !document.getElementById('psub-selection').hidden,
+    viewer: !document.getElementById('psub-event').hidden,
+    tab: document.getElementById('psub-tab-selection').getAttribute('aria-selected'),
+    mode: document.getElementById('stat-mode').textContent.trim(),
+    card: Boolean(card) && card.offsetParent !== null && card.getClientRects().length > 0,
+    drawer: !document.getElementById('inspector').hidden,
+    inspected: document.querySelector('.card.is-inspected')?.dataset.panel ?? null,
+    keys: { psub: hash.get('psub'), event: hash.get('event') },
+  };
+}"""
+
+
+def test_a_physics_badge_opens_entire_selection_even_from_the_event_viewer(live_server):
+    """Brief physics-subpages §8 and §13: links.js PHYSICS_VIEW_MODES leaves psub (with event and compare) out of a
+    Physics badge, so a reader who comes from the Event viewer with an event drawn (psub=event&event=0) still lands
+    on Entire selection: the badge's link names no psub and no event, and the landing page shows Entire selection
+    (tab, chip and wrapper) with the ensemble card laid out and its drawer open, writing no psub or event."""
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _open(p, live_server["base"], fragment=f"{VIEW}&psub=event&event=0")
+        targets = [t for t in page.evaluate(_BADGE_TARGETS)
+                   if t["page"] == "physics" and t["panel"] in ENSEMBLE_CARDS]
+        assert {t["panel"] for t in targets} == set(ENSEMBLE_CARDS), targets
+        landings = []
+        for target in targets:
+            link = urlparse(target["href"])
+            fragment = {k: v[0] for k, v in parse_qs(link.fragment).items()}
+            assert "psub" not in fragment and "event" not in fragment, (target["key"], fragment)
+            assert fragment.get("table_name") == VIEW_KEYS["table_name"], (target["key"], fragment)
+            page.goto(target["href"])
+            page.wait_for_function(_LANDED, timeout=30_000)
+            landings.append((target, page.evaluate(_PHYSICS_LANDING, target["panel"])))
+        browser.close()
+    assert problems == [], problems
+    for target, got in landings:
+        assert got["psub"] == "selection" and got["selection"] and not got["viewer"], (target["key"], got)
+        assert got["tab"] == "true" and got["mode"] == "Entire selection", (target["key"], got)
+        assert got["card"] and got["drawer"] and got["inspected"] == target["panel"], (target["key"], got)
+        assert got["keys"] == {"psub": None, "event": None}, (target["key"], got)
 
 
 def test_a_phone_width_reads_without_sideways_scroll(live_server):
