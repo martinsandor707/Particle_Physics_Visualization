@@ -1226,7 +1226,13 @@ def test_a_selection_parameter_is_refused_under_the_experiment_basis(single_clie
             assert problem["field"] == name and problem["detail"] == detail, (table, url, problem)
     # The selection basis still takes it, and include_undefined_d=false is the default.
     assert single_client.get(CANDIDATES, params={**BASE, "basis": "selection", name: value}).status_code == 200
-    assert single_client.get(CANDIDATES, params={**BASE, **EXPERIMENT,
+    # An explicit false is refused too (the review's R4): the experiment basis's echo says true on two
+    # showers, so a false it accepted would be contradicted by the response it came with.
+    for explicit in ("false", "0"):
+        refused = single_client.get(CANDIDATES, params={**BASE, **EXPERIMENT, "include_undefined_d": explicit})
+        assert refused.status_code == 422 and refused.json()["field"] == "include_undefined_d"
+        assert refused.json()["detail"] == NOT_WITH_EXPERIMENT.format(name="include_undefined_d")
+    assert single_client.get(CANDIDATES, params={**BASE, "basis": "selection",
                                                  "include_undefined_d": "false"}).status_code == 200
     # Two refused at once: the first in the order E1, E2, D, include_undefined_d is named.
     both = single_client.get(CANDIDATES, params={**BASE, **EXPERIMENT, "d_max": 100000.0, "e2_min": 0.0})
@@ -1519,3 +1525,48 @@ def test_basis_selection_is_the_request_that_names_none(single_client):
         named = comparable(single_client.get(url, params={**params, "basis": "selection"}))
         assert named == today, (url, params)
         assert "basis" not in set(_keys(named)), (url, params)
+
+
+# ------------------------------------ the unplaceable event, drawn as asked (R2) --
+
+
+def _body(**candidates) -> dict:
+    """The part of a ``/api/event`` body ``_outside`` reads."""
+    return {"event": {"in_selection": True, "candidates": candidates}}
+
+
+def test_an_event_the_frame_gate_refuses_is_flagged_under_the_experiment_basis(single_client):
+    """Review R2: no fixture holds such an event, so ``_outside`` is exercised directly.
+
+    Under the experiment basis nothing is outside the selection, so the event
+    the frame gate keeps out of the candidates is the one to warn about.
+    """
+    from calosrv.api import routes_event
+
+    two, one = _record(single_client, BASELINE_TABLE), _record(single_client, SINGLE_HITS_TABLE)
+    off = particle.INACTIVE
+    experiment = _body(basis="experiment", in_pool=False, matched=[])
+    assert routes_event._outside(experiment, 7, off, two) == [
+        "Event 7 has no defined separation, so the pickers never offer it; it is drawn as asked, "
+        "and previous / next walk the candidates."]
+    assert routes_event._outside(experiment, 7, off, one) == [
+        "Event 7 has no incident direction or entry point, so the pickers never offer it; it is drawn "
+        "as asked, and previous / next walk the candidates."]
+    # A member of the pool is not flagged, and neither is anything under the selection basis.
+    assert routes_event._outside(_body(basis="experiment", in_pool=True), 7, off, two) == []
+    assert routes_event._outside(_body(in_pool=False, matched=[]), 7, off, two) == []
+    assert routes_event._outside(_body(in_pool=False, matched=[]), 7, off, one) == []
+    # The filter's own sentence still leads where no shower matches it.
+    active = particle.build(two, theta_min=10.0)
+    words = routes_event._outside(_body(basis="experiment", in_pool=False, matched=[]), 7, active, two)
+    assert words == [particle.outside_pool_warning(7, active)]
+    # Matching the filter yet refused by the gate is the gate's sentence.
+    gate = routes_event._outside(_body(basis="experiment", in_pool=False, matched=["a"]), 7, active, two)
+    assert gate and "no defined separation" in gate[0]
+
+
+def test_the_experiment_basis_flags_no_event_of_the_pool_through_the_routes(single_client):
+    """The warning never reaches an ordinary event, under either basis or either format."""
+    for params in ({"event_number": 0}, {"event_number": 0, "format": "voxels", "frame": "lab"}):
+        for basis in ({}, EXPERIMENT):
+            assert _ok(single_client, EVENT, **BASE, **basis, **params)["meta"]["warnings"] == []

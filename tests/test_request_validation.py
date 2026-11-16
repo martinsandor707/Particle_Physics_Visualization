@@ -27,6 +27,10 @@ from calosrv.text import signed_hyphens
     ("/api/event/candidates", {"basis": "experiment", "e1_min": 1.0}, "e1_min"),
     ("/api/event", {"event_number": 0, "basis": "experiment", "include_undefined_d": "true"},
      "include_undefined_d"),
+    # An explicit false is refused too: the experiment basis's echo would contradict it (review R4).
+    ("/api/event/candidates", {"basis": "experiment", "include_undefined_d": "false"},
+     "include_undefined_d"),
+    ("/api/event/pick", {"basis": "experiment", "include_undefined_d": "0"}, "include_undefined_d"),
 ])
 def test_type_and_missing_parameter_errors_are_validation_problems(client, path, params, field):
     reply = client.get(path, params=params)

@@ -193,7 +193,7 @@ def get_event(
         notices.append({"scope": "event", "text": note})
     meta = ApiMeta(
         table_name=record.table_name, exact=True, query_ms=body.pop("elapsed_ms"),
-        total_ms=timer.elapsed_ms, warnings=_outside(body, event_number, particle),
+        total_ms=timer.elapsed_ms, warnings=_outside(body, event_number, particle, record),
         notes={"event": int(event_number), "shower": shower, "coordinates": coordinates,
                "notices": notices},
     )
@@ -219,16 +219,20 @@ def _cap(cap: int | None) -> int:
     return cap
 
 
-def _outside(body: dict[str, Any], event_number: int, particle: ParticleSpec) -> list[str]:
+def _outside(body: dict[str, Any], event_number: int, particle: ParticleSpec,
+             record: ExperimentRecord | None = None) -> list[str]:
     """The warning for an event drawn although the pickers would not offer it.
 
     Outside the selection, today's sentence (previous / next walk the
     candidates once the particle filter is set); under the experiment basis
     ``in_selection`` is always true, so it cannot fire. Inside the selection
     but outside an active filter's candidates because none of its showers
-    matches, the particle filter's own sentence. An event the frame gate alone
-    keeps out (no defined separation, or no direction or entry point) is drawn
-    without one, as it always was.
+    matches, the particle filter's own sentence. Under the selection basis an
+    event the frame gate alone keeps out (no defined separation, or no
+    direction or entry point) is drawn without one, as it always was. Under
+    the experiment basis, where nothing is outside the selection, that event
+    is the one outside the candidates, and it is said (the review's R2): the
+    gate's own sentence for the kind of ``record``.
     """
     event = body["event"]
     if not event["in_selection"]:
@@ -240,6 +244,13 @@ def _outside(body: dict[str, Any], event_number: int, particle: ParticleSpec) ->
     candidates = event.get("candidates") or {}
     if particle.active and candidates.get("in_pool") is False and not candidates.get("matched"):
         return [particle_mod.outside_pool_warning(event_number, particle)]
+    if (candidates.get("basis") == particle_mod.BASIS_EXPERIMENT and candidates.get("in_pool") is False
+            and record is not None):
+        what = ("no defined separation" if particle_mod.two_showers(record)
+                else "no incident direction or entry point")
+        return [typographic(
+            f"Event {int(event_number)} has {what}, so the pickers never offer it; it is drawn as "
+            "asked, and previous / next walk the candidates.")]
     return []
 
 
@@ -276,7 +287,7 @@ def _voxels(con, record: ExperimentRecord, spec, timer: Timer, event_number: int
         notices += [{"scope": "budget", "text": text} for text in steps]
         meta = ApiMeta(
             table_name=record.table_name, exact=True, query_ms=body.pop("elapsed_ms"),
-            total_ms=timer.elapsed_ms, warnings=_outside(body, event_number, particle),
+            total_ms=timer.elapsed_ms, warnings=_outside(body, event_number, particle, record),
             notes={"event": int(event_number), "format": voxel_event.FORMAT_VOXELS,
                    "shower": shower, "frame": frame, "channel": channel,
                    "model": builder.network,

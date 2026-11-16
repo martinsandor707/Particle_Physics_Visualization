@@ -140,7 +140,7 @@ def resolve_basis(
             "What the event pickers' candidates are drawn from. selection (default): the E1/E2/D "
             "selection, as every request that names no basis has always been answered. experiment: "
             "every event of the experiment, narrowed by the frame gate and the particle filter alone; "
-            "an E1, E2 or D bound, or include_undefined_d=true, is then refused naming the parameter, "
+            "an E1, E2 or D bound, or any include_undefined_d, is then refused naming the parameter, "
             "never ignored."),
     ),
     e1_min: float | None = Query(
@@ -161,12 +161,13 @@ def resolve_basis(
     d_max: float | None = Query(
         None, description="Upper bound on centroid_AB_distance (mm); two-shower data and "
                           "basis=selection only."),
-    include_undefined_d: bool = Query(
-        False,
+    include_undefined_d: bool | None = Query(
+        None,
         description=(
             "Include events whose A-B separation is undefined because shower A deposited no "
-            "energy. Excluded by default, and always counted. basis=selection only: the experiment "
-            "basis holds them, and the frame gate keeps them out of the candidates."
+            "energy. Excluded by default (absent is false), and always counted. basis=selection "
+            "only: the experiment basis holds them, and the frame gate keeps them out of the "
+            "candidates, so any explicit value, false included, is refused there."
         ),
     ),
 ) -> FilterSpec:
@@ -186,7 +187,9 @@ def resolve_basis(
                               field="basis")
     if basis == particle.BASIS_EXPERIMENT:
         given = dict(zip(_SELECTION_PARAMS, (e1_min, e1_max, e2_min, e2_max, d_min, d_max)))
-        given["include_undefined_d"] = True if include_undefined_d else None
+        # Any explicit value is refused, false included: the echo of the experiment basis says true on
+        # two showers, so an accepted false would be contradicted by the response it was sent with.
+        given["include_undefined_d"] = include_undefined_d
         for name, value in given.items():
             if value is not None:
                 raise ValidationError(
@@ -200,7 +203,7 @@ def resolve_basis(
         e1_min=e1_min, e1_max=e1_max,
         e2_min=e2_min, e2_max=e2_max,
         d_min=d_min, d_max=d_max,
-        include_undefined_d=include_undefined_d,
+        include_undefined_d=bool(include_undefined_d),
     )
 
 
