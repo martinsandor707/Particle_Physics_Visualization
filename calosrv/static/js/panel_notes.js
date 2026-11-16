@@ -646,10 +646,16 @@ export function particleEnsembleLine(state, experiment = null) {
   return ensembleLine(params, { nShowers: showerCount(experiment) });
 }
 
-/** Whether a drawn event is in the selection but outside an active filter's pool (the hazard). */
+/**
+ * Whether a drawn event is in the selection but outside the pool of the pickers (the hazard).
+ * Under the default basis the pool differs from the selection only while the particle filter is
+ * active; under `basis=experiment` the pool is narrowed by the frame gate alone, so an event the
+ * gate refuses (no defined D, or no direction or entry point) is outside it with the filter off too.
+ */
 export function outsideCandidates(event) {
   const c = event?.candidates;
-  return Boolean(c?.particle?.active && c.in_pool === false && event.in_selection !== false);
+  if (!c || c.in_pool !== false || event.in_selection === false) return false;
+  return Boolean(c.particle?.active) || c.basis === 'experiment';
 }
 
 /**

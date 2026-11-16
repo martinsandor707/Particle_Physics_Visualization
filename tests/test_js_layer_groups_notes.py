@@ -242,6 +242,28 @@ const selectedExp = { ...clone(experimentCases.vox), selection: { n_events: 2, n
 out.exp_selection_scope = dump(vn.voxelEventNotes({ payload: selectedExp, experiment: twoX, state: stateX }));
 out.exp_ensemble_line = epx.ensembleLine(stateX.particleParams(), { nShowers: 2 });
 out.exp_cloud = dump(vn.voxelEnsembleNotes({ payload: load('voxels_base_local'), state: stateX, experiment: twoX }));
+// R2: an event the frame gate refuses, drawn as asked with the filter off, under the experiment basis.
+const gateRefused = (payload) => {
+  const p = clone(payload);
+  p.event.candidates = { ...p.event.candidates, in_pool: false, index: null, matched: [], particle: { active: false } };
+  return p;
+};
+const gateRaster = gateRefused(experimentCases.raster_base);
+const gateVox = gateRefused(experimentCases.vox);
+const gateNoBasis = gateRefused(load('event_raster_base'));
+delete gateNoBasis.event.candidates.basis;
+const gateSelectionScope = { ...clone(gateVox), selection: { n_events: 2, n_hits: 9, n_cells: 5 } };
+out.gate = {
+  raster_hazards: pn.hazards(gateRaster, 'xy'),
+  raster_notes: dump(pn.eventNotes({ payload: gateRaster, kind: 'lab', panelId: 'xy', experiment: twoX })),
+  vox_notes: dump(vn.voxelEventNotes({ payload: gateVox, experiment: twoX })),
+  vox_selection_scope: dump(vn.voxelEventNotes({ payload: gateSelectionScope, experiment: twoX })),
+  pair_notes: dump(vn.voxelProjectionNotes({ pair: 'event', payload: gateRaster, panelId: 'yz', frameKind: 'lab', experiment: twoX })),
+  inside_hazards: pn.hazards(experimentCases.raster_base, 'xy'),
+  nobasis_hazards: pn.hazards(gateNoBasis, 'xy'),
+  outsideSelection_hazards: (() => { const p = gateRefused(experimentCases.raster_base); p.event.in_selection = false;
+    return pn.hazards(p, 'xy'); })(),
+};
 // Without basis nothing moves.
 const noBasis = load('event_raster_base');
 out.nobasis_pool = epx.poolLine(noBasis.event, { nShowers: 2 });
@@ -792,3 +814,22 @@ def test_a_drawer_without_basis_is_unchanged_and_carries_no_pool_line(out):
 def test_the_experiment_drawers_print_no_ascii_hyphen_as_a_minus_sign(out):
     for text in _walk(out["exp"]):
         assert not HYPHEN_NUMBER.search(text), text
+
+
+def test_an_event_the_gate_refuses_raises_the_candidates_hazard_under_the_experiment_basis_with_the_filter_off(out):
+    """R2: the experiment basis puts every event in the selection, so the pool is the only test left."""
+    g = out["gate"]
+    assert g["raster_hazards"] == ["event outside the candidates"]
+    assert "event outside the candidates" in g["raster_notes"]["hazards"]
+    assert "event outside the candidates" in g["vox_notes"]["hazards"]
+    assert "event outside the candidates" in g["pair_notes"]["hazards"]
+    # The cloud / selection scope draws no one event, so it never raises it.
+    assert "event outside the candidates" not in g["vox_selection_scope"]["hazards"]
+    # Never the selection's own hazard, which the experiment basis cannot fire.
+    assert "event outside the selection" not in g["raster_notes"]["hazards"]
+    # An event inside the pool still raises none.
+    assert g["inside_hazards"] == []
+
+
+def test_without_the_experiment_basis_an_inactive_filter_still_raises_no_candidates_hazard(out):
+    assert out["gate"]["nobasis_hazards"] == []
