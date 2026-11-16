@@ -225,19 +225,27 @@ def test_the_frame_grids_sit_in_main_after_the_ensemble_grid():
         assert html.count(f'id="{section}"') == 1, section
         assert f'<section class="frame-grid" id="{section}" hidden aria-labelledby="{section}-title">' in html
         assert html.index('id="ensemble-grid"') < html.index(f'id="{section}"') < html.index("</main>")
-        for part in ("title", "label", "close", "rows"):
+        # The Event viewer has no button back to the ensemble: the tab is the way back (brief 9.1).
+        for part in ("title", "label", "rows") + (("close",) if section == "compare-grid" else ()):
             assert html.count(f'id="{section}-{part}"') == 1, f"{section}-{part}"
+    assert html.count('id="event-grid-close"') == 0
     assert html.index('id="compare-grid"') < html.index('id="event-grid"')
+    # Each grid sits in its subpage's wrapper: the compare grid with the ensemble, the event grid in the viewer.
+    assert 'id="compare-grid"' in _div_span(html, '<div class="physics-subpage" id="psub-selection"')
+    assert 'id="event-grid"' not in _div_span(html, '<div class="physics-subpage" id="psub-selection"')
+    assert 'id="event-grid"' in _div_span(html, '<div class="physics-subpage" id="psub-event"')
 
 
 def test_the_event_picker_and_the_compare_toggle_live_in_the_sidebar():
     html = _html()
     sidebar = html[html.index('<aside class="sidebar"'):html.index("</aside>")]
-    for element_id in ("event-number", "event-prev", "event-next", "event-pick", "event-close",
+    for element_id in ("event-number", "event-prev", "event-next", "event-pick",
                        "event-status", "event-caption", "info-event", "opt-compare", "ctl-event"):
         assert sidebar.count(f'id="{element_id}"') == 1, element_id
     assert sidebar.count('name="event-shower"') == 2
-    assert 'id="event-close" type="button" hidden' in sidebar
+    # The Back-to-the-ensemble buttons are gone: the Entire selection tab is the way back.
+    assert 'id="event-close"' not in html
+    assert html.count("Back to the ensemble") == 1 and 'id="compare-grid-close"' in html  # the compare grid keeps its own
     assert 'type="number" id="event-number" min="0" step="1"' in sidebar
     # The toggle belongs to the reference-frame block, after its caption.
     assert sidebar.index('id="frame-caption"') < sidebar.index('id="opt-compare"') < sidebar.index('id="ctl-event"')
@@ -313,8 +321,9 @@ def test_the_physics_section_sits_below_the_ensemble_grid():
     html = _html()
     assert html.count('<section class="grid physics-grid" id="physics-grid"') == 1
     assert html.count('id="kind-notice"') == 1
-    order = [html.index(f'id="{section}"') for section in ("ensemble-grid", "kind-notice", "physics-grid",
-                                                            "compare-grid", "event-grid")]
+    order = [html.index(f'id="{section}"') for section in ("psub-selection", "ensemble-grid", "kind-notice",
+                                                            "physics-grid", "compare-grid", "psub-event",
+                                                            "event-empty", "event-grid")]
     assert order == sorted(order)
     assert html.index('id="physics-grid"') < html.index("</main>")
     css = (STATIC / "css" / "layout.css").read_text(encoding="utf-8")
@@ -378,7 +387,7 @@ def test_the_filter_block_and_the_kind_markup_carry_their_ids():
                        "energy-b3-slices", "plot-energy-b3", "kind-banner", "kind-notice-title",
                        "kind-notice-text"):
         assert html.count(f'id="{element_id}"') == 1, element_id
-    assert '<span id="stat-wneg-item" hidden' in html
+    assert '<span id="stat-wneg-item" data-psub-only="selection" hidden' in html
     # The upload hint is schema-neutral: it names every accepted schema.
     upload = html[html.index('<section class="admin-upload"'):html.index('<section class="admin-ingest"')]
     for schema in ("hits_all_models", "standalone_hits", "standalone_events"):
@@ -501,7 +510,8 @@ def test_the_event_level_kind_hides_the_spatial_sidebar_groups():
     for group, members in groups.items():
         for member in members:
             assert member in spans[group], (group, member)
-    # The filters, the Event Inspector and the model controls stay outside every group.
+    # The filters, the event picker and the model controls stay outside these four spatial groups: they have
+    # wrappers of their own (group-filters, group-event, group-model), which the event-level kind never hides.
     for kept in ('id="ctl-e1"', 'id="ctl-event"', 'name="model"', 'id="metrics"', 'id="opt-undefined-d"'):
         assert kept in sidebar and not any(kept in span for span in spans.values()), kept
     main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
@@ -1176,6 +1186,12 @@ PARTICLE_IDS = ("group-particle", "particle-heading", "ctl-particle-p", "particl
                 "pt-num-lo", "pt-num-hi", "pt-fill", "pt-lo", "pt-hi", "particle-theta-hint", "particle-count",
                 "particle-scope", "particle-clear")
 _PARTICLE_OPEN = '<div class="sidebar-group" id="group-particle" hidden>'
+SCOPE_NOTE_TWO = ("Narrows which events the pickers offer (Pick for me, Most tilted, previous / next, and the 3-D view's "
+                  "Densest), drawn from the whole experiment. E₁, E₂ and D do not narrow them; they steer the ensemble "
+                  "views alone.")
+#: Brief section 5.1's PICK_TITLE, which `event_picker.js` carries and index.html copies by hand.
+PICK_TITLE_NEW = ("A candidate event drawn uniformly at random from the whole experiment under the particle filter: a "
+                  "seeded shuffle, so no event repeats until all have been drawn. Each click takes the next draw.")
 
 
 def _particle_block(html: str) -> str:
@@ -1232,6 +1248,7 @@ def test_the_particle_block_is_the_same_markup_on_both_pages_and_starts_hidden()
     # The hints name the columns in mono.
     p_hint = block[block.index('id="particle-p-hint"'):block.index("</div>", block.index('id="particle-p-hint"'))]
     assert '<span class="mono">incoming_momentum_A</span>' in p_hint and '<span class="mono">_B</span>' in p_hint
+    assert _unescape(re.sub(r"<[^>]+>", "", p_hint)).endswith("), in GeV.")
     t_hint = block[block.index('id="particle-theta-hint"'):block.index("</div>", block.index('id="particle-theta-hint"'))]
     assert '<span class="mono">incoming_theta_A</span>' in t_hint and "in degrees" in t_hint
     # The count speaks politely; the scope note is the two-shower sentence; Clear waits for a bound.
@@ -1239,8 +1256,8 @@ def test_the_particle_block_is_the_same_markup_on_both_pages_and_starts_hidden()
     picker = (JS / "event_picker.js").read_text(encoding="utf-8")
     scope = re.search(r'<div class="hint" id="particle-scope">(.*?)</div>', block, re.DOTALL).group(1)
     scope_text = _unescape(re.sub(r"</?sub>", "", scope))
-    assert scope_text.startswith("Narrows only which events the pickers offer (Pick for me, Most tilted, previous / next,")
-    assert scope_text.endswith("The ensemble panels follow E1, E2 and D.")
+    # The two-shower scopeNote of brief section 5.1, which the script rewrites per experiment.
+    assert scope_text == SCOPE_NOTE_TWO
     assert "export function scopeNote" in picker
     assert '<button class="mini" id="particle-clear" type="button" disabled>Clear particle filter</button>' in block
     # Tokens only: no colour literal, no inline style.
@@ -1248,20 +1265,21 @@ def test_the_particle_block_is_the_same_markup_on_both_pages_and_starts_hidden()
 
 
 def test_the_particle_block_sits_between_its_neighbours_outside_every_other_group():
-    # Physics: after the Reference Frame group closes, before the Event Inspector's heading.
+    # Physics: after the Reference Frame group closes, before the Event Picker's group.
     html = _html()
     sidebar = _sidebar(html)
     frame = _div_span(sidebar, '<div class="sidebar-group" id="group-frame">')
     frame_end = sidebar.index(frame) + len(frame)
     position = sidebar.index(_PARTICLE_OPEN)
-    inspector = re.search(r"<h2>\s*Event Inspector", sidebar)
-    assert inspector, "the Event Inspector heading is missing"
+    inspector = re.search(r"<h2>\s*Event Picker", sidebar)
+    assert inspector, "the Event Picker heading is missing"
     assert frame_end <= position < inspector.start()
     # Nothing but a comment between the frame group's close and the block.
     assert re.fullmatch(r"\s*(<!--.*?-->\s*)*", sidebar[frame_end:position], re.DOTALL)
     block = _particle_block(sidebar)
     assert sidebar.index(block) + len(block) < inspector.start()
-    for other in ("group-frame", "group-resolution", "group-channel", "group-colormap", "group-lgroups"):
+    for other in ("group-filters", "group-frame", "group-event", "group-resolution", "group-channel", "group-colormap",
+                  "group-lgroups", "group-model"):
         opening = re.search(rf'<div class="sidebar-group" id="{other}"( hidden)?>', sidebar)
         assert opening, other
         assert 'id="group-particle"' not in _div_span(sidebar, opening.group(0)), other
@@ -1303,22 +1321,25 @@ def test_the_event_pickers_and_the_open_in_3d_link_on_the_physics_page():
     picker = (JS / "event_picker.js").read_text(encoding="utf-8")
     actions = _div_span(_sidebar(html), '<div class="event-actions">')
     # Most tilted follows Pick for me in the actions row; both are typed buttons titled by event_picker.js.
-    assert actions.index('id="event-pick"') < actions.index('id="event-pick-tilted"') < actions.index('id="event-close"')
+    assert actions.index('id="event-pick"') < actions.index('id="event-pick-tilted"')
+    assert 'id="event-close"' not in actions
     pick, tilted = _tag(actions, "event-pick"), _tag(actions, "event-pick-tilted")
     assert pick.startswith('<button class="action" id="event-pick" type="button"')
     assert tilted.startswith('<button class="action" id="event-pick-tilted" type="button"')
     assert re.search(r'id="event-pick-tilted"[^>]*>Most tilted</button>', actions, re.DOTALL)
     assert re.search(r'id="event-pick"[^>]*>Pick for me</button>', actions, re.DOTALL)
+    # index.html's title is a hand copy of PICK_TITLE (brief 3.8): the literal, and the module's own string.
+    assert _unescape(re.search(r'title="([^"]*)"', pick).group(1)) == PICK_TITLE_NEW
     assert _unescape(re.search(r'title="([^"]*)"', pick).group(1)) == _js_string(picker, "PICK_TITLE")
     assert _unescape(re.search(r'title="([^"]*)"', tilted).group(1)) == _js_string(picker, "TILTED_TITLE")
     assert html.count('id="event-pick-tilted"') == 1
-    # Open in 3-D: an anchor styled as a mini button in the Event Inspector grid's head, before its close button,
-    # hidden until an event is pinned, pointing at the Models page.
+    # Open in 3-D: an anchor styled as a mini button in the Event Inspector grid's head, hidden until an event is
+    # drawn, pointing at the Models page. The head's close button is gone (the Entire selection tab is the way back).
     grid = html[html.index('<section class="frame-grid" id="event-grid"'):]
     grid = grid[:grid.index("</section>")]
     head = _div_span(grid, '<div class="frame-grid-head">')
     assert html.count('id="event-open-3d"') == 1 and 'id="event-open-3d"' in head
-    assert head.index('id="event-open-3d"') < head.index('id="event-grid-close"')
+    assert 'id="event-grid-close"' not in head
     link = _tag(head, "event-open-3d")
     assert link.startswith('<a class="mini" id="event-open-3d" href="/models" hidden')
     assert _unescape(re.search(r'title="([^"]*)"', link).group(1)) == _js_string(picker, "OPEN_3D_TITLE")
@@ -1387,3 +1408,217 @@ def test_the_picker_modules_write_text_nodes_only():
     picker = _strip_comments((JS / "event_picker.js").read_text(encoding="utf-8"))
     for token in ("document.", "window.", "getElementById", "createElement"):
         assert token not in picker, token
+
+
+# ------------------------------------------- the Physics page's subpages --
+# Brief 9.1 and 9.2 (physics-subpages, 2026-11-16): Entire selection | Event viewer.
+
+SIDEBAR_GROUP_ORDER = ("group-filters", "group-frame", "group-particle", "group-event", "group-resolution",
+                       "group-lgroups", "group-channel", "group-colormap", "group-model")
+TAB_TITLES = {
+    "selection": ("Entire selection", "Every selected event: the 2 × 2 diagnostic, the compare-frames view and the "
+                                      "physics cards, under E₁, E₂ and D."),
+    "event": ("Event viewer", "One event at a time, drawn from the whole experiment under the particle filter: one "
+                              "shower in the Absolute, per-shower translated and Local frames."),
+}
+EVENT_ITEMS = ("stat-event", "stat-shower", "stat-p", "stat-theta", "stat-cells", "stat-ev-edep", "stat-place")
+SELECTION_ITEMS = ("stat-events", "stat-hits", "stat-edep", "stat-d", "stat-nod", "stat-rho", "stat-clipped",
+                   "stat-wneg")
+
+
+def _main(html: str) -> str:
+    return html[html.index('<main class="main">'):html.index("</main>")]
+
+
+def _controls_css() -> str:
+    return _strip_comments((STATIC / "css" / "controls.css").read_text(encoding="utf-8"))
+
+
+def test_the_app_opens_on_entire_selection():
+    assert '<div class="app" data-psub="selection">' in _html()
+
+
+def test_the_sidebar_groups_are_in_order_and_each_wraps_its_controls():
+    html = _html()
+    sidebar = _sidebar(html)
+    positions = [sidebar.index(f'id="{group}"') for group in SIDEBAR_GROUP_ORDER]
+    assert positions == sorted(positions), "the sidebar groups keep their order"
+    for group in SIDEBAR_GROUP_ORDER:
+        assert sidebar.count(f'id="{group}"') == 1, group
+        assert re.search(rf'<div class="sidebar-group" id="{group}"( hidden)?>', sidebar), group
+    spans = {g: _div_span(sidebar, re.search(rf'<div class="sidebar-group" id="{g}"( hidden)?>', sidebar).group(0))
+             for g in SIDEBAR_GROUP_ORDER}
+    # Nothing but comments between one group's close and the next's open: every control is in a group.
+    for before, after in zip(SIDEBAR_GROUP_ORDER, SIDEBAR_GROUP_ORDER[1:]):
+        gap = sidebar[sidebar.index(spans[before]) + len(spans[before]):sidebar.index(spans[after])]
+        assert re.fullmatch(r"\s*(<!--.*?-->\s*)*", gap, re.DOTALL), (before, after)
+    members = {
+        "group-filters": ("Filtering Parameters", 'id="ctl-e1"', 'id="ctl-e2"', 'id="ctl-d"', 'id="filter-logic"',
+                          'id="ctl-undefined-d"'),
+        "group-event": ("Event Picker", 'id="info-event"', 'id="ctl-event"', 'id="event-pick"',
+                        'id="event-pick-tilted"', 'id="event-caption"'),
+        "group-model": ("Reconstruction Model", 'name="model"', 'id="model-caption"', "Model Performance",
+                        'id="metrics"'),
+        "group-channel": ('id="channel-caption"', 'id="channel-shut"'),
+    }
+    for group, tokens in members.items():
+        for token in tokens:
+            assert token in spans[group], (group, token)
+    # The sidebar's headings: the event group is the Event Picker, never "Event Inspector" (the figure's name).
+    assert re.search(r"<h2>\s*Event Picker\s*<button[^>]*id=\"info-event\"", spans["group-event"], re.DOTALL)
+    assert not re.search(r"<h2>\s*Event Inspector", sidebar)
+    # The picker's hint: the whole experiment's candidates, narrowed by the particle filter.
+    hint = re.search(r'<div class="hint">(Draws one shower.*?)</div>', spans["group-event"], re.DOTALL).group(1)
+    assert " ".join(_unescape(hint).split()) == (
+        "Draws one shower of one event in all three frames — original, translated only, and local — with the "
+        "incident direction, the first-layer plane and the origin, one shared colour ramp and one window on all "
+        "nine panels. The candidates are the whole experiment's, narrowed by the particle filter.")
+    # The group-model wrapper is the last thing in the sidebar.
+    assert sidebar.rstrip().endswith("</div>") and sidebar.index(spans["group-model"]) + len(spans["group-model"]) \
+        == len(sidebar.rstrip())
+
+
+def test_the_channel_shut_line_follows_the_channel_caption_and_starts_hidden():
+    html = _html()
+    channel = _div_span(html, '<div class="sidebar-group" id="group-channel">')
+    assert html.count('id="channel-shut"') == 1
+    assert '<div class="hint" id="channel-shut" hidden></div>' in channel
+    assert channel.index('id="channel-caption"') < channel.index('id="channel-shut"')
+    assert "channel-shut" not in _models_html()
+
+
+def test_the_tab_bar_is_a_tablist_of_two_tabs_at_the_top_of_main():
+    html = _html()
+    main = _main(html)
+    head = _div_span(main, '<div class="physics-head" id="physics-head">')
+    # First in main, before the banners and the status bar.
+    assert main.index("physics-head") < main.index('id="banner"') < main.index('id="kind-banner"') < main.index('class="statusbar"')
+    nav = re.search(r'<nav class="physics-subnav" id="physics-subnav" role="tablist" aria-label="Physics page views">',
+                    head)
+    assert nav, "the tab bar is a tablist named for the page"
+    for psub, (label, title) in TAB_TITLES.items():
+        tag = _tag(head, f"psub-tab-{psub}")
+        assert tag.startswith('<button class="physics-subtab" id="psub-tab-' + psub + '"'), psub
+        for attr in (f'data-psub="{psub}"', 'role="tab"', 'type="button"', f'aria-controls="psub-{psub}"'):
+            assert attr in tag, (psub, attr)
+        assert _unescape(re.search(r'title="([^"]*)"', tag).group(1)) == title
+        assert re.search(rf'id="psub-tab-{psub}"[^>]*>{label}</button>', head, re.DOTALL), psub
+    # Roving tabindex: the selected tab is in the order, the other is reached by the arrows.
+    assert 'aria-selected="true" tabindex="0"' in _tag(head, "psub-tab-selection")
+    assert 'aria-selected="false" tabindex="-1"' in _tag(head, "psub-tab-event")
+    assert head.index('id="psub-tab-selection"') < head.index('id="psub-tab-event"')
+
+
+def test_the_subpages_are_tabpanels_in_main_and_only_the_viewer_starts_hidden():
+    html = _html()
+    main = _main(html)
+    selection = _div_span(main, '<div class="physics-subpage" id="psub-selection"')
+    event = _div_span(main, '<div class="physics-subpage" id="psub-event"')
+    assert 'role="tabpanel" aria-labelledby="psub-tab-selection" data-psub="selection">' in selection
+    assert 'role="tabpanel" aria-labelledby="psub-tab-event" data-psub="event" hidden>' in event
+    assert main.index(selection) < main.index(event)
+    # Today's order inside Entire selection; the empty state before the grid inside the viewer.
+    inside = [selection.index(f'id="{x}"') for x in ("ensemble-grid", "kind-notice", "physics-grid", "compare-grid")]
+    assert inside == sorted(inside)
+    assert 'id="event-empty"' not in selection and 'id="event-grid"' not in selection
+    for kept in ("ensemble-grid", "kind-notice", "physics-grid", "compare-grid"):
+        assert f'id="{kept}"' not in event, kept
+    assert event.index('id="event-empty"') < event.index('id="event-grid"')
+    empty = re.search(r'<section class="kind-notice" id="event-empty" hidden aria-live="polite">\s*'
+                      r'<h2 id="event-empty-title">No event drawn</h2>\s*<p id="event-empty-text">&mdash;</p>\s*</section>',
+                      event)
+    assert empty, "the empty state is a polite kind-notice with its own title and text"
+    # The status bar and the banners sit outside both subpages: they are the page's.
+    for outside in ('id="banner"', 'id="kind-banner"', 'class="statusbar"', 'id="physics-head"'):
+        assert outside not in selection and outside not in event, outside
+
+
+def test_the_status_bar_names_the_mode_and_each_subpage_owns_its_items():
+    html = _html()
+    bar = _div_span(html, '<div class="statusbar">')
+    assert bar.index('<span class="mode-chip" id="stat-mode" role="status">Entire selection</span>') \
+        < bar.index('id="stat-events"')
+    def owner(element_id: str):
+        """The data-psub-only of the status item that holds `element_id`: its last opening <span> before it."""
+        tag = re.findall(r"<span\b[^>]*>", bar[:bar.index(f'id="{element_id}"') + len(element_id)])[-1]
+        found = re.search(r'data-psub-only="(selection|event)"', tag)
+        return found.group(1) if found else None
+
+    for element_id in SELECTION_ITEMS:
+        assert owner(element_id) == "selection", element_id
+    for element_id in EVENT_ITEMS:
+        assert owner(element_id) == "event", element_id
+    # The shared items carry no attribute: the Query latency and the cache note.
+    for element_id in ("stat-latency", "stat-cache"):
+        assert owner(element_id) is None, element_id
+    # The item the page hides on one shower keeps its own id, and the other items keep their hidden attributes.
+    assert re.search(r'<span id="stat-shower-item" data-psub-only="event">Shower <b id="stat-shower">', bar)
+    assert re.search(r'<span id="stat-wneg-item" data-psub-only="selection" hidden', bar)
+    assert re.search(r'<span id="stat-d-item" data-psub-only="selection">', bar)
+    assert re.search(r'<span id="stat-nod-item" data-psub-only="selection">', bar)
+    assert 'data-psub-only="selection">Events <b id="stat-events">' in bar
+    for label, element_id in (("Event", "stat-event"), ("p", "stat-p"), ("θ", "stat-theta"), ("Cells", "stat-cells"),
+                              ("Deposited", "stat-ev-edep"), ("Candidate", "stat-place")):
+        assert f'data-psub-only="event">{label} <b id="{element_id}">—</b></span>' in bar, element_id
+    assert bar.index('class="spacer"') > bar.index('id="stat-place"') and bar.index('class="spacer"') < bar.index('id="stat-latency"')
+
+
+def test_the_subpage_visibility_rules_select_on_data_psub_never_on_hidden():
+    css = _controls_css()
+    event_hides = ("#group-filters", "#group-frame", "#group-resolution", "#group-channel", "#group-model",
+                   "#ctl-lock-scale", "#ctl-rho-norm")
+    rule = re.search(r"((?:\.app\[data-psub=\"event\"\] #[\w-]+,\s*)+\.app\[data-psub=\"event\"\] #[\w-]+)\s*"
+                     r"\{\s*display: none;\s*\}", css)
+    assert rule, "the Event viewer's hidden controls are one rule"
+    assert set(re.findall(r"#[\w-]+", rule.group(1))) == set(event_hides)
+    assert re.search(r'\.app\[data-psub="selection"\] #group-particle,\s*\.app\[data-psub="selection"\] #group-event'
+                     r"\s*\{\s*display: none;\s*\}", css)
+    assert re.search(r'\.app\[data-psub="event"\] \[data-psub-only="selection"\],\s*'
+                     r'\.app\[data-psub="selection"\] \[data-psub-only="event"\]\s*\{\s*display: none;\s*\}', css)
+    # The wrappers a subpage owns hide by their own hidden attribute; the group visibility is not that.
+    assert ".physics-subpage { min-width: 0; }" in css and ".physics-subpage[hidden] { display: none; }" in css
+    # Longitudinal Channels and Colour Map stay on both subpages: neither is in a hiding rule.
+    for kept in ("#group-lgroups", "#group-colormap"):
+        assert not re.search(r'data-psub="[a-z]+"\][^{]*' + kept, css), kept
+
+
+def test_the_sticky_head_is_the_models_heads_with_a_scoped_scroll_margin():
+    css = _controls_css()
+    models = _strip_comments((STATIC / "css" / "models.css").read_text(encoding="utf-8"))
+    head = _rule(css, ".physics-head")
+    reference = _rule(models, ".models-head")
+    assert " ".join(head.split()) == " ".join(reference.split())
+    assert "position: sticky" in head and "top: -14px" in head and "z-index: 10" in head
+    assert "background: var(--canvas)" in head and "border-bottom: 1px solid var(--border)" in head
+    # Scoped to the Physics page's data-psub, so the Models page's own rule is untouched.
+    assert ".app[data-psub] .main .card { scroll-margin-top: var(--physics-head-h, 0px); }" in css
+    assert ".main .card { scroll-margin-top: var(--models-head-h, 0px); }" in models
+    assert "data-psub" not in models
+
+
+def test_the_tabs_style_like_the_models_tabs_and_a_disabled_tab_stays_text():
+    css = _controls_css()
+    models = _strip_comments((STATIC / "css" / "models.css").read_text(encoding="utf-8"))
+    assert " ".join(_rule(css, ".physics-subnav").split()) == " ".join(_rule(models, ".models-subnav").split())
+    assert " ".join(_rule(css, ".physics-subtab").split()) == " ".join(_rule(models, ".models-subtab").split())
+    selected = _rule(css, '.physics-subtab[aria-selected="true"]')
+    for token in ("background: var(--accent-wash)", "border-color: var(--accent)", "color: var(--accent)",
+                  "font-weight: 600", "box-shadow: inset 0 -2px 0 var(--accent)"):
+        assert token in selected, token
+    disabled = _rule(css, '.physics-subtab.is-disabled,\n.physics-subtab[aria-disabled="true"]')
+    assert "cursor: not-allowed" in disabled and "color: var(--muted)" in disabled
+    hover = _rule(css, '.physics-subtab.is-disabled:hover,\n.physics-subtab[aria-disabled="true"]:hover')
+    assert "background: var(--control-bg)" in hover and "color: var(--muted)" in hover
+    chip = _rule(css, ".mode-chip")
+    for token in ("border: 1px solid var(--accent)", "background: var(--accent-wash)", "color: var(--accent)"):
+        assert token in chip, token
+
+
+def test_the_particle_block_texts_are_the_same_on_both_pages():
+    for html in (_html(), _models_html()):
+        block = _particle_block(html)
+        scope = re.search(r'<div class="hint" id="particle-scope">(.*?)</div>', block, re.DOTALL).group(1)
+        assert _unescape(scope) == SCOPE_NOTE_TWO
+        hint = re.search(r'<div class="hint" id="particle-p-hint">(.*?)</div>', block, re.DOTALL).group(1)
+        assert _unescape(re.sub(r"<[^>]+>", "", hint)) == (
+            "Incident momentum of either shower (incoming_momentum_A or _B), in GeV.")

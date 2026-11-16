@@ -676,6 +676,111 @@ a.action { display: inline-block; text-decoration: none; }
 .card-link[hidden] { display: none; }
 
 
+/* ------------------------------------------------ Physics page subpages --
+   Entire selection | Event viewer (js/physics_subpages.js). Nothing here is
+   animated: a chart's ResizeObserver must measure the final geometry.
+
+   The sticky head is the Models page's (models.css .models-head), restated
+   here because the Physics page does not load that sheet: it cancels .main's
+   14px 16px padding with its own so its canvas ground covers the gutters, and
+   it sticks at -14px (a sticky offset counts from the scroll container's
+   padding edge inwards). A rule along its bottom edge parts it from the cards
+   scrolling under it, and its z-index lifts it over the charts' positioned
+   canvases while keeping it under every overlay (modal backdrop 100, tooltip
+   layer 150, menus and popovers 200). Its height is measured into .main's
+   --physics-head-h, the scroll margin of every card below. */
+.physics-head {
+  position: sticky;
+  top: -14px;
+  z-index: 10;
+  margin: -14px -16px var(--gap);
+  padding: 14px 16px 8px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border);
+}
+.app[data-psub] .main .card { scroll-margin-top: var(--physics-head-h, 0px); }
+
+.physics-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.physics-subtab {
+  padding: 5px 14px;
+  background: var(--control-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--control-text);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.physics-subtab:hover { background: var(--control-hover); border-color: var(--accent); color: var(--accent); }
+.physics-subtab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.physics-subtab[aria-selected="true"] {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+/* A tab the experiment cannot serve (the aggregate holds no hits) stays
+   readable: its reason is in the title and its label is text. The --disabled
+   token is a placeholder tone (1.84:1 on the dark control, 1.89:1 on the light
+   one), so the label takes --muted (4.95:1 and 5.74:1 on the controls' own
+   grounds) and the state is told by a dashed border and the cursor. */
+.physics-subtab.is-disabled,
+.physics-subtab[aria-disabled="true"] {
+  background: var(--control-bg);
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.physics-subtab.is-disabled:hover,
+.physics-subtab[aria-disabled="true"]:hover {
+  background: var(--control-bg);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+/* A subpage not on show takes no room, so its cards neither lay out nor load.
+   The wrapper is a plain block: the sections inside keep their own grids and
+   their own hidden flags. */
+.physics-subpage { min-width: 0; }
+.physics-subpage[hidden] { display: none; }
+
+/* The status bar's mode chip: the subpage on show, as text. Accent on the
+   accent wash over the card: 4.94:1 dark, 5.18:1 light. */
+.mode-chip {
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* What each subpage shows. The rules select on the page's data-psub, never on
+   an element's own hidden attribute, which its owner (main.js, the controls)
+   keeps to itself. The Event viewer takes the particle filter and the event
+   picker, and none of the ensemble's controls: the Selection filter, the
+   frame, the display resolution, the channels, the model and the density
+   scale are the ensemble's. Longitudinal Channels and Colour Map stay. */
+.app[data-psub="event"] #group-filters,
+.app[data-psub="event"] #group-frame,
+.app[data-psub="event"] #group-resolution,
+.app[data-psub="event"] #group-channel,
+.app[data-psub="event"] #group-model,
+.app[data-psub="event"] #ctl-lock-scale,
+.app[data-psub="event"] #ctl-rho-norm { display: none; }
+.app[data-psub="selection"] #group-particle,
+.app[data-psub="selection"] #group-event { display: none; }
+.app[data-psub="event"] [data-psub-only="selection"],
+.app[data-psub="selection"] [data-psub-only="event"] { display: none; }
+
+
 /* ------------------------------------------------- Longitudinal Channels --
    The sidebar block, its mini bar and the editor modal (controls/
    layer_groups_control.js builds the cells, handles, scales and table rows).
