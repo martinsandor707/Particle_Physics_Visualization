@@ -32,7 +32,9 @@ import {
 import { figureDisclosure, showersPerEvent } from './export/disclosure.js';
 import { describeSelection, describeView, displayOf } from './export/caption.js';
 import { panelSymbols, CORE_SHIFT_Z_MM } from './axis_symbols.js';
-import { placeLine, matchLine, intervalText, ensembleLine, particleIsActive } from './event_picker.js';
+import {
+  placeLine, matchLine, intervalText, ensembleLine, particleIsActive, poolLine,
+} from './event_picker.js';
 import { formatSigned } from './format.js';
 import {
   GROUP_COUNT, formatRanges, groupReach, axisEdges, intText, percentText, gevText,
@@ -616,6 +618,8 @@ export function showerCount(experiment) {
  * response without `event.candidates` adds nothing; an inactive filter adds the
  * place line only. `drawn` is 'a' | 'b' | 'both', `showers` the drawn shower
  * block(s) (the raster's one `event.shower`, the voxels' `event.showers`).
+ * Under `basis=experiment` (`candidates.basis`) a last line says the pool is the
+ * whole experiment's, which E₁, E₂ and D do not narrow (`poolLine`, '' otherwise).
  */
 export function particleEventLines({ event, drawn, showers, experiment = null }) {
   const candidates = event?.candidates;
@@ -626,7 +630,13 @@ export function particleEventLines({ event, drawn, showers, experiment = null })
     lines.push(matchLine({ candidates, drawn, showers, nShowers }));
     lines.push(`Particle filter: ${intervalText(candidates.particle)}.`);
   }
+  lines.push(poolLine(event, { nShowers }));
   return lines.filter(Boolean);
+}
+
+/** Whether an event block was drawn from the whole experiment (`basis=experiment`): its pool ignores the selection. */
+export function wholeExperimentEvent(event) {
+  return event?.candidates?.basis === 'experiment';
 }
 
 /** The ensemble views' disclosure: the filter narrows the event pickers only ('' while no bound is set). */
@@ -664,8 +674,11 @@ export function eventNotes({
   const [first, second] = { xy: ['x', 'y'], xz: ['x', 'z'], yz: ['y', 'z'] }[panelId] ?? ['x', 'y'];
   const notes = new Notes(`${frame.title}: ${symbols[first] ?? first}–${symbols[second] ?? second}`);
 
-  const selection = [eventRowLabel(event), eventSelectionLine(event)];
-  if (state) {
+  // Under basis=experiment the event is not read against the selection: the kinematics line
+  // states the event alone, and the E₁/E₂/D filter line (which would say it narrows it) is left out.
+  const wholeExperiment = wholeExperimentEvent(event);
+  const selection = [eventRowLabel(event), eventSelectionLine(event, { nShowers: showerCount(experiment) })];
+  if (state && !wholeExperiment) {
     selection.push(describeSelection(state, experiment, null, null, null, { filtersOnly: true }));
   }
   if (view) {
@@ -722,7 +735,7 @@ export function eventNotes({
     : 'Every cell of the shower lies inside this panel\'s window.');
   if (payload.coordinates?.note) disclosures.push(payload.coordinates.note);
   for (const note of payload.grid?.notes ?? []) disclosures.push(note);
-  if (event.in_selection === false) {
+  if (event.in_selection === false && !wholeExperiment) {
     // As frame_views.js eventSelectionLine words it: the candidates while a particle bound is set.
     const walked = event.candidates?.particle?.active === true ? 'the candidates' : 'the selection';
     disclosures.push('This event lies outside the current selection and is drawn as asked; '
@@ -752,7 +765,10 @@ export function hazards(payload, panelId) {
   if (!payload) return out;
   if (payload.frames && payload.event) {
     // An Event Inspector response: one event, nine panels, one set of hazards.
-    if (payload.event.in_selection === false) out.push('event outside the selection');
+    // Under basis=experiment every event of the experiment is in the selection's place: it cannot fire.
+    if (payload.event.in_selection === false && !wholeExperimentEvent(payload.event)) {
+      out.push('event outside the selection');
+    }
     if (outsideCandidates(payload.event)) out.push('event outside the candidates');
     if (payload.coordinates && payload.coordinates.within_tolerance === false) {
       out.push('coordinate residual above tolerance');

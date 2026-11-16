@@ -26,8 +26,9 @@
 
 import {
   Notes, SECTION, eventNotes, projectionNotes, onLightScreen, particleEventLines, particleEnsembleLine,
-  outsideCandidates,
+  outsideCandidates, showerCount, wholeExperimentEvent,
 } from './panel_notes.js';
+import { eventSelectionLine } from './frame_views.js';
 import { describeSelection } from './export/caption.js';
 import { formatInt, formatSci, formatPercent, typographic } from './scale.js';
 import { CORE_SHIFT_Z_MM } from './axis_symbols.js';
@@ -120,13 +121,20 @@ function showerLine(s) {
 }
 
 /** The event's place in the selection, and the rule that chose it. */
-function eventSelection(event, pick) {
+function eventSelection(event, pick, { nShowers } = {}) {
   const lines = [];
   if (!event) return lines;
   const drawn = (event.showers ?? []).map((s) => s.label ?? String(s.key).toUpperCase());
-  lines.push(`Event ${formatInt(event.event_number)}`
-    + (drawn.length ? `, ${drawn.length > 1 ? 'showers' : 'shower'} ${drawn.join(' and ')} drawn` : '')
-    + `; ${event.in_selection === false ? 'outside the current selection, drawn as asked' : 'inside the current selection'}.`);
+  if (wholeExperimentEvent(event)) {
+    // basis=experiment: the event is not read against the selection (its pool is the experiment's),
+    // so the kinematics line and the drawn showers stand alone.
+    lines.push(eventSelectionLine(event, { nShowers }));
+    if (drawn.length) lines.push(`${drawn.length > 1 ? 'Showers' : 'Shower'} ${drawn.join(' and ')} drawn.`);
+  } else {
+    lines.push(`Event ${formatInt(event.event_number)}`
+      + (drawn.length ? `, ${drawn.length > 1 ? 'showers' : 'shower'} ${drawn.join(' and ')} drawn` : '')
+      + `; ${event.in_selection === false ? 'outside the current selection, drawn as asked' : 'inside the current selection'}.`);
+  }
   for (const s of event.showers ?? []) lines.push(showerLine(s));
   if (pick?.rule) lines.push(`Chosen by rule, not written to the link: ${pick.rule}`);
   return lines;
@@ -272,7 +280,9 @@ export function voxelEventNotes({
   const drawnShowers = event.showers ?? [];
   notes.section(SECTION.selection, selection
     ? [selectionLine(selection, vox), filtersLine(state, experiment), particleEnsembleLine(state, experiment)]
-    : [...eventSelection(event, pick), filtersLine(state, experiment), ...particleEventLines({
+    : [...eventSelection(event, pick, { nShowers: showerCount(experiment) }),
+      // The E₁/E₂/D line is the selection's; under basis=experiment it does not narrow this event's pool.
+      wholeExperimentEvent(event) ? '' : filtersLine(state, experiment), ...particleEventLines({
       event, drawn: drawnShowers.length > 1 ? 'both' : (drawnShowers[0]?.key ?? 'a'), showers: drawnShowers,
       experiment,
     })]);
@@ -356,7 +366,7 @@ export function voxelEventNotes({
 
   const hazards = [];
   if (gl) hazards.push('3-D view not drawn');
-  if (event.in_selection === false) hazards.push('event outside the selection');
+  if (event.in_selection === false && !wholeExperimentEvent(event)) hazards.push('event outside the selection');
   if (!selection && outsideCandidates(event)) hazards.push('event outside the candidates');
   if ((vox.cap?.n_beyond ?? 0) > 0) hazards.push('cap reached');
   if (scale.degenerate) hazards.push('degenerate ramp');
