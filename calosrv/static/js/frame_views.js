@@ -1134,7 +1134,8 @@ export function eventSelectionLine(event) {
     + `E₁ = ${energy(event.e1)}, E₂ = ${energy(event.e2)}, D = ${d}; `
     + (event.in_selection
       ? 'inside the current selection.'
-      : 'outside the current selection, drawn as asked; previous / next walk the selection.');
+      : 'outside the current selection, drawn as asked; previous / next walk '
+        + (event.candidates?.particle?.active === true ? 'the candidates.' : 'the selection.'));
 }
 
 /**

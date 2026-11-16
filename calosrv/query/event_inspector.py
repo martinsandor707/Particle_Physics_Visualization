@@ -79,11 +79,15 @@ stored under the shower-A names: ``shower=b`` is refused naming the parameter,
 the event block's second momentum, separation and overlap class are null, and
 the pick rule ranks events by that shower's own polar angle.
 
-**Pick rules.** :func:`pick` serves two notebook rules: ``tilted`` (the
-default, Page 1's Event Inspector), the local-coords notebook's seeded draw
-from the densest, most tilted events; and ``densest`` (Page 2's 3-D displays,
-``query/voxel_event.py``), the High_energy notebook's event with the most
-cells. Both pick only events the per-shower frames can place.
+**Pick rules.** :func:`pick` serves two notebook rules and a uniform draw:
+``tilted`` (the default of a request naming none; Page 1's Most tilted), the
+local-coords notebook's seeded draw from the densest, most tilted events;
+``densest`` (Page 2's 3-D displays, ``query/voxel_event.py``), the
+High_energy notebook's event with the most cells; and ``uniform`` (Pick for
+me), entry ``draw mod N`` of a seeded shuffle of the candidates. All three
+draw from one pool - the selection, the events the per-shower frames can
+place and, when the particle filter is set, the events holding a matching
+shower (``query/particle.py``) - and previous / next walk the same pool.
 """
 
 from __future__ import annotations
@@ -108,6 +112,7 @@ from ..grid.frame import KIND_CANONICAL, KIND_LOCAL, KIND_TRANS
 from ..stats import shape
 from ..text import typographic
 from . import capabilities, density, frame_sql, layer_profile, shower_frames
+from . import particle as particle_mod
 from . import showers as showers_mod
 from .filters import FilterSpec
 
@@ -227,62 +232,97 @@ def _rows(con, record, event_number: int, shower: str, pitch: float) -> ShowerRo
     )
 
 
-def _neighbours(con, record, spec: FilterSpec, event_number: int) -> tuple[bool, int | None, int | None]:
-    """Whether the event is in the selection, and its neighbours within it."""
-    table = quote(naming.event_table(record.table_name))
-    params = {**spec.params(), "ev": int(event_number)}
-    where = spec.where_sql()
-    row = con.execute(
-        f"""SELECT count(*) FILTER (WHERE event_number = $ev),
-                   max(event_number) FILTER (WHERE event_number < $ev),
-                   min(event_number) FILTER (WHERE event_number > $ev)
-            FROM {table} WHERE {where}""", params,
-    ).fetchone()
-    return bool(row[0]), (int(row[1]) if row[1] is not None else None), (int(row[2]) if row[2] is not None else None)
-
-
-#: The pick rules: the local-coords notebook's seeded draw (the default, Page 1)
-#: and the High_energy notebook's densest event (Page 2's 3-D displays).
+#: The pick rules: the local-coords notebook's seeded draw (Page 1's Most tilted,
+#: the rule a request naming none gets), the High_energy notebook's densest
+#: event (Page 2's 3-D displays) and a seeded uniform draw (Pick for me).
 RULE_TILTED = "tilted"
 RULE_DENSEST = "densest"
-RULES: tuple[str, ...] = (RULE_TILTED, RULE_DENSEST)
+RULE_UNIFORM = "uniform"
+RULES: tuple[str, ...] = (RULE_TILTED, RULE_DENSEST, RULE_UNIFORM)
+
+#: The seed a pick takes when the request names none.
+DEFAULT_SEED = 42
+
+#: How many events the tilted and densest rules rank before one is chosen: the
+#: default of ``pick`` and of ``GET /api/event/pick``'s ``pool_size``, the
+#: Methodology's PICK_SHORTLIST.
+DEFAULT_POOL_SIZE = 20
 
 
-def pick(con, record, spec: FilterSpec, seed: int = 42, pool_size: int = 20,
-         rule: str = RULE_TILTED) -> dict[str, Any]:
-    """One event of the selection by a stated notebook rule; ``rule_id`` names it, ``rule`` says it.
+def pick(con, record, spec: FilterSpec, seed: int = DEFAULT_SEED, pool_size: int = DEFAULT_POOL_SIZE,
+         rule: str = RULE_TILTED, particle: particle_mod.ParticleSpec | None = None,
+         draw: int = 0) -> dict[str, Any]:
+    """One event of the pool by a stated rule; ``rule_id`` names it, ``rule`` says it.
+
+    The pool is the selection, the events the per-shower frames can place
+    (``capabilities.frame_gate``: a defined separation for two showers; an
+    incident direction and an entry point for a single shower) and, when the
+    particle filter is active, the events holding a matching shower
+    (``query/particle.py``). Every rule draws from it.
 
     ``tilted`` is the local-coords notebook's ``_select_events``: events with
-    more hits than the selection's mean, the ``pool_size`` of them with the
-    largest incident polar angle (the larger of the two showers' here), and one
-    drawn at random with ``seed``. ``densest`` is the High_energy notebook's
+    more hits than the pool's mean, the ``pool_size`` of them with the
+    largest incident polar angle (the larger of the two showers' here; of the
+    matching showers' when the particle filter is active), and one drawn at
+    random with ``seed``; when no pool event has more hits than the mean (always
+    so at N = 1) the ``pool_size`` with the most hits are taken instead, and the
+    sentence says so. ``densest`` is the High_energy notebook's
     ``groupby('event_number').size().idxmax()``: the event with the most cells,
     ties to the lowest event number - deterministic, so the seed is echoed and
-    unused (``seed_used``). Either way the events are those the per-shower
-    frames can place (``capabilities.frame_gate``): a defined separation for two
-    showers; an incident direction and an entry point for a single shower,
-    ranked by its own polar angle.
+    unused (``seed_used``). ``uniform`` shuffles the pool's event numbers,
+    sorted ascending, with ``numpy.random.default_rng(seed).permutation`` and
+    takes entry ``draw mod N``, so N consecutive draws visit every candidate
+    once. Every body names the chosen event's matching showers (``matched``)
+    and echoes the particle filter.
     """
     if rule not in RULES:
         raise ValidationError(f"rule must be one of {', '.join(RULES)}; got {rule!r}.", field="rule")
+    particle = particle_mod.INACTIVE if particle is None else particle
     table = quote(naming.event_table(record.table_name))
     where = spec.where_sql()
-    params = spec.params()
     showers = showers_mod.of(record)
     two = len(showers) == 2
     gate = capabilities.frame_gate(record)
-    angle = f"greatest({', '.join(s.theta for s in showers)})" if two else showers[0].theta
+    # The particle filter's clause, written only when it is active (no unused parameter).
+    narrow = f" AND ({particle.pool_sql(record)})" if particle.active else ""
+    params = particle_mod.pool_params(spec, particle)
+    if rule == RULE_UNIFORM:
+        return _pick_uniform(con, record, spec, particle, int(seed), int(draw))
     mean_hits, n = con.execute(
-        f"SELECT avg(n_hits), count(*) FROM {table} WHERE {where} AND {gate}", params,
+        f"SELECT avg(n_hits), count(*) FROM {table} WHERE {where} AND {gate}{narrow}", params,
     ).fetchone()
     if not n:
-        raise NotFoundError(
-            "The selection holds no event with a defined separation to pick from." if two else
-            "The selection holds no event with an incident direction and an entry point to pick from."
-        )
+        raise NotFoundError(particle_mod.empty_pool_detail(record, particle))
     if rule == RULE_DENSEST:
-        return _pick_densest(con, table, where, params, gate, two, int(n), float(mean_hits),
-                             int(seed), int(pool_size))
+        body = _pick_densest(con, table, where + narrow, params, gate, two, int(n), float(mean_hits),
+                             int(seed), int(pool_size), _population(record, particle))
+    else:
+        body = _pick_tilted(con, record, table, where + narrow, params, gate, particle, int(n),
+                            float(mean_hits), int(seed), int(pool_size))
+    body["matched"] = particle_mod.matched(con, record, particle, [body["event_number"]])[body["event_number"]]
+    body["particle"] = particle.as_dict()
+    return body
+
+
+def _population(record, particle: particle_mod.ParticleSpec) -> str:
+    """The pick sentences' population words: today's, or the particle filter's phrase when active."""
+    if not particle.active:
+        return f"selected events {particle_mod.placed_words(record)}"
+    return particle_mod.population_phrase(record, particle)
+
+
+def _pick_tilted(con, record, table: str, where: str, params: dict, gate: str,
+                 particle: particle_mod.ParticleSpec, n: int, mean_hits: float, seed: int,
+                 pool_size: int) -> dict[str, Any]:
+    """The local-coords notebook's seeded draw from the densest, most tilted events of the pool."""
+    showers = showers_mod.of(record)
+    two = len(showers) == 2
+    if particle.active:
+        # The largest polar angle among the event's matching showers (greatest ignores NULL).
+        terms = [f"CASE WHEN {particle.shower_sql(s)} THEN {s.theta} END" for s in showers]
+        angle = f"greatest({', '.join(terms)})" if two else terms[0]
+    else:
+        angle = f"greatest({', '.join(s.theta for s in showers)})" if two else showers[0].theta
     rows = con.execute(
         f"""SELECT event_number FROM {table}
             WHERE {where} AND {gate} AND n_hits > $mean
@@ -290,27 +330,34 @@ def pick(con, record, spec: FilterSpec, seed: int = 42, pool_size: int = 20,
         {**params, "mean": float(mean_hits)},
     ).fetchall()
     pool = [int(r[0]) for r in rows]
-    if not pool:
+    fallback = not pool
+    if fallback:
         rows = con.execute(
             f"SELECT event_number FROM {table} WHERE {where} AND {gate} "
             f"ORDER BY n_hits DESC, event_number LIMIT {int(pool_size)}", params).fetchall()
         pool = [int(r[0]) for r in rows]
     rng = np.random.default_rng(int(seed))
     chosen = int(rng.choice(np.asarray(pool)))
-    if two:
+    population = _population(record, particle)
+    if n == 1:
+        # One candidate: none can have more hits than the mean, and there is nothing to rank.
+        sentence = (f"The only one of the {population}: the reference notebook's selection rule has "
+                    f"one event to choose from (seed {int(seed)}).")
+    elif fallback:
         sentence = (
-            f"Among the {n:,} selected events with a defined separation, those with more hits "
-            f"than the mean ({float(mean_hits):.1f}); of those the {len(pool)} with the largest "
-            "incident polar angle (the larger of the two showers'); one drawn at random with "
-            f"seed {int(seed)} - the reference notebook's selection rule."
-        )
+            f"Among the {n:,} {population}, none has more hits than the mean "
+            f"({float(mean_hits):.1f}), so the {len(pool)} with the most hits are taken instead; one "
+            f"drawn at random with seed {int(seed)} - the reference notebook's selection rule, with "
+            "the service's fallback.")
     else:
+        angle_words = ("the largest incident polar angle of a matching shower" if particle.active else
+                       "the largest incident polar angle (the larger of the two showers')" if two else
+                       "the largest incident polar angle")
         sentence = (
-            f"Among the {n:,} selected events with an incident direction and an entry point, those "
-            f"with more hits than the mean ({float(mean_hits):.1f}); of those the {len(pool)} with "
-            f"the largest incident polar angle; one drawn at random with seed {int(seed)} - the "
-            "reference notebook's selection rule."
-        )
+            f"Among the {n:,} {population}, those with more hits than the mean "
+            f"({float(mean_hits):.1f}); of those the {len(pool)} with {angle_words}; one drawn at "
+            f"random with seed {int(seed)} - the reference notebook's selection rule.")
+    sentence = typographic(sentence)
     return {
         "event_number": chosen,
         "pool": pool,
@@ -325,7 +372,7 @@ def pick(con, record, spec: FilterSpec, seed: int = 42, pool_size: int = 20,
 
 
 def _pick_densest(con, table: str, where: str, params: dict, gate: str, two: bool, n: int,
-                  mean_hits: float, seed: int, pool_size: int) -> dict[str, Any]:
+                  mean_hits: float, seed: int, pool_size: int, population: str) -> dict[str, Any]:
     """The densest placeable events by cell count, ties to the lowest number; the first is chosen."""
     rows = con.execute(
         f"""SELECT event_number, n_cells FROM {table}
@@ -334,15 +381,20 @@ def _pick_densest(con, table: str, where: str, params: dict, gate: str, two: boo
     ).fetchall()
     pool = [int(r[0]) for r in rows]
     cells = int(rows[0][1] or 0)
-    placed = ("with a defined separation" if two else "with an incident direction and an entry point")
-    sentence = (
-        f"Among the {n:,} selected events {placed}, the one with the most detector cells "
-        f"({cells:,}; ties go to the lowest event number) - the reference notebook's densest event, "
-        "groupby('event_number').size().idxmax()"
-        + (", counted in cells, since a split cell is two rows of the two-shower file" if two
-           else ", where one row is one cell")
-        + f". The choice is deterministic: the seed ({seed}) is echoed and not used."
-    )
+    if n == 1:
+        sentence = typographic(
+            f"The only one of the {population}: the reference notebook's densest event, with one "
+            f"event to choose from. The choice is deterministic: the seed ({seed}) is echoed and not "
+            "used.")
+    else:
+        sentence = typographic(
+            f"Among the {n:,} {population}, the one with the most detector cells "
+            f"({cells:,}; ties go to the lowest event number) - the reference notebook's densest event, "
+            "groupby('event_number').size().idxmax()"
+            + (", counted in cells, since a split cell is two rows of the two-shower file" if two
+               else ", where one row is one cell")
+            + f". The choice is deterministic: the seed ({seed}) is echoed and not used."
+        )
     return {
         "event_number": pool[0],
         "pool": pool,
@@ -354,6 +406,42 @@ def _pick_densest(con, table: str, where: str, params: dict, gate: str, two: boo
         "rule_id": RULE_DENSEST,
         "seed_used": False,
         "n_cells": cells,
+    }
+
+
+def _pick_uniform(con, record, spec: FilterSpec, particle: particle_mod.ParticleSpec, seed: int,
+                  draw: int) -> dict[str, Any]:
+    """Entry ``draw mod N`` of a seeded shuffle of the pool's event numbers, sorted ascending.
+
+    ``numpy.random.default_rng(seed).permutation(N)`` orders the pool once per
+    seed and pool, so the draws ``0 .. N - 1`` visit every candidate once and
+    ``draw >= N`` wraps round to the start of the same shuffle.
+    """
+    events = particle_mod.pool_events(con, record, spec, particle)
+    n = int(events.size)
+    if not n:
+        raise NotFoundError(particle_mod.empty_pool_detail(record, particle))
+    k = int(draw) % n
+    chosen = int(events[np.random.default_rng(int(seed)).permutation(n)[k]])
+    population = particle_mod.population_phrase(record, particle)
+    if n == 1:
+        sentence = f"The only one of the {population} (seed {int(seed)}, draw {int(draw)})."
+    else:
+        sentence = (
+            f"Drawn uniformly at random from the {n:,} {population}: entry {k + 1:,} of a seeded shuffle "
+            f"of them in event-number order (seed {int(seed)}, draw {int(draw)}), so no event repeats "
+            f"until all {n:,} have been drawn.")
+    return {
+        "event_number": chosen,
+        "n_events": n,
+        "seed": int(seed),
+        "draw": int(draw),
+        "entry": k + 1,
+        "rule": typographic(sentence),
+        "rule_id": RULE_UNIFORM,
+        "seed_used": True,
+        "matched": particle_mod.matched(con, record, particle, [chosen])[chosen],
+        "particle": particle.as_dict(),
     }
 
 
@@ -777,6 +865,7 @@ def inspect(
     footprint: tuple[float, float] | None = None,
     limit: int | None = None,
     window: str = WINDOW_SHARED,
+    particle: particle_mod.ParticleSpec | None = None,
 ) -> dict[str, Any]:
     """The nine-panel figure of one shower of one event, budgeted under the contract.
 
@@ -784,6 +873,10 @@ def inspect(
     ``field=shower``) where there is one shower per event. ``window`` is the
     window rule: ``shared`` (one half-width for every panel, the default) or
     ``per_axis`` (one per axis of each frame, :func:`frame_window`).
+    ``particle`` is the particle filter: ``event.candidates`` says whether the
+    event is one of the pickers' candidates, and ``event.prev`` / ``event.next``
+    walk the candidates (``query/particle.py``). The event block is part of
+    the body the budget measures.
     """
     assert record.lattice is not None and record.frame_bounds is not None
     if shower not in SHOWERS:
@@ -800,8 +893,9 @@ def inspect(
     pitch_z = float(record.frame_bounds.layer_pitch_mm)
     fp = footprint or frame_mod.footprint_from_lattice(lat)
 
+    particle = particle_mod.INACTIVE if particle is None else particle
     event = _event_row(con, record, event_number)
-    in_selection, prev_event, next_event = _neighbours(con, record, spec, event_number)
+    member = particle_mod.membership(con, record, spec, particle, event_number)
     rows = _rows(con, record, event_number, shower, pitch_z)
     p0 = np.array([event[ddl.p0_column(shower, axis)] for axis in "xyz"], dtype=np.float64)
     theta, phi = event[selected.theta], event[selected.phi]
@@ -948,6 +1042,33 @@ def inspect(
             "grid": {"pitch_mm": pitch, "notes": list(notes)},
         }
 
+    momentum = event[selected.momentum]
+    # The event block, the pickers' candidates included, is measured with the panels.
+    event_block = {
+        "event_number": int(event_number),
+        "in_selection": member["in_selection"],
+        "prev": member["prev"],
+        "next": member["next"],
+        "n_hits": int(event["n_hits"] or 0),
+        "d": event["d"],
+        "e1": event["e1"],
+        "e2": event["e2"],
+        "overlap": event["ovl"],
+        "shower": {
+            "key": shower, "label": label, "n_hits": rows.n, "energy_gev": total,
+            "momentum_gev": momentum,
+            "theta": theta, "phi": phi,
+            "theta_deg": math.degrees(theta), "phi_deg": math.degrees(phi),
+            "p0": [float(v) for v in p0], "first_layer_z": float(p0[2]),
+            "direction": [float(v) for v in direction],
+            "principal_axis": tilt,
+        },
+        "candidates": particle_mod.event_candidates(particle, member),
+    }
+
+    def measured(pitch: float, notes: list[str]) -> dict[str, Any]:
+        return {**build(pitch, notes), "event": event_block}
+
     notes: list[str] = []
     pitch = START_PITCH_MM
     # Coarsen up front when a wide window would make a grid panel enormous.
@@ -965,14 +1086,14 @@ def inspect(
         if trimmed:
             # Keep the blocks trimmed, and say whether the grids moved too.
             planes, _ = layer_profile.trim_layer_planes(full_planes, coarsened=pitch > start_pitch)
-        body = build(pitch, notes)
+        body = measured(pitch, notes)
         size = density.wire_size(body)
         if size >= limit and not trimmed:
             # The layer blocks yield before the grids (brief §9.1): trim them
             # and measure the same pitch again before coarsening.
             planes, trimmed = layer_profile.trim_layer_planes(full_planes)
             if trimmed:
-                body = build(pitch, notes)
+                body = measured(pitch, notes)
                 size = density.wire_size(body)
         if size < limit or pitch >= MAX_PITCH_MM:
             break
@@ -987,28 +1108,7 @@ def inspect(
         body["grid"]["notes"].append(
             f"The response is still {size:,} bytes at {pitch:.0f} mm and is served as it is.")
 
-    momentum = event[selected.momentum]
     body.update({
-        "event": {
-            "event_number": int(event_number),
-            "in_selection": in_selection,
-            "prev": prev_event,
-            "next": next_event,
-            "n_hits": int(event["n_hits"] or 0),
-            "d": event["d"],
-            "e1": event["e1"],
-            "e2": event["e2"],
-            "overlap": event["ovl"],
-            "shower": {
-                "key": shower, "label": label, "n_hits": rows.n, "energy_gev": total,
-                "momentum_gev": momentum,
-                "theta": theta, "phi": phi,
-                "theta_deg": math.degrees(theta), "phi_deg": math.degrees(phi),
-                "p0": [float(v) for v in p0], "first_layer_z": float(p0[2]),
-                "direction": [float(v) for v in direction],
-                "principal_axis": tilt,
-            },
-        },
         "coordinates": {
             "source": source,
             "residual_max_mm": residual,

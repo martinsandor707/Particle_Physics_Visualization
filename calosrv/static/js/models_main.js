@@ -41,9 +41,20 @@
  * are imported on first use by dynamic import. A module that fails to load
  * (the network, a stale cache) says so where it would have drawn instead of
  * taking the page down.
+ *
+ * The sidebar's Particle Filter (controls/particle_filter.js, on Views only,
+ * by CSS on `.app[data-msub]`) narrows which events the 3-D event view's
+ * pickers offer. It is offered where the experiment offers that view. A
+ * particle commit refreshes the 3-D views alone (the event pair's key holds
+ * the filter; the selection and the cloud only say they draw the whole
+ * selection): no other card reads it, so none is asked. An E₁/E₂/D commit
+ * also asks the block for its new count. Either lets the pinned event's
+ * fresh response decide whether it stays (voxel_views.js `filtersCommitted`);
+ * the 3-D view's uniform draw counter carries on, restarting only on an
+ * experiment switch.
  */
 
-import { getJson, debounce, DEBOUNCE_MS, isAbort } from './api.js';
+import { getJson, debounce, DEBOUNCE_MS, isAbort, abortRequest } from './api.js';
 import { State } from './state.js';
 import { Shell } from './shell.js';
 import { articleSection } from './article_sections.js';
@@ -66,6 +77,7 @@ import { initTheme } from './theme.js';
 import { setText, setHidden, setVal, missingIds } from './dom.js';
 import { notesText, warningsNotShown } from './panel_notes.js';
 import { mountLayerGroupControl, depthContextFromPayload } from './controls/layer_groups_control.js';
+import { mountParticleFilter } from './controls/particle_filter.js';
 
 /* The light or dark theme, first: the chart tokens must be the page's before
  * any card builds an option. A later switch redraws the cards and the 3-D
@@ -296,6 +308,57 @@ const lgControl = mountLayerGroupControl({
 state.subscribe((values, patch) => {
   if ('lgmode' in patch || 'lgroups' in patch) voxels?.setLayerGroups?.();
 });
+
+/* ------------------------------------------------------ Particle Filter */
+
+/* The block, mounted once (controls/particle_filter.js): the one owner of
+ * GET /api/event/candidates. After its own commit it has refreshed itself;
+ * the page then refreshes the 3-D views alone. Every candidates payload goes
+ * to the 3-D views, which shut their pickers at N = 0. */
+const particle = mountParticleFilter({
+  state,
+  onCommit: () => onParticleCommit(),
+  onCandidates: (payload) => voxels?.setCandidates?.(payload),
+  // A count that fails after the block's own commit or Clear: on the banner, as refreshParticle's.
+  onError: (error, context) => { if (!isAbort(error)) reportError(error, context); },
+});
+
+/** Whether the block is offered: where the experiment offers the 3-D event view (brief section 8.4a). */
+function particleOffer() {
+  const event = plan.voxels?.event;
+  const enabled = Boolean(plan.sections.voxels && plan.voxels?.shown !== false && event?.enabled);
+  return {
+    enabled,
+    nShowers: plan.nShowers === 1 ? 1 : 2,
+    reason: enabled ? null : (event?.reason ?? 'This experiment offers no 3-D event view to pick an event for.'),
+  };
+}
+
+/**
+ * The block's count again, for an E₁/E₂/D commit (its own commits refresh it).
+ * The 3-D views hold the pending count, so a densest pick waits for it while a
+ * particle bound is set and an empty pool sends no request (brief section 8.3).
+ */
+function refreshParticle() {
+  const ready = particle.refresh().catch((error) => reportError(error, 'particle filter'));
+  voxels?.setPoolPending?.(ready);
+  return ready;
+}
+
+/**
+ * A particle commit: the 3-D views alone are refreshed (their draw counter
+ * carries on) - the event pair asks for its event again, the selection and
+ * the cloud only rewrite their captions. No other card reads the filter.
+ */
+function onParticleCommit() {
+  if (!voxels || !plan.sections.voxels) return;
+  voxels.particleCommitted?.();
+  voxels.refresh().then(() => {
+    if (!bannerError) showWarnings();
+  }, (error) => {
+    if (!isAbort(error)) reportError(error, '3-D views');
+  });
+}
 
 /** What the control is told about an experiment: its layer count and whether the 3-D cards' projections exist. */
 function syncLayerControl() {
@@ -693,6 +756,11 @@ function activate(experiment) {
   models.applyPlan(plan);
   if (previous && previous.table_name === experiment.table_name) models.invalidate();
   voxels?.applyPlan?.(plan.voxels);
+  // The Particle Filter on the experiment's own p and θ: its count asked for
+  // under the filters just adopted; a bound the new domain cannot hold is
+  // dropped (onCommit then refreshes the 3-D views).
+  const pool = particle.adopt(experiment, particleOffer())?.catch?.((error) => reportError(error, 'particle filter'));
+  voxels?.setPoolPending?.(pool ?? null);
   refreshAll.flush();
 }
 
@@ -703,6 +771,8 @@ function activate(experiment) {
  */
 function clearExperimentViews() {
   refreshAll.cancel();
+  // The Particle Filter's count of the previous experiment, with its other requests.
+  abortRequest(particle.abortKey);
   models.reset();
   voxels?.reset?.();
   for (const id of STATUS_IDS) setText(id, '—');
@@ -719,8 +789,18 @@ const STATUS_IDS = ['stat-events', 'stat-kind', 'stat-latency'];
 /* ------------------------------------------------------------- wiring */
 
 /* The filter sliders, adopted per experiment: a release refreshes the cards
- * in view (the Models page draws no sampled preview while dragging). */
-const filters = new FilterBlock({ state, onCommit: () => refreshAll() });
+ * in view (the Models page draws no sampled preview while dragging). The pool
+ * moves with them: the 3-D view's pinned event's fresh response decides
+ * whether it stays, and the Particle Filter's count is asked for again; the
+ * draw counter carries on. */
+const filters = new FilterBlock({
+  state,
+  onCommit: () => {
+    voxels?.filtersCommitted?.();
+    refreshParticle();
+    refreshAll();
+  },
+});
 
 document.getElementById('experiment-select')?.addEventListener('change', (event) => {
   const experiment = experiments.find((e) => e.table_name === event.target.value);
@@ -754,6 +834,10 @@ const MODELS_REQUIRED_IDS = [
   'e1-lo', 'e1-hi', 'e1-fill', 'e1-num-lo', 'e1-num-hi', 'e2-lo', 'e2-hi', 'e2-fill', 'e2-num-lo', 'e2-num-hi',
   'd-lo', 'd-hi', 'd-fill', 'd-num-lo', 'd-num-hi', 'e1-label', 'e1-hint', 'filter-logic', 'ctl-undefined-d',
   'opt-undefined-d', 'ctl-e1', 'ctl-e2', 'ctl-d', 'page-tabs',
+  // The Particle Filter block (controls/particle_filter.js).
+  'group-particle', 'particle-heading', 'ctl-particle-p', 'particle-p-label', 'pp-num-lo', 'pp-num-hi', 'pp-fill',
+  'pp-lo', 'pp-hi', 'particle-p-hint', 'ctl-particle-theta', 'particle-theta-label', 'pt-num-lo', 'pt-num-hi',
+  'pt-fill', 'pt-lo', 'pt-hi', 'particle-theta-hint', 'particle-count', 'particle-scope', 'particle-clear',
 ];
 
 /**

@@ -925,11 +925,15 @@ def test_each_entry_point_keeps_the_other_pages_modules_out():
         assert module not in models, module
     for module in ("models_main.js", "models_cards.js"):
         assert module not in physics, module
+    # The particle filter (2026-11-15): one block and one sentence module, shared by both pages.
+    for module in ("controls/particle_filter.js", "event_picker.js"):
+        assert module in physics and module in models, module
     # The article draws no panel and holds no experiment: it may share the
     # leaves (the palettes, the scale, the page helpers), never a page's own.
     for module in ("main.js", "models_main.js", "physics_section.js", "models_cards.js", "voxel_views.js",
                    "event_inspector.js", "lazy_cards.js", "panels/frame_grid.js", "panels/projection.js",
-                   "controls/admin.js", "controls/upload.js", "controls/filter_block.js", "export/menu.js"):
+                   "controls/admin.js", "controls/upload.js", "controls/filter_block.js", "export/menu.js",
+                   "controls/particle_filter.js", "event_picker.js"):
         assert module not in methodology, module
     # Nor does either page carry the article.
     for module in sorted(methodology):

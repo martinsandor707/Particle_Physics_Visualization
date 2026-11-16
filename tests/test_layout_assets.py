@@ -8,6 +8,13 @@ footnotes are gone, that the drawer and the toggle exist once and sit where
 they must, that the grid tracks snap rather than animate, that the energy
 panel re-lays itself out from its container, that the drawer renders text
 nodes only, and that the upload form lives in the admin panel.
+
+The particle filter (2026-11-15): the `#group-particle` block, identical on
+both pages and hidden until a page adopts it, in its place in each sidebar
+and outside every other group; Most tilted and Open in 3-D on the Physics
+page; models.css keeping the block to Views; both entries mounting it and
+aborting its request on a switch; the Event Inspector keeping its pick route
+and taking its sentences from `event_picker.js`; text nodes only.
 """
 
 from __future__ import annotations
@@ -439,7 +446,7 @@ def test_every_loader_drops_a_response_that_lands_after_an_experiment_switch():
         assert token in clear, token
     keys = re.search(r"const SPATIAL_ABORT_KEYS = \[(.*?)\];", main, re.DOTALL).group(1)
     for key in ("'projections'", "'energy'", "'performance'", "'compare-lab'", "'compare-trans'", "'compare-local'",
-                "'window-axis-yz'", "'window-axis-xz'", "'event'", "'event-pick'"):
+                "'window-axis-yz'", "'window-axis-xz'", "'event'", "'event-pick'", "'event-candidates'"):
         assert key in keys, key
     # The workaround for panels without clear() is gone.
     assert "clearPanel" not in main
@@ -1159,3 +1166,224 @@ def test_the_channel_shorthand_is_described_by_its_error_on_both_pages():
         field = re.search(r'<input[^>]*id="lgroups-shorthand"[^>]*>', html, re.DOTALL)
         assert field and 'aria-describedby="lgroups-shorthand-error"' in field.group(0)
         assert html.count('id="lgroups-shorthand-error"') == 1
+
+
+# ------------------------------------------------------ the particle filter --
+
+#: Every id of the block (brief section 7), once per page, inside `#group-particle`.
+PARTICLE_IDS = ("group-particle", "particle-heading", "ctl-particle-p", "particle-p-label", "pp-num-lo", "pp-num-hi",
+                "pp-fill", "pp-lo", "pp-hi", "particle-p-hint", "ctl-particle-theta", "particle-theta-label",
+                "pt-num-lo", "pt-num-hi", "pt-fill", "pt-lo", "pt-hi", "particle-theta-hint", "particle-count",
+                "particle-scope", "particle-clear")
+_PARTICLE_OPEN = '<div class="sidebar-group" id="group-particle" hidden>'
+
+
+def _particle_block(html: str) -> str:
+    return _div_span(html, _PARTICLE_OPEN)
+
+
+def _sidebar(html: str) -> str:
+    return html[html.index('<aside class="sidebar"'):html.index("</aside>")]
+
+
+def _tag(html: str, element_id: str) -> str:
+    """The opening tag of the element with `element_id`."""
+    match = re.search(r'<[a-z]+\b[^>]*\bid="' + re.escape(element_id) + r'"[^>]*>', html, re.DOTALL)
+    assert match, element_id
+    return match.group(0)
+
+
+def _js_string(source: str, name: str) -> str:
+    """The value of `export const NAME = '...' + '...';`, its literals joined (event_picker.js's titles)."""
+    match = re.search(rf"export const {name} = (.*?);\n", source, re.DOTALL)
+    assert match, name
+    parts = re.findall(r"'((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\"", match.group(1))
+    return "".join(a or b for a, b in parts).replace("\\'", "'")
+
+
+def _unescape(text: str) -> str:
+    import html as _h
+    return _h.unescape(text)
+
+
+def test_the_particle_block_is_the_same_markup_on_both_pages_and_starts_hidden():
+    physics, models = _particle_block(_html()), _particle_block(_models_html())
+    assert physics == models
+    for html in (_html(), _models_html()):
+        assert html.count('id="group-particle"') == 1
+        block = _particle_block(html)
+        for element_id in PARTICLE_IDS:
+            assert html.count(f'id="{element_id}"') == 1, element_id
+            assert f'id="{element_id}"' in block, element_id
+    block = physics
+    assert '<h2><span id="particle-heading">Particle Filter</span> <span class="muted">(event pickers)</span></h2>' in block
+    # The momentum pair: GeV, step 0.05; the angle pair: degrees, step 0.1; each label names its first field.
+    assert '<label for="pp-num-lo" id="particle-p-label">p &mdash; particle momentum [GeV]</label>' in block
+    assert '<label for="pt-num-lo" id="particle-theta-label">&theta; &mdash; incident polar angle [&deg;]</label>' in block
+    for element_id, step in (("pp-num-lo", "0.05"), ("pp-num-hi", "0.05"), ("pt-num-lo", "0.1"), ("pt-num-hi", "0.1")):
+        tag = _tag(block, element_id)
+        assert 'type="number"' in tag and f'step="{step}"' in tag and "aria-label=" in tag, element_id
+    assert 'aria-label="Particle momentum minimum [GeV]"' in _tag(block, "pp-num-lo")
+    assert 'aria-label="Particle momentum maximum [GeV]"' in _tag(block, "pp-num-hi")
+    for element_id in ("pp-lo", "pp-hi", "pt-lo", "pt-hi"):
+        assert 'type="range"' in _tag(block, element_id), element_id
+    for fill in ("pp-fill", "pt-fill"):
+        assert f'<div class="fill" id="{fill}"></div>' in block
+    # The hints name the columns in mono.
+    p_hint = block[block.index('id="particle-p-hint"'):block.index("</div>", block.index('id="particle-p-hint"'))]
+    assert '<span class="mono">incoming_momentum_A</span>' in p_hint and '<span class="mono">_B</span>' in p_hint
+    t_hint = block[block.index('id="particle-theta-hint"'):block.index("</div>", block.index('id="particle-theta-hint"'))]
+    assert '<span class="mono">incoming_theta_A</span>' in t_hint and "in degrees" in t_hint
+    # The count speaks politely; the scope note is the two-shower sentence; Clear waits for a bound.
+    assert '<div class="caption" id="particle-count" role="status" aria-live="polite">&mdash;</div>' in block
+    picker = (JS / "event_picker.js").read_text(encoding="utf-8")
+    scope = re.search(r'<div class="hint" id="particle-scope">(.*?)</div>', block, re.DOTALL).group(1)
+    scope_text = _unescape(re.sub(r"</?sub>", "", scope))
+    assert scope_text.startswith("Narrows only which events the pickers offer (Pick for me, Most tilted, previous / next,")
+    assert scope_text.endswith("The ensemble panels follow E1, E2 and D.")
+    assert "export function scopeNote" in picker
+    assert '<button class="mini" id="particle-clear" type="button" disabled>Clear particle filter</button>' in block
+    # Tokens only: no colour literal, no inline style.
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", block) and "style=" not in block
+
+
+def test_the_particle_block_sits_between_its_neighbours_outside_every_other_group():
+    # Physics: after the Reference Frame group closes, before the Event Inspector's heading.
+    html = _html()
+    sidebar = _sidebar(html)
+    frame = _div_span(sidebar, '<div class="sidebar-group" id="group-frame">')
+    frame_end = sidebar.index(frame) + len(frame)
+    position = sidebar.index(_PARTICLE_OPEN)
+    inspector = re.search(r"<h2>\s*Event Inspector", sidebar)
+    assert inspector, "the Event Inspector heading is missing"
+    assert frame_end <= position < inspector.start()
+    # Nothing but a comment between the frame group's close and the block.
+    assert re.fullmatch(r"\s*(<!--.*?-->\s*)*", sidebar[frame_end:position], re.DOTALL)
+    block = _particle_block(sidebar)
+    assert sidebar.index(block) + len(block) < inspector.start()
+    for other in ("group-frame", "group-resolution", "group-channel", "group-colormap", "group-lgroups"):
+        opening = re.search(rf'<div class="sidebar-group" id="{other}"( hidden)?>', sidebar)
+        assert opening, other
+        assert 'id="group-particle"' not in _div_span(sidebar, opening.group(0)), other
+    # The Event Inspector's controls and the compare toggle stay outside it, in their order.
+    for kept in ('id="ctl-event"', 'id="opt-compare"', 'id="event-pick"', 'id="frame-caption"'):
+        assert kept not in block, kept
+    assert sidebar.index('id="frame-caption"') < sidebar.index('id="opt-compare"') < sidebar.index('id="ctl-event"')
+    # Models: after the undefined-D choice, before the Reconstruction Model group.
+    html = _models_html()
+    sidebar = _sidebar(html)
+    position = sidebar.index(_PARTICLE_OPEN)
+    assert sidebar.index('id="ctl-undefined-d"') < position < sidebar.index('id="group-m-model"')
+    block = _particle_block(sidebar)
+    assert sidebar.index(block) + len(block) < sidebar.index('<div class="sidebar-group" id="group-m-model">')
+    for other in ("group-m-model", "group-m-frame", "group-lgroups", "group-m-colormap"):
+        opening = re.search(rf'<div class="sidebar-group" id="{other}"( hidden)?>', sidebar)
+        assert opening, other
+        assert 'id="group-particle"' not in _div_span(sidebar, opening.group(0)), other
+    assert 'id="ctl-undefined-d"' not in block and 'id="filter-logic"' not in block
+
+
+def test_the_module_ids_are_the_markups():
+    """Every id `controls/particle_filter.js` looks up is in both pages' block."""
+    source = _strip_comments((JS / "controls" / "particle_filter.js").read_text(encoding="utf-8"))
+    ids = set(re.findall(r"'((?:pp|pt|particle|ctl-particle|group-particle)[\w-]*)'", source))
+    ids -= {"particle-line", "particle_p_min", "particle_p_max", "particle_theta_min", "particle_theta_max"}
+    ids = {i for i in ids if "_" not in i}
+    assert ids >= {"group-particle", "particle-count", "particle-scope", "particle-clear", "particle-theta-hint",
+                   "ctl-particle-p", "ctl-particle-theta", "pp-lo", "pp-hi", "pp-fill", "pp-num-lo", "pp-num-hi",
+                   "pt-lo", "pt-hi", "pt-fill", "pt-num-lo", "pt-num-hi"}, ids
+    for html in (_html(), _models_html()):
+        block = _particle_block(html)
+        for element_id in ids:
+            assert f'id="{element_id}"' in block, element_id
+
+
+def test_the_event_pickers_and_the_open_in_3d_link_on_the_physics_page():
+    html = _html()
+    picker = (JS / "event_picker.js").read_text(encoding="utf-8")
+    actions = _div_span(_sidebar(html), '<div class="event-actions">')
+    # Most tilted follows Pick for me in the actions row; both are typed buttons titled by event_picker.js.
+    assert actions.index('id="event-pick"') < actions.index('id="event-pick-tilted"') < actions.index('id="event-close"')
+    pick, tilted = _tag(actions, "event-pick"), _tag(actions, "event-pick-tilted")
+    assert pick.startswith('<button class="action" id="event-pick" type="button"')
+    assert tilted.startswith('<button class="action" id="event-pick-tilted" type="button"')
+    assert re.search(r'id="event-pick-tilted"[^>]*>Most tilted</button>', actions, re.DOTALL)
+    assert re.search(r'id="event-pick"[^>]*>Pick for me</button>', actions, re.DOTALL)
+    assert _unescape(re.search(r'title="([^"]*)"', pick).group(1)) == _js_string(picker, "PICK_TITLE")
+    assert _unescape(re.search(r'title="([^"]*)"', tilted).group(1)) == _js_string(picker, "TILTED_TITLE")
+    assert html.count('id="event-pick-tilted"') == 1
+    # Open in 3-D: an anchor styled as a mini button in the Event Inspector grid's head, before its close button,
+    # hidden until an event is pinned, pointing at the Models page.
+    grid = html[html.index('<section class="frame-grid" id="event-grid"'):]
+    grid = grid[:grid.index("</section>")]
+    head = _div_span(grid, '<div class="frame-grid-head">')
+    assert html.count('id="event-open-3d"') == 1 and 'id="event-open-3d"' in head
+    assert head.index('id="event-open-3d"') < head.index('id="event-grid-close"')
+    link = _tag(head, "event-open-3d")
+    assert link.startswith('<a class="mini" id="event-open-3d" href="/models" hidden')
+    assert _unescape(re.search(r'title="([^"]*)"', link).group(1)) == _js_string(picker, "OPEN_3D_TITLE")
+    assert re.search(r'id="event-open-3d"[^>]*>Open in 3-D &rarr;</a>', head, re.DOTALL)
+    # The Models page has neither: its pickers are built on the 3-D card (voxel_views.js).
+    models = _models_html()
+    assert 'id="event-pick-tilted"' not in models and 'id="event-open-3d"' not in models
+
+
+def test_the_particle_block_styles_are_tokens_only_and_kept_to_views_on_the_models_page():
+    models_css = _strip_comments((STATIC / "css" / "models.css").read_text(encoding="utf-8"))
+    assert re.search(r'\.app\[data-msub="distill"\] #group-particle,\s*\.app\[data-msub="perf"\] #group-particle'
+                     r'\s*\{\s*display: none;\s*\}', models_css)
+    controls = _strip_comments((STATIC / "css" / "controls.css").read_text(encoding="utf-8"))
+    colour = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(")
+    for rule in re.findall(r"[^{}]*(?:#group-particle|#particle-[\w-]+|a\.mini|\.event-actions)[^{}]*\{[^}]*\}", controls):
+        assert not colour.search(rule), rule
+        assert "transition" not in rule and "animation" not in rule, rule
+    # A hidden group is hidden; the actions row wraps its three buttons.
+    assert ".sidebar-group[hidden] { display: none; }" in (STATIC / "css" / "layout.css").read_text(encoding="utf-8")
+    assert re.search(r"\.event-actions\s*\{[^}]*flex-wrap: wrap", controls)
+
+
+def test_both_pages_mount_the_particle_filter_and_abort_its_request_on_a_switch():
+    main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
+    models = _strip_comments((JS / "models_main.js").read_text(encoding="utf-8"))
+    for source in (main, models):
+        assert "import { mountParticleFilter } from './controls/particle_filter.js';" in source
+        assert "mountParticleFilter({" in source
+    keys = re.search(r"const SPATIAL_ABORT_KEYS = \[(.*?)\];", main, re.DOTALL).group(1)
+    assert "'event-candidates'" in keys
+    # The Models page aborts the block's own key with its other requests.
+    assert "abortRequest(particle.abortKey)" in _function_body(models, "clearExperimentViews")
+    # The particle block's ids are among the ids each page audits.
+    physics_ids = re.search(r"const REQUIRED_IDS = \[(.*?)\];", main, re.DOTALL).group(1)
+    models_ids = re.search(r"const MODELS_REQUIRED_IDS = \[(.*?)\];", models, re.DOTALL).group(1)
+    for element_id in PARTICLE_IDS:
+        assert f"'{element_id}'" in physics_ids, element_id
+        assert f"'{element_id}'" in models_ids, element_id
+    for element_id in ("event-pick-tilted", "event-open-3d"):
+        assert f"'{element_id}'" in physics_ids, element_id
+
+
+def test_the_event_inspector_keeps_its_pick_route_and_takes_its_sentences_from_the_picker_module():
+    inspector = _strip_comments((JS / "event_inspector.js").read_text(encoding="utf-8"))
+    assert "'/api/event/pick'" in inspector
+    imported = re.search(r"import \{([^}]*)\} from './event_picker\.js';", inspector, re.DOTALL)
+    assert imported, "event_inspector.js must import event_picker.js"
+    names = {n.strip() for n in imported.group(1).split(",") if n.strip()}
+    for name in ("FIRST_SEED", "pickParams", "followDecision", "focusShower", "emptyLine", "placeLine", "matchLine",
+                 "replacedLine", "pickerTitle", "open3dTitle", "eventIn3dHref"):
+        assert name in names, name
+    # No sentence of event_picker.js is written here again.
+    for fragment in ("Candidate ", "left the candidates", "Not a candidate", "matches the particle filter",
+                     "N = 0", "drawn uniformly at random", "Open this event", "no shower matches"):
+        assert fragment not in inspector, fragment
+    assert "const FIRST_SEED" not in inspector
+
+
+def test_the_picker_modules_write_text_nodes_only():
+    for name in ("event_picker.js", "controls/particle_filter.js"):
+        source = _strip_comments((JS / name).read_text(encoding="utf-8"))
+        for token in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
+            assert token not in source, (name, token)
+    # The picker module is pure: no DOM.
+    picker = _strip_comments((JS / "event_picker.js").read_text(encoding="utf-8"))
+    for token in ("document.", "window.", "getElementById", "createElement"):
+        assert token not in picker, token

@@ -9,6 +9,35 @@
     "within_tolerance": true
    },
    "event": {
+    "candidates": {
+     "in_pool": true,
+     "index": 0,
+     "matched": [
+      "a",
+      "b"
+     ],
+     "n_events": 2,
+     "next_matched": [
+      "a",
+      "b"
+     ],
+     "particle": {
+      "active": false,
+      "p_gev": [
+       null,
+       null
+      ],
+      "theta_deg": [
+       null,
+       null
+      ],
+      "theta_rad": [
+       null,
+       null
+      ]
+     },
+     "prev_matched": null
+    },
     "d": 3077.028076171875,
     "e1": 2.712594747543335,
     "e2": 12.54078197479248,
@@ -1207,6 +1236,35 @@
     "within_tolerance": true
    },
    "event": {
+    "candidates": {
+     "in_pool": true,
+     "index": 0,
+     "matched": [
+      "a",
+      "b"
+     ],
+     "n_events": 2,
+     "next_matched": [
+      "a",
+      "b"
+     ],
+     "particle": {
+      "active": false,
+      "p_gev": [
+       null,
+       null
+      ],
+      "theta_deg": [
+       null,
+       null
+      ],
+      "theta_rad": [
+       null,
+       null
+      ]
+     },
+     "prev_matched": null
+    },
     "d": 3077.028076171875,
     "e1": 2.712594747543335,
     "e2": 12.54078197479248,
@@ -2457,7 +2515,7 @@
     0
    ],
    "pool_size": 20,
-   "rule": "Among the 1 selected events with a defined separation, those with more hits than the mean (921.0); of those the 1 with the largest incident polar angle (the larger of the two showers'); one drawn at random with seed 7 - the reference notebook's selection rule.",
+   "rule": "The only one of the selected events with a defined separation: the reference notebook's selection rule has one event to choose from (seed 7).",
    "seed": 7
   },
   "status": 200

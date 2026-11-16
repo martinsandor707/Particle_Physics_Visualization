@@ -205,13 +205,16 @@ input[type="file"]::file-selector-button:hover {
 .choice-sub[hidden] { display: none; }
 .choice-sub .choice:last-child { margin-bottom: 0; }
 
-/* The Event Inspector's two actions, side by side under the shower radios. */
+/* The Event Inspector's actions (Pick for me, Most tilted, Back to the
+   ensemble), side by side under the shower radios; a third wraps to its own
+   line before a label is cut. */
 .event-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 4px 0 8px;
 }
-.event-actions .action { flex: 1 1 0; min-width: 0; text-align: center; }
+.event-actions .action { flex: 1 1 0; min-width: 7em; text-align: center; }
 .event-actions .action[hidden] { display: none; }
 .numeric-pair .mini { flex: none; }
 
@@ -473,6 +476,10 @@ input[type="file"]::file-selector-button:hover {
 }
 .mini:hover { background: var(--control-hover); border-color: var(--accent); color: var(--accent); }
 .mini:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* A link that looks and focuses as a .mini button (Open in 3-D, 2-D). */
+a.mini { display: inline-block; text-decoration: none; }
+a.mini:visited { color: var(--control-text); }
+a.mini:hover:visited { color: var(--accent); }
 
 /* A tinted active state rather than a solid fill: these toggles sit inside a
    plot card, and a saturated block of accent colour beside a Viridis raster
@@ -677,6 +684,12 @@ a.action { display: inline-block; text-decoration: none; }
    as a wash over anything the page measures. */
 
 #group-lgroups[hidden] { display: none; }
+
+/* The particle filter's block: its count line and Clear button sit under the
+   two sliders, with the .control rules doing the rest. */
+#group-particle[hidden] { display: none; }
+#particle-count { margin: 4px 0; }
+#particle-scope { margin: 0 0 6px; }
 #lgroups-edit { margin-top: 8px; }
 #lgroups-edit[disabled] { opacity: 0.45; cursor: not-allowed; }
 /* Scoped to this group: the base .choice.is-disabled rule styles every other disabled radio. */

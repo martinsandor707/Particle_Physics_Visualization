@@ -82,6 +82,8 @@ async function run({ scope, lgmode = 'off', counts = null, frame = 'lab', projec
     get(k) { return this.values[k]; },
     set(patch) { Object.assign(this.values, patch); return true; },
     filterParams() { return { table_name: this.values.table_name }; },
+    // state.js: the particle filter's set bounds; none here, so no request carries one.
+    particleParams() { return {}; },
     isTouched: () => false,
     layerGroups() {
       const L = 56;
@@ -271,6 +273,8 @@ def test_no_request_of_the_page_carries_depth_groups(sections):
         assert sections[name]["requests"], name
         for _path, query in sections[name]["requests"]:
             assert "depth_groups" not in query
+            # No particle bound is set: no request names the particle filter either.
+            assert not any(key.startswith("particle_") for key in query), (name, query)
 
 
 def test_a_change_of_mode_partition_or_draft_repaints_with_zero_requests(sections):

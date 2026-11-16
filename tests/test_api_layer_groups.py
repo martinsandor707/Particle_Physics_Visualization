@@ -467,8 +467,8 @@ def test_an_event_over_the_contract_yields_its_layer_planes_before_the_grids(sin
                                            footprint, limit=limit)
 
         full = run()
-        # The guard measures the figure before the event's own metadata joins it.
-        measured = {k: full[k] for k in ("frames", "scale", "grid")}
+        # The guard measures the figure with the event block, the pickers' candidates included.
+        measured = {k: full[k] for k in ("frames", "scale", "grid", "event")}
         planes, _ = layer_profile.trim_layer_planes(
             {k: f["layer_planes"] for k, f in full["frames"].items()})
         trimmed = {**measured, "frames": {k: {**f, "layer_planes": planes[k]}

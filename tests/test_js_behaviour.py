@@ -2442,3 +2442,286 @@ def test_single_shower_lab_centroids_draw_without_a_second_shower(single_centroi
 def test_single_shower_frame_centroid_is_drawn_and_named(single_centroid_results):
     assert single_centroid_results["frame"] >= 1
     assert "Energy-weighted centroid" in single_centroid_results["legend"]
+
+
+# ------------------------------------------------ the particle filter's drawers --
+
+_PARTICLE_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "payloads"
+
+_PARTICLE_NOTES_SCRIPT = """
+import fs from 'node:fs';
+const [jsRoot, fixtureDir] = JSON.parse(process.argv[1]);
+globalThis.window = {
+  location: { hash: '', pathname: '/' },
+  history: { replaceState() {} },
+};
+const imp = (p) => import(`${jsRoot}/${p}`);
+const load = (name) => JSON.parse(fs.readFileSync(`${fixtureDir}/${name}.json`, 'utf8'));
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const { State } = await imp('state.js');
+const pn = await imp('panel_notes.js');
+const vn = await imp('voxel_notes.js');
+const fv = await imp('frame_views.js');
+const ep = await imp('event_picker.js');
+const out = {};
+const dump = (notes) => (notes ? { title: notes.title, hazards: notes.hazards,
+  sections: Object.fromEntries(notes.sections.map((s) => [s.heading, s.lines])) } : null);
+const one = { capabilities: { n_showers: 1 } };
+const two = { capabilities: { n_showers: 2 } };
+
+// What event_picker.js writes for each fixture, so no sentence is typed here.
+const expected = (event, drawn, showers, experiment) => {
+  const nShowers = experiment.capabilities.n_showers;
+  return {
+    place: ep.placeLine(event, { nShowers }),
+    match: ep.matchLine({ candidates: event.candidates, drawn, showers, nShowers }),
+    interval: ep.intervalText(event.candidates.particle),
+  };
+};
+
+const rasterOff = load('event_raster_base');
+const rasterOn = load('event_raster_base_particle');
+const voxOff = load('event_voxels_base_lab');
+const voxOn = load('event_voxels_base_lab_particle');
+
+const raster = (payload, experiment = two, panelId = 'xy') => dump(pn.eventNotes({
+  payload, kind: 'lab', panelId, experiment }));
+out.raster = {
+  off: raster(rasterOff), on: raster(rasterOn), onSingle: raster(rasterOn, one),
+  expOff: expected(rasterOff.event, 'a', rasterOff.event.shower, two),
+  expOn: expected(rasterOn.event, 'a', rasterOn.event.shower, two),
+  expOnSingle: expected(rasterOn.event, 'a', rasterOn.event.shower, one),
+};
+
+// The hazard, in and out: inactive, in the pool, outside the pool, outside the pool and the selection.
+const outside = clone(rasterOn);
+outside.event.candidates = { ...outside.event.candidates, in_pool: false, index: null, matched: [] };
+const outsideSelection = clone(outside);
+outsideSelection.event.in_selection = false;
+const inactiveOut = clone(rasterOff);
+inactiveOut.event.candidates = { ...inactiveOut.event.candidates, in_pool: false, index: null, matched: [] };
+const noBlock = clone(rasterOn);
+delete noBlock.event.candidates;
+out.hazards = {
+  off: pn.hazards(rasterOff, 'xy'), on: pn.hazards(rasterOn, 'xy'), outside: pn.hazards(outside, 'xy'),
+  outsideSelection: pn.hazards(outsideSelection, 'xy'), inactiveOut: pn.hazards(inactiveOut, 'xy'),
+  noBlock: pn.hazards(noBlock, 'xy'),
+};
+out.outside = raster(outside);
+out.outsideSelection = raster(outsideSelection);
+const outsideSelectionOff = clone(rasterOff);
+outsideSelectionOff.event.in_selection = false;
+out.outsideSelectionOff = raster(outsideSelectionOff);
+out.outsideSelectionPair = dump(vn.voxelProjectionNotes({ pair: 'event', payload: outsideSelection, panelId: 'yz',
+  frameKind: 'lab', experiment: two }));
+out.inactiveOut = raster(inactiveOut);
+out.noBlock = raster(noBlock);
+out.expOutside = expected(outside.event, 'a', outside.event.shower, two);
+
+// A drawn shower the filter does not match while another does.
+const unmatched = clone(rasterOn);
+unmatched.event.shower = { ...unmatched.event.shower, key: 'b', label: 'B' };
+out.unmatched = raster(unmatched);
+out.expUnmatched = expected(unmatched.event, 'b', unmatched.event.shower, two);
+
+// The same notes through the Models page's paired projections.
+out.pair = dump(vn.voxelProjectionNotes({ pair: 'event', payload: rasterOn, panelId: 'yz', frameKind: 'lab',
+  experiment: two }));
+
+// The 3-D event card.
+const vox = (payload, extra = {}) => dump(vn.voxelEventNotes({ payload, experiment: two, ...extra }));
+out.vox = {
+  off: vox(voxOff), on: vox(voxOn), onSingle: vox(voxOn, { experiment: one }),
+  expOff: expected(voxOff.event, 'both', voxOff.event.showers, two),
+  expOn: expected(voxOn.event, 'both', voxOn.event.showers, two),
+};
+const voxIn = clone(voxOn);
+voxIn.event.candidates = { ...voxIn.event.candidates, in_pool: true, index: 0, matched: ['a'] };
+voxIn.event.showers = [voxIn.event.showers[0]];
+out.vox.in = vox(voxIn);
+out.vox.expIn = expected(voxIn.event, 'a', voxIn.event.showers, two);
+const voxOutSel = clone(voxOn);
+voxOutSel.event.in_selection = false;
+out.vox.outsideSelection = vox(voxOutSel);
+
+// The Selection scope: the same card, the cloud and the ensemble projections.
+const stateOff = new State();
+const stateOn = new State();
+stateOn.set({ particle_p_min: 5, particle_p_max: 6, particle_theta_min: 10 }, { silent: true });
+const selected = (payload) => ({ ...clone(payload), selection: { n_events: 2, n_hits: 9, n_cells: 5 } });
+out.ensembleText = {
+  two: ep.ensembleLine({ particle_p_min: 5, particle_p_max: 6, particle_theta_min: 10 }, { nShowers: 2 }),
+  single: ep.ensembleLine({ particle_p_min: 5, particle_p_max: 6, particle_theta_min: 10 }, { nShowers: 1 }),
+};
+out.activeParams = stateOn.particleParams();
+out.selection = {
+  eventOn: vox(selected(voxOn), { state: stateOn }), eventOff: vox(selected(voxOn), { state: stateOff }),
+  eventNull: vox(selected(voxOn)),
+  eventSingle: dump(vn.voxelEventNotes({ payload: selected(voxOn), state: stateOn, experiment: one })),
+};
+const cloud = load('voxels_base_local');
+const cloudNotes = (state, experiment = two) => dump(vn.voxelEnsembleNotes({ payload: cloud, state, experiment }));
+out.cloud = { on: cloudNotes(stateOn), off: cloudNotes(stateOff), none: cloudNotes(null),
+  single: cloudNotes(stateOn, one) };
+const projections = load('projections_base_lab');
+const proj = (state, experiment = two) => dump(vn.voxelProjectionNotes({
+  pair: 'ensemble', payload: projections, panelId: 'xz', state, experiment }));
+out.projection = { on: proj(stateOn), off: proj(stateOff), none: proj(null) };
+
+// eventSelectionLine: with and without an active bound.
+const lineOf = (event) => fv.eventSelectionLine(event);
+const away = (candidates) => ({ ...rasterOn.event, in_selection: false, candidates });
+out.line = {
+  inside: lineOf(rasterOff.event),
+  insideOn: lineOf(rasterOn.event),
+  awayOff: lineOf(away(rasterOff.event.candidates)),
+  awayOn: lineOf(away(rasterOn.event.candidates)),
+  awayNoBlock: lineOf({ ...rasterOn.event, in_selection: false, candidates: undefined }),
+  awayInactiveKey: lineOf(away({ particle: { active: false } })),
+};
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def particle_notes() -> dict:
+    args = json.dumps([JS.as_posix(), _PARTICLE_FIXTURES.as_posix()])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _PARTICLE_NOTES_SCRIPT, args],
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def _selection(notes: dict) -> list[str]:
+    return notes["sections"]["Selection"]
+
+
+def _everything(notes: dict) -> str:
+    return " ".join(line for lines in notes["sections"].values() for line in lines)
+
+
+def test_an_inactive_filter_adds_the_place_line_only(particle_notes):
+    r = particle_notes["raster"]
+    exp = r["expOff"]
+    assert exp["place"].startswith("Candidate 1 of 2")
+    assert exp["match"] == "" and exp["interval"] == ""
+    selection = _selection(r["off"])
+    assert selection[-1] == exp["place"]
+    assert not any("Particle filter" in line or "particle filter" in line for line in selection)
+    assert r["off"]["hazards"] == []
+    # The voxel card says the same, from the same writer.
+    v = particle_notes["vox"]
+    assert _selection(v["off"])[-1] == v["expOff"]["place"] and v["off"]["hazards"] == []
+    assert "particle filter" not in _everything(v["off"]).replace("particle filter's", "")
+
+
+def test_an_active_filter_adds_place_match_and_interval_after_the_existing_lines(particle_notes):
+    r = particle_notes["raster"]
+    exp = r["expOn"]
+    assert exp["place"].startswith("Candidate 1 of 1") and exp["match"].startswith("Shower A matches")
+    selection = _selection(r["on"])
+    assert selection[-3:] == [exp["place"], exp["match"], f"Particle filter: {exp['interval']}."]
+    # The existing lines come first, unchanged: the label and the event's own line.
+    assert selection[0].startswith("Event 0, shower A") and selection[1].startswith("Event 0: ")
+    assert r["on"]["hazards"] == []
+    v = particle_notes["vox"]
+    assert _selection(v["in"])[-3:] == [
+        v["expIn"]["place"], v["expIn"]["match"], f"Particle filter: {v['expIn']['interval']}."]
+
+
+def test_the_lines_take_the_experiments_number_of_showers(particle_notes):
+    r = particle_notes["raster"]
+    assert r["expOnSingle"]["match"] != r["expOn"]["match"]
+    assert r["expOnSingle"]["match"].startswith("The shower matches the particle filter")
+    assert _selection(r["onSingle"])[-2] == r["expOnSingle"]["match"]
+    assert particle_notes["vox"]["onSingle"] is not None
+
+
+def test_an_event_outside_the_pool_gets_the_hazard_and_its_reason(particle_notes):
+    h = particle_notes["hazards"]
+    assert h["off"] == [] and h["on"] == [] and h["noBlock"] == []
+    assert h["outside"] == ["event outside the candidates"]
+    # Outside the selection the selection's own hazard stands alone: the pool is moot.
+    assert h["outsideSelection"] == ["event outside the selection"]
+    # An inactive filter never raises it, even for an event the frame gate refused.
+    assert h["inactiveOut"] == []
+    out = particle_notes["outside"]
+    assert out["hazards"] == ["event outside the candidates"]
+    assert "Not a candidate: no shower matches the particle filter" in _everything(out)
+    assert particle_notes["expOutside"]["place"] in _selection(out)
+    # Outside the selection the place line is empty: the selection line already says so.
+    assert not any(line.startswith("Not a candidate") for line in _selection(particle_notes["outsideSelection"]))
+    # An inactive filter still states the event's place: the frame gate refused it.
+    assert _selection(particle_notes["inactiveOut"])[-1].startswith("Not a candidate: it has no defined separation")
+
+
+def test_an_event_outside_the_selection_says_once_what_previous_next_walk(particle_notes):
+    """Review S1 / U5: the Disclosures follow eventSelectionLine, so one drawer never says both."""
+    for name in ("outsideSelection", "outsideSelectionPair"):
+        text = _everything(particle_notes[name])
+        assert "previous / next walk the candidates." in text, name
+        assert ("This event lies outside the current selection and is drawn as asked; the previous / next controls "
+                "walk the candidates.") in particle_notes[name]["sections"]["Disclosures"], name
+        assert "walk the selection" not in text, name
+    # No bound set: both say the selection, as before.
+    off = particle_notes["outsideSelectionOff"]
+    assert ("This event lies outside the current selection and is drawn as asked; the previous / next controls "
+            "walk the selection.") in off["sections"]["Disclosures"]
+    assert "walk the candidates" not in _everything(off)
+
+
+def test_a_response_without_a_candidates_block_moves_nothing(particle_notes):
+    no_block = _selection(particle_notes["noBlock"])
+    assert not any("Candidate" in line or "particle filter" in line.lower() for line in no_block)
+
+
+def test_a_drawn_shower_that_does_not_match_says_so(particle_notes):
+    line = particle_notes["expUnmatched"]["match"]
+    assert line.startswith("Shower B is drawn as asked and does not match the particle filter; shower A does")
+    assert line in _selection(particle_notes["unmatched"])
+
+
+def test_the_paired_projection_carries_the_event_lines(particle_notes):
+    exp = particle_notes["raster"]["expOn"]
+    selection = _selection(particle_notes["pair"])
+    assert exp["place"] in selection and exp["match"] in selection
+
+
+def test_the_3d_event_card_raises_the_hazard_outside_the_pool(particle_notes):
+    v = particle_notes["vox"]
+    assert v["on"]["hazards"] == ["event outside the candidates"]
+    assert v["expOn"]["place"] in _selection(v["on"])
+    # The server's warning stays in the disclosures, beside the hazard.
+    assert "holds no shower matching the particle filter" in " ".join(v["on"]["sections"]["Disclosures"])
+    assert v["outsideSelection"]["hazards"] == ["event outside the selection"]
+    # Both showers drawn, one matching: the line names the match, as event_picker.js writes it.
+    assert v["expOn"]["match"] == "Neither shower matches the particle filter."
+
+
+def test_the_selection_scope_carries_the_ensemble_line_only_while_a_bound_is_set(particle_notes):
+    text = particle_notes["ensembleText"]
+    assert text["two"].endswith("this view draws the whole selection of E₁, E₂ and D.")
+    assert text["single"].endswith("this view draws the whole selection of p.")
+    s = particle_notes["selection"]
+    assert text["two"] in _selection(s["eventOn"])
+    assert text["single"] in _selection(s["eventSingle"])
+    assert text["two"] not in _everything(s["eventOff"]) and text["two"] not in _everything(s["eventNull"])
+    # The selection scope never gets the one-event lines or the pool hazard.
+    assert "Candidate" not in _everything(s["eventOn"]) and "event outside the candidates" not in s["eventOn"]["hazards"]
+    c = particle_notes["cloud"]
+    assert text["two"] in _selection(c["on"]) and text["single"] in _selection(c["single"])
+    assert text["two"] not in _everything(c["off"]) and text["two"] not in _everything(c["none"])
+    p = particle_notes["projection"]
+    assert text["two"] in _selection(p["on"])
+    assert text["two"] not in _everything(p["off"]) and text["two"] not in _everything(p["none"])
+
+
+def test_the_selection_line_names_the_candidates_only_while_a_bound_is_set(particle_notes):
+    line = particle_notes["line"]
+    assert line["inside"].endswith("inside the current selection.")
+    assert line["insideOn"].endswith("inside the current selection.")
+    assert line["awayOff"].endswith("outside the current selection, drawn as asked; previous / next walk the selection.")
+    assert line["awayOn"].endswith("outside the current selection, drawn as asked; previous / next walk the candidates.")
+    # No bound set, or no block at all: character for character as before.
+    assert line["awayNoBlock"] == line["awayOff"]
+    assert line["awayInactiveKey"].endswith("previous / next walk the selection.")

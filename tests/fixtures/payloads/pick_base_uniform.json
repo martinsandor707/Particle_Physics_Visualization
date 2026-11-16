@@ -1,0 +1,49 @@
+{
+ "meta": {
+  "table_name": "experiment_baseline",
+  "exact": true,
+  "warnings": []
+ },
+ "event_number": 1,
+ "n_events": 2,
+ "seed": 42,
+ "draw": 0,
+ "entry": 1,
+ "rule": "Drawn uniformly at random from the 2 selected events with a defined separation: entry 1 of a seeded shuffle of them in event-number order (seed 42, draw 0), so no event repeats until all 2 have been drawn.",
+ "rule_id": "uniform",
+ "seed_used": true,
+ "matched": [
+  "a",
+  "b"
+ ],
+ "particle": {
+  "active": false,
+  "p_gev": [
+   null,
+   null
+  ],
+  "theta_deg": [
+   null,
+   null
+  ],
+  "theta_rad": [
+   null,
+   null
+  ]
+ },
+ "filter": {
+  "e1": [
+   2.712594747543335,
+   17.876461029052734
+  ],
+  "e2": [
+   6.385610580444336,
+   12.54078197479248
+  ],
+  "d": [
+   2258.51123046875,
+   3077.028076171875
+  ],
+  "include_undefined_d": false
+ }
+}

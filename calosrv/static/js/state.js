@@ -56,6 +56,24 @@
  * (`layerGroups().fallback`), and the stored string is kept rather than
  * rewritten, so the link keeps its meaning on the lattice it was made for.
  * Neither key may be saved as an Admin default.
+ *
+ * ## The particle filter: `particle_p_min` … `particle_theta_max`
+ *
+ * Four inclusive bounds on one particle, with no A/B choice: the incident
+ * momentum p in GeV and the incident polar angle θ in degrees (the server
+ * converts θ to radians once). Each null means unbounded, and the filter is
+ * active while any bound is set. They narrow only which events the event
+ * pickers offer (Pick for me, Most tilted, Densest, previous / next): the
+ * ensemble panels and every card follow E₁, E₂ and D alone, so
+ * `filterParams()` never carries them and stays the seven keys it always
+ * was. `particleParams()` holds only the bounds that are set (`{}` when
+ * none, so a request without a particle filter is exactly today's), and
+ * `eventParams()` adds them to the Event Inspector's request. The sidebar
+ * block (controls/particle_filter.js) stores a bound left at its slider's
+ * snapped domain edge as null, so a link carries only a bound that narrows.
+ * A link's p must be finite and ≥ 0, its θ within 0–180°; an inverted pair
+ * names no range and keeps both bounds null. The four keys are view state,
+ * read and written by both pages, and never Admin defaults.
  */
 
 import { SEQUENTIAL_PALETTES } from './palette.js';
@@ -157,7 +175,16 @@ const ENUMS = {
   msub: MSUBS,
   bench_species: BENCH_SPECIES,
 };
-const NUMERIC_RANGE = { resolution: [50, 400] };
+const NUMERIC_RANGE = {
+  resolution: [50, 400],
+  particle_p_min: [0, Infinity], particle_p_max: [0, Infinity],
+  particle_theta_min: [0, 180], particle_theta_max: [0, 180],
+};
+
+/** The particle filter's four bounds (see the header), in the order the API names them. */
+export const PARTICLE_PARAM_KEYS = Object.freeze([
+  'particle_p_min', 'particle_p_max', 'particle_theta_min', 'particle_theta_max',
+]);
 
 /** The filter sliders' steps (controls/filter_block.js), by which their domains snap outward. */
 export const SLIDER_STEP = Object.freeze({ e1: 0.05, e2: 0.05, d: 1 });
@@ -266,10 +293,17 @@ export const DEFAULTS = Object.freeze({
   // page's keys" above.
   msub: 'views',
   bench_species: null,
+  // The particle filter (see the header): p in GeV and θ in degrees, each
+  // null for unbounded; all null means off.
+  particle_p_min: null,
+  particle_p_max: null,
+  particle_theta_min: null,
+  particle_theta_max: null,
 });
 
 const NUMERIC = new Set([
   'e1_min', 'e1_max', 'e2_min', 'e2_max', 'd_min', 'd_max', 'resolution', 'event', 'voxel_event',
+  ...PARTICLE_PARAM_KEYS,
 ]);
 /* Whole, non-negative numbers: an event number is an identifier, so a
  * fraction or a negative in a link names nothing and keeps the default. */
@@ -615,10 +649,29 @@ export class State {
     };
   }
 
-  /** The Event Inspector: the pinned event and its shower, under the same filters. */
+  /**
+   * The particle filter's bounds that are set, by their API names; `{}` when
+   * none is, so a request without a particle filter is the object it always
+   * was. Never part of filterParams: the ensemble panels do not read it.
+   */
+  particleParams() {
+    const params = {};
+    for (const key of PARTICLE_PARAM_KEYS) {
+      const value = this.values[key];
+      if (value !== null && value !== undefined) params[key] = value;
+    }
+    return params;
+  }
+
+  /** Whether any particle bound is set. */
+  particleActive() {
+    return Object.keys(this.particleParams()).length > 0;
+  }
+
+  /** The Event Inspector: the pinned event and its shower, under the filters and the particle filter. */
   eventParams() {
     const v = this.values;
-    return { ...this.filterParams(), event_number: v.event, shower: v.shower };
+    return { ...this.filterParams(), ...this.particleParams(), event_number: v.event, shower: v.shower };
   }
 
   /** The energy panel: the selected frame's segmentation network. */
@@ -737,6 +790,16 @@ export class State {
     // carries that frame's own key, which is the more specific statement.
     const active = displayKey(this.values.frame);
     if (legacyDisplay && !params.has(active)) this.values[active] = legacyDisplay;
+    // An inverted particle range names nothing (the server would refuse it
+    // with a 422 on every event request): both of its bounds keep null.
+    for (const axis of ['p', 'theta']) {
+      const lo = this.values[`particle_${axis}_min`];
+      const hi = this.values[`particle_${axis}_max`];
+      if (lo !== null && hi !== null && lo > hi) {
+        this.values[`particle_${axis}_min`] = null;
+        this.values[`particle_${axis}_max`] = null;
+      }
+    }
   }
 
   /**
@@ -777,6 +840,9 @@ const PRECISION = {
   resolution: 0,
   event: 0,
   voxel_event: 0,
+  // The particle filter: its sliders' steps, 0.05 GeV and 0.1°.
+  particle_p_min: 2, particle_p_max: 2,
+  particle_theta_min: 1, particle_theta_max: 1,
 };
 
 function round(key, value) {

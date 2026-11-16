@@ -19,7 +19,7 @@ from calosrv.db import naming
 from calosrv.db.naming import quote
 from calosrv.grid import footprint as footprint_mod
 from calosrv.grid import frame as frame_mod
-from calosrv.query import canonical, density, event_inspector, filters, frame_sql
+from calosrv.query import canonical, density, event_inspector, filters, frame_sql, particle
 from calosrv.stats import shape
 
 
@@ -289,6 +289,14 @@ def test_neighbours_and_membership_follow_the_selection(cursor, inspected):
     first = inspected["bodies"][events[0], "a"]["event"]
     assert first["in_selection"] is True and first["prev"] is None
     assert first["next"] == (events[1] if len(events) > 1 else None)
+    # With no particle bound every placeable selected event is a candidate, in event-number order.
+    for i, event in enumerate(events):
+        candidates = inspected["bodies"][event, "a"]["event"]["candidates"]
+        assert candidates["particle"]["active"] is False
+        assert candidates["in_pool"] is True and candidates["index"] == i
+        assert candidates["n_events"] == len(events) and candidates["matched"] == ["a", "b"]
+        assert candidates["prev_matched"] == (None if i == 0 else ["a", "b"])
+        assert candidates["next_matched"] == (None if i == len(events) - 1 else ["a", "b"])
     if len(events) > 1:
         last = inspected["bodies"][events[-1], "a"]["event"]
         assert last["prev"] == events[-2] and last["next"] is None
@@ -298,6 +306,16 @@ def test_neighbours_and_membership_follow_the_selection(cursor, inspected):
         narrow = filters.build(record, e1_min=float(e1) - 1e-3, e1_max=float(e1) + 1e-3)
         body = event_inspector.inspect(cursor, record, narrow, events[-1], "a", "file", inspected["footprint"])
         assert body["event"]["in_selection"] is False
+        assert body["event"]["candidates"]["in_pool"] is False and body["event"]["candidates"]["index"] is None
+        assert body["event"]["prev"] == events[0]
+        # A particle bound narrows the candidates, and previous / next walk them: E1 of the first
+        # event's shower A selects that event alone.
+        only = particle.build(record, p_min=float(e1) - 1e-3, p_max=float(e1) + 1e-3)
+        body = event_inspector.inspect(cursor, record, inspected["spec"], events[-1], "a", "file",
+                                       inspected["footprint"], particle=only)
+        assert body["event"]["in_selection"] is True and body["event"]["candidates"]["in_pool"] is False
+        assert body["event"]["prev"] == events[0] and body["event"]["next"] is None
+        assert body["event"]["candidates"]["prev_matched"] == ["a"]
 
 
 def test_pick_is_the_notebooks_seeded_rule(cursor, inspected):
@@ -314,8 +332,11 @@ def test_pick_is_the_notebooks_seeded_rule(cursor, inspected):
         f"SELECT event_number FROM {event} WHERE d IS NOT NULL AND n_hits > ? "
         "ORDER BY greatest(theta_a, theta_b) DESC, event_number LIMIT 20", [mean_hits]).fetchall()]
     assert first["pool"] == dense
-    # The default is the tilted rule, named as such.
+    # The default is the tilted rule, named as such, with the chosen event's matching showers.
     assert first["rule_id"] == event_inspector.RULE_TILTED and first["seed_used"] is True
+    assert first["matched"] == ["a", "b"] and first["particle"]["active"] is False
+    assert event_inspector.DEFAULT_SEED == 42
+    assert event_inspector.RULES == ("tilted", "densest", "uniform")
 
 
 def test_the_densest_rule_is_the_notebooks_idxmax_in_cells(cursor, inspected):
@@ -385,10 +406,14 @@ def test_a_figure_still_over_the_limit_at_the_coarsest_grid_says_so(cursor, insp
 def test_the_event_route_serves_the_figure_under_budget(client):
     picked = client.get("/api/event/pick", params={"seed": 7}).json()
     assert picked["event_number"] in picked["pool"] and picked["seed"] == 7
-    # A pick that names no rule is the body it was before the rules: no rule_id.
+    # A pick that names no rule and no particle bound is the body it was before the rules.
     assert "rule_id" not in picked and "seed_used" not in picked
+    assert "matched" not in picked and "particle" not in picked
     densest = client.get("/api/event/pick", params={"rule": "densest"}).json()
     assert densest["rule_id"] == "densest" and densest["event_number"] == densest["pool"][0]
+    assert densest["matched"] == ["a", "b"] and densest["particle"]["active"] is False
+    uniform = client.get("/api/event/pick", params={"rule": "uniform"}).json()
+    assert uniform["rule_id"] == "uniform" and uniform["entry"] == 1 and uniform["n_events"] == 2
     bad = client.get("/api/event/pick", params={"rule": "brightest"})
     assert bad.status_code == 422 and bad.json()["field"] == "rule"
     response = client.get("/api/event", params={"event_number": picked["event_number"], "shower": "b"})
@@ -442,13 +467,16 @@ def test_no_event_sentence_signs_a_number_with_a_hyphen(client):
     from calosrv.text import signed_hyphens
 
     picked = client.get("/api/event/pick", params={"seed": 7}).json()
+    narrowed = {"particle_p_min": 2.0, "particle_p_max": 3.0, "particle_theta_min": 10.0}
     for shower in ("a", "b"):
-        body = client.get("/api/event", params={"event_number": picked["event_number"], "shower": shower}).json()
-        assert body["scale"]["floor"] < 1e-3, "the demonstration file's floor writes an exponent"
-        for path, text in _strings(body):
-            if path.endswith(("data", ".table_name")):
-                continue
-            assert not signed_hyphens(text), (path, signed_hyphens(text))
+        for bounds in ({}, narrowed):
+            body = client.get("/api/event", params={"event_number": picked["event_number"], "shower": shower,
+                                                    **bounds}).json()
+            assert body["scale"]["floor"] < 1e-3, "the demonstration file's floor writes an exponent"
+            for path, text in _strings(body):
+                if path.endswith(("data", ".table_name")):
+                    continue
+                assert not signed_hyphens(text), (path, signed_hyphens(text))
 
 
 # --------------------------------------------------------- per-axis window --

@@ -24,7 +24,10 @@
  * drawer reads byte for byte as before.
  */
 
-import { Notes, SECTION, eventNotes, projectionNotes, onLightScreen } from './panel_notes.js';
+import {
+  Notes, SECTION, eventNotes, projectionNotes, onLightScreen, particleEventLines, particleEnsembleLine,
+  outsideCandidates,
+} from './panel_notes.js';
 import { describeSelection } from './export/caption.js';
 import { formatInt, formatSci, formatPercent, typographic } from './scale.js';
 import { CORE_SHIFT_Z_MM } from './axis_symbols.js';
@@ -264,9 +267,15 @@ export function voxelEventNotes({
   const sliced = sliceNoteLines(slice, drawn, 'event', { selection: Boolean(selection) });
   const notes = new Notes(title ?? (selection ? SELECTION_3D_TITLE : VOXEL_TITLES['vox-event']));
   const event = payload.event ?? {};
+  // One event: where it stands among the candidates and how the drawn shower meets the filter.
+  // The selection scope draws every selected event, which the filter never narrows.
+  const drawnShowers = event.showers ?? [];
   notes.section(SECTION.selection, selection
-    ? [selectionLine(selection, vox), filtersLine(state, experiment)]
-    : [...eventSelection(event, pick), filtersLine(state, experiment)]);
+    ? [selectionLine(selection, vox), filtersLine(state, experiment), particleEnsembleLine(state, experiment)]
+    : [...eventSelection(event, pick), filtersLine(state, experiment), ...particleEventLines({
+      event, drawn: drawnShowers.length > 1 ? 'both' : (drawnShowers[0]?.key ?? 'a'), showers: drawnShowers,
+      experiment,
+    })]);
 
   const scale = vox.scale ?? {};
   const channel = EVENT_CHANNELS[vox.channel] ?? vox.channel;
@@ -348,6 +357,7 @@ export function voxelEventNotes({
   const hazards = [];
   if (gl) hazards.push('3-D view not drawn');
   if (event.in_selection === false) hazards.push('event outside the selection');
+  if (!selection && outsideCandidates(event)) hazards.push('event outside the candidates');
   if ((vox.cap?.n_beyond ?? 0) > 0) hazards.push('cap reached');
   if (scale.degenerate) hazards.push('degenerate ramp');
   if (hidden.length) hazards.push('species hidden');
@@ -441,6 +451,7 @@ export function voxelEnsembleNotes({
       + (frame.n_excluded_no_frame ? `; ${plural(frame.n_excluded_no_frame, 'event')} without a frame excluded and counted` : '')
       + '.',
     frame.n_label ?? '',
+    particleEnsembleLine(state, experiment),
   ]);
 
   const [vx, vy, vz] = grid.voxel_mm ?? [];
@@ -576,5 +587,7 @@ export function voxelProjectionNotes({
       + 'bracket, whose two face lines mark the drawn slice and carry short inward ticks at their ends; a hovered '
       + 'channel\'s two faces, drawn in the same ink, have none.'
     : null;
-  return withLines(notes, SECTION.drawn, [...pairing, boundaries]);
+  const withDrawn = withLines(notes, SECTION.drawn, [...pairing, boundaries]);
+  // The ensemble pair draws the whole selection; the filter narrows the event pickers only.
+  return pair === 'event' ? withDrawn : withLines(withDrawn, SECTION.selection, [particleEnsembleLine(state, experiment)]);
 }

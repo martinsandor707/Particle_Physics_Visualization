@@ -94,7 +94,36 @@
      0.9252081529170947
     ]
    }
-  ]
+  ],
+  "candidates": {
+   "particle": {
+    "active": false,
+    "p_gev": [
+     null,
+     null
+    ],
+    "theta_deg": [
+     null,
+     null
+    ],
+    "theta_rad": [
+     null,
+     null
+    ]
+   },
+   "in_pool": true,
+   "index": 0,
+   "n_events": 2,
+   "matched": [
+    "a",
+    "b"
+   ],
+   "prev_matched": null,
+   "next_matched": [
+    "a",
+    "b"
+   ]
+  }
  },
  "coordinates": {
   "source": "file",

@@ -211,6 +211,51 @@
     </label>
     </div>
 
+    <!-- The particle filter: narrows which events the pickers offer (Pick for
+         me, Most tilted, previous / next, Densest), never the ensemble
+         panels. Built by js/controls/particle_filter.js. -->
+    <div class="sidebar-group" id="group-particle" hidden>
+    <h2><span id="particle-heading">Particle Filter</span> <span class="muted">(event pickers)</span></h2>
+
+    <div class="control" id="ctl-particle-p">
+      <div class="control-head">
+        <label for="pp-num-lo" id="particle-p-label">p &mdash; particle momentum [GeV]</label>
+      </div>
+      <div class="numeric-pair">
+        <input class="numeric" type="number" id="pp-num-lo" step="0.05" aria-label="Particle momentum minimum [GeV]">
+        <span class="numeric-sep">&ndash;</span>
+        <input class="numeric" type="number" id="pp-num-hi" step="0.05" aria-label="Particle momentum maximum [GeV]">
+        <span class="numeric-unit">GeV</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="pp-fill"></div>
+        <input type="range" id="pp-lo" aria-label="Particle momentum minimum slider"><input type="range" id="pp-hi" aria-label="Particle momentum maximum slider">
+      </div>
+      <div class="hint" id="particle-p-hint">Incident momentum of either shower (<span class="mono">incoming_momentum_A</span> or <span class="mono">_B</span>).</div>
+    </div>
+
+    <div class="control" id="ctl-particle-theta">
+      <div class="control-head">
+        <label for="pt-num-lo" id="particle-theta-label">&theta; &mdash; incident polar angle [&deg;]</label>
+      </div>
+      <div class="numeric-pair">
+        <input class="numeric" type="number" id="pt-num-lo" step="0.1" aria-label="Particle polar angle minimum [degrees]">
+        <span class="numeric-sep">&ndash;</span>
+        <input class="numeric" type="number" id="pt-num-hi" step="0.1" aria-label="Particle polar angle maximum [degrees]">
+        <span class="numeric-unit">&deg;</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="pt-fill"></div>
+        <input type="range" id="pt-lo" aria-label="Particle polar angle minimum slider"><input type="range" id="pt-hi" aria-label="Particle polar angle maximum slider">
+      </div>
+      <div class="hint" id="particle-theta-hint">Polar angle of the same shower (<span class="mono">incoming_theta_A</span> or <span class="mono">_B</span>), in degrees.</div>
+    </div>
+
+    <div class="caption" id="particle-count" role="status" aria-live="polite">&mdash;</div>
+    <div class="hint" id="particle-scope">Narrows only which events the pickers offer (Pick for me, Most tilted, previous / next, and the 3-D view&rsquo;s Densest). The ensemble panels follow E<sub>1</sub>, E<sub>2</sub> and D.</div>
+    <button class="mini" id="particle-clear" type="button" disabled>Clear particle filter</button>
+    </div>
+
     <h2>
       Event Inspector
       <button class="info-dot" id="info-event" type="button" hidden
@@ -229,9 +274,9 @@
         <input class="numeric" type="number" id="event-number" min="0" step="1" placeholder="&mdash;"
                aria-label="Event number to pin" title="Type an event number and press Enter; clear it to return to the ensemble panels">
         <button class="mini" id="event-prev" type="button" disabled
-                title="The previous event of the current selection">&lsaquo; Prev</button>
+                title="The previous candidate event, in event-number order">&lsaquo; Prev</button>
         <button class="mini" id="event-next" type="button" disabled
-                title="The next event of the current selection">Next &rsaquo;</button>
+                title="The next candidate event, in event-number order">Next &rsaquo;</button>
       </div>
       <label class="choice" title="Shower A: its own entry point P₀ and rotation R(θ, φ).">
         <input type="radio" name="event-shower" value="a" checked> Shower A
@@ -241,7 +286,9 @@
       </label>
       <div class="event-actions">
         <button class="action" id="event-pick" type="button"
-                title="The reference notebook's seeded selection rule on the current filters: events with more hits than the mean, the 20 with the largest incident angle, one drawn at random. Each click takes the next seed.">Pick for me</button>
+                title="A candidate event drawn uniformly at random under the filters and the particle filter: a seeded shuffle, so no event repeats until all have been drawn. Each click takes the next draw.">Pick for me</button>
+        <button class="action" id="event-pick-tilted" type="button"
+                title="The reference notebook's showcase rule on the candidates: events with more hits than the mean, the 20 with the largest incident angle of a matching shower, one drawn at random. Each click takes the next seed.">Most tilted</button>
         <button class="action" id="event-close" type="button" hidden
                 title="Return to the ensemble panels; the link loses its event">Back to the ensemble</button>
       </div>
@@ -533,6 +580,8 @@
         <h2 id="event-grid-title">Event Inspector</h2>
         <span class="frame-grid-label" id="event-grid-label">&mdash;</span>
         <span class="spacer"></span>
+        <a class="mini" id="event-open-3d" href="/models" hidden
+           title="Open this event and shower in the Models page's 3-D view, with every filter; the Physics page keeps its own event.">Open in 3-D &rarr;</a>
         <button class="mini" id="event-grid-close" type="button"
                 title="Return to the ensemble panels; the link loses its event">Back to the ensemble</button>
       </div>
