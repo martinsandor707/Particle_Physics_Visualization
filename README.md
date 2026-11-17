@@ -1368,10 +1368,28 @@ the panel's own (`legendSelected`), never in the view state or the hash. Every
 `ChartPanel` keeps it, and so does Page 1's energy card (`EnergyPanel`), through
 the same helpers (`chart_panel.js` `listenToLegend`, `setOptionWithLegend`).
 - Every repaint is `setOption(…, {notMerge: true})`, which used to drop it.
-- While anything is off, the panel clears the chart before the new option.
-  ECharts 5.5.1 otherwise diffs a hidden custom series against elements the
-  legend detached and throws halfway through the render, drawing a hidden
-  series' points without its lines when the next option has fewer windows.
+- While anything is off, and on the repaint a legend click asks for, the panel
+  clears the chart before the new option. ECharts 5.5.1 otherwise diffs a
+  hidden custom series against elements the legend detached and throws halfway
+  through the render, drawing a hidden series' points without its lines when
+  the next option has fewer windows.
+- **A switched-off entry takes every mark of it along, on screen as in an
+  export** (legend-sliders, Martin's request of 2026-11-17). ECharts' legend
+  filter hides only the series named after the entry, so its companions (an
+  interval, a dispersion, a mean, a "(clipped)" caret, an events-beyond caret,
+  a bin readout naming every series) and text of its own (the resolution
+  card's end labels and note-band values) used to stay on screen. Every
+  builder now reads one legend context (`chart_panel.js` `hiddenEntries`): a
+  paint sets it for the names the reader switched off (`screenBuild`), an
+  export for the names it leaves out, and a legend click repaints the card at
+  the next frame, keeping a scrolled legend's page. The screen keeps the entry
+  in its legend, greyed, carried by one of its own series so a click brings it
+  back; only an export drops the entry and its row. With nothing switched off
+  a paint builds once, exactly as before.
+- **The catalogue card lays its rows out without a switched-off frame**
+  (review R2-7): its facets drop the frame's rows, labels and height, so no
+  empty, unlabelled slot is left, on screen (the card shrinks and grows back)
+  and in the export; the axes never move.
 - A hidden entry is drawn in a legible grey, where ECharts drew it in the
   border ink (1.33:1 on the dark card): the faintest tint of the muted ink that
   clears 4.5:1 on the card, `#808993` on the dark card and `#6e7780` on the
@@ -1409,6 +1427,16 @@ cells clipped to the ends of the colour ramp in the Absolute frame, or its
 bins below the display floor in a co-registered frame), the energy card's
 low-statistics notices (`#energy-sparse`, which also carry the energy-axis
 clipping note), and the sidebar's ⓘ dots (the comb and frame notices).
+
+**One slider style** (legend-sliders, 2026-11-17). Every range input on the
+three pages draws one track and one thumb (`css/controls.css`): a 4 px track in
+`--range-track` (`#6e7681` dark, `#818b98` light) and a 14 px disc in the text
+ink with an accent rim. The browser's own track was 1.44:1 on the dark card and
+1.15:1 on white; the token clears 3:1 on every ground a slider sits on (dark:
+3.52:1 on the card, 3.77:1 on the sidebar; light: 3.45:1 on white, 3.24:1 on
+the canvas). A single slider draws no filled part, in either engine: its thumb
+and its readout carry the value. The dual filter sliders keep their own track
+and accent fill, the track in the same token.
 
 Each filter carries **both a numeric pair and a slider, on one shared grid**.
 The slider's integer domain *is* the numeric step — 0.05 GeV for the energies,
