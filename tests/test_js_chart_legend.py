@@ -549,13 +549,16 @@ def test_an_object_legend_takes_the_memory_and_nothing_else_moves(result):
     assert '"selected"' not in got["untouched"], got
 
 
-def test_each_legend_of_an_array_takes_the_names_it_lists(result):
+def test_every_legend_of_an_array_takes_the_names_any_of_them_lists(result):
+    """ECharts' toggle acts on every legend and forces each to the first one's new state, and a legend reports a name
+    it does not list as on unless its `selected` says otherwise: so a remembered name one legend lists is laid onto
+    every legend of the array, or after a repaint a second click on an entry of a later legend could not turn it back
+    on (review B, legend-sliders: the energy card's references). A name no legend lists is laid onto none."""
     got = result["array"]
     assert got["isArray"]
-    assert got["selected"] == [{"A": False}, {"B": False}, None], got
-    # A legend the memory says nothing about is the same object, and an array none of whose legends moves is the
-    # option itself.
-    assert got["third"] and got["none"], got
+    assert got["selected"] == [{"A": False, "B": False}, {"A": False, "B": False}, {"A": False, "B": False}], got
+    # Every legend moves now; an array none of whose legends moves is still the option itself.
+    assert got["third"] is False and got["none"], got
     assert '"selected":{"B":true}' in got["untouched"], "the builder's array was mutated"
 
 
@@ -864,21 +867,22 @@ def test_the_energy_panel_keeps_the_legend_clears_while_hiding_and_inks_the_hidd
     # The first paint: nothing hidden, no clear, the builder's inks on both legends.
     assert _sets(got, "fresh") == [(True, 29, [(14, None, border, None, None), (2, None, border, None, None)])]
     hidden = (DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE)
-    # The click merges the ink into the series legend alone (index 0) at once, then repaints: the entry's fit leaves
-    # the option and one series of its name stays as its legend carrier, so the count is the same.
+    # The click merges the ink at once into both legends, which both carry the name now (ECharts' toggle forces every
+    # legend to one state), then repaints: the entry's fit leaves the option and one series of its name stays as its
+    # legend carrier, so the count is the same.
     assert _sets(got, "click") == [(False, 0, [(0, None, DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE),
-                                              (0, None, None, None, None)]),
-                                   "clear", (True, 29, [(14, {entry: False}, *hidden), (2, None, border, None, None)])]
-    # Every repaint after it clears first and lays the memory and the ink over the series legend.
-    assert _sets(got, "repaint") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, None, border, None, None)])]
+                                              (0, None, DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE)]),
+                                   "clear", (True, 29, [(14, {entry: False}, *hidden), (2, {entry: False}, *hidden)])]
+    # Every repaint after it clears first and lays the memory and the ink over both legends.
+    assert _sets(got, "repaint") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, {entry: False}, *hidden)])]
     # Shower A alone draws fewer series and fewer entries; the entry is still listed, and still off.
-    assert _sets(got, "showerA") == ["clear", (True, 15, [(7, {entry: False}, *hidden), (1, None, border, None, None)])]
-    assert _sets(got, "both") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, None, border, None, None)])]
-    # A reference switched off: its own legend (index 1) takes the ink; the series legend has it already. Then the
-    # repaint.
+    assert _sets(got, "showerA") == ["clear", (True, 15, [(7, {entry: False}, *hidden), (1, {entry: False}, *hidden)])]
+    assert _sets(got, "both") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, {entry: False}, *hidden)])]
+    # A reference switched off: both legends carry the ink already, so nothing is merged; the repaint lays both
+    # names over both legends.
     reference = got["reference"]
-    assert _sets(got, "referenceClick") == [(False, 0, [(0, None, None, None, None), (0, None, *hidden)]), "clear",
-                                            (True, 29, [(14, {entry: False}, *hidden), (2, {reference: False}, *hidden)])]
+    both_off = {entry: False, reference: False}
+    assert _sets(got, "referenceClick") == ["clear", (True, 29, [(14, both_off, *hidden), (2, both_off, *hidden)])]
     # Everything back on: the next paint lays no ink and no clear.
     after = _sets(got, "afterAll")
     assert len(after) == 1 and after[0][0] is True and after[0][1] == 29, after

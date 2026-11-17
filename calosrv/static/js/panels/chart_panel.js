@@ -763,24 +763,32 @@ export function legendHides(memory) {
 /**
  * `option` with the reader's legend choices laid over it (see the header):
  * each legend's `selected` becomes `{...builder's selected, ...memory}`, for
- * an object legend or for each legend of an array. Only the names a legend
- * lists are applied when it lists its entries (`data`): ECharts' legend
- * filter hides a series of any name its `selected` marks false, listed or
- * not, so a remembered name the legend on show does not list would hide a
- * series with no entry to bring it back. A legend that lists none (`data`
- * absent) has an entry for every named series, and takes the whole memory; a
- * hidden legend (`show: false`) takes none. The option is returned as it is,
- * the same object, when the memory is empty or changes no legend, so the pure
+ * an object legend or for each legend of an array. Only the names the
+ * option's legends list are applied where they list their entries (`data`):
+ * ECharts' legend filter hides a series of any name its `selected` marks
+ * false, listed or not, so a remembered name no legend on show lists would
+ * hide a series with no entry to bring it back. A name one legend of an array
+ * lists is laid onto every legend of it: ECharts' toggle acts on every legend
+ * and forces each to the first one's new state, and a legend reports a name
+ * it does not list as on unless its `selected` says otherwise, so after a
+ * repaint a second click on an entry of a later legend (the energy card's
+ * references) would never turn it back on (review B, legend-sliders). A
+ * legend that lists none (`data` absent) has an entry for every named series,
+ * and takes the whole memory, as does every legend beside it; a hidden legend
+ * (`show: false`) takes none. The option is returned as it is, the same
+ * object, when the memory is empty or changes no legend, so the pure
  * builders' outputs and the dark golden do not move. `memory` is not changed.
  */
 export function withLegendMemory(option, memory) {
   const entries = Object.entries(memory ?? {}).filter(([, shown]) => typeof shown === 'boolean');
   if (!option?.legend || !entries.length) return option;
+  const shownLegends = [option.legend].flat().filter((l) => l && typeof l === 'object' && l.show !== false);
+  // The names the option's legends list, or null when one of them lists every named series (no `data`).
+  const listed = shownLegends.every((l) => Array.isArray(l.data))
+    ? new Set(shownLegends.flatMap((l) => l.data.map((d) => String(d !== null && typeof d === 'object' ? d.name : d))))
+    : null;
   const apply = (legend) => {
     if (!legend || typeof legend !== 'object' || legend.show === false) return legend;
-    const listed = Array.isArray(legend.data)
-      ? new Set(legend.data.map((d) => String(d !== null && typeof d === 'object' ? d.name : d)))
-      : null;
     const remembered = entries.filter(([name]) => !listed || listed.has(name));
     if (!remembered.length) return legend;
     return { ...legend, selected: { ...(legend.selected ?? {}), ...Object.fromEntries(remembered) } };
