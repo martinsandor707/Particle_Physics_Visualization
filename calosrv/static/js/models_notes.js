@@ -29,6 +29,7 @@ import {
 } from './panels/resolution_scaling.js';
 import { REFERENCE_SOURCE, RESOLUTION_REFERENCES, REFERENCE_UNITS, referenceEquation } from './catalog/resolution_refs.js';
 import { LITERATURE_HUES } from './palette.js';
+import { isDepositSeries } from './res_axis.js';
 import { perfModel, perfQuantities, SOURCE_LABELS, isEnergyMedianRel, MEDIAN_REL_RECONCILIATION } from './panels/perf_bins.js';
 import { residualModel, featureHistModel, HISTOGRAM_FLOOR } from './panels/distribution.js';
 import { hist2dModel, countRamp, DENSITY2D_FLOOR } from './panels/hist2d.js';
@@ -634,6 +635,47 @@ function calibrationLines(w) {
   return lines.filter(Boolean);
 }
 
+/*
+ * The calibrated deposit's Deposit toggle and the E view's E max slider (res-emax; Martin's decisions of
+ * 2026-11-17). While the deposit is hidden no line of either drawer describes it, apart from the one Selection
+ * line that says it is hidden; the range basis is the server's `y_model.note` (the panel's `y.basis`).
+ */
+
+/** The Selection line of the Deposit toggle: hidden, forced on, or none (shown by choice, as before). */
+function depositSelectionLine(deposit) {
+  if (deposit?.hidden) {
+    return 'Calibrated deposit: hidden by the card\'s Deposit toggle. Its windows, its fitted curve and its fit-table rows are not drawn, '
+      + 'and the error-scale range follows the model series alone.';
+  }
+  if (deposit?.forced) return 'Calibrated deposit: drawn; it is this response\'s only series, so the Deposit toggle is shut.';
+  return '';
+}
+
+/** The Marks-and-legend colour sentence; its deposit clause is left out while the deposit is hidden. */
+function colourLead(hidden) {
+  return hidden
+    ? 'Colour is the series: a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card).'
+    : 'Colour is the series: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card).';
+}
+
+/**
+ * The server's notes of the 1/√E view as lines, with the deposit left out while it is hidden: a note that begins
+ * with a hidden series' label, one that names E_dep or the detector series (its definition, its calibration, the
+ * c̃ and c_sum sentences), the XGBoost note's closing clause on the detector series' events, and the estimator
+ * note's own clauses on the deposit's calibration.
+ */
+function withoutDeposit(lines, payload) {
+  const labels = (payload.series ?? []).filter((s) => isDepositSeries(s)).map((s) => s.label).filter(Boolean);
+  return lines
+    .filter((line) => !labels.some((label) => line.startsWith(label)) && !/E_dep|^The detector series/u.test(line))
+    .map((line) => line
+      .replace(/\s*The detector series uses every selected event[^.]*\./u, '')
+      // The estimator note's own clauses on the deposit's calibration: "and c cancels in it, so the detector series does not
+      // depend on the calibration" (robust, sample) and ", and it depends on the deposit's calibration" (median).
+      .replace(/,? and c cancels in [^,.]*, so the detector series does not depend on the calibration/u, '')
+      .replace(/,? and it depends on the deposit's calibration/u, ''));
+}
+
 /**
  * Each model series' median-response range over the fitted windows of the mode
  * on show, with the one explanation of what a regressor trained on a bounded
@@ -1032,10 +1074,10 @@ function literatureHueList(preposition = '') {
  * The E view's legend line on the literature curves: which are drawn and what
  * each is to the ratio panel, the buttons that choose them, and their colours.
  */
-function literatureLegendLine(model) {
-  const hues = `Each literature curve has a colour of its own on every card, ${literatureHueList()}: ColorBrewer qualitative hues kept apart from the deposit ink and E2's four hues under normal vision, deuteranopia and protanopia.`;
+function literatureLegendLine(model, depositHidden = false) {
+  const hues = `Each literature curve has a colour of its own on every card, ${literatureHueList()}: ColorBrewer qualitative hues kept apart from ${depositHidden ? '' : 'the deposit ink and '}E2's four hues under normal vision, deuteranopia and protanopia.`;
   const buttons = `The ${RESOLUTION_REFERENCES.map((e) => e.particle).join(' and ')} buttons draw either curve, both (the default) or neither. `
-    + 'The ratio panel divides by the curve drawn; with both drawn, by the one the windows lie farther from; with neither, by each shower\'s deposit fit.';
+    + `The ratio panel divides by the curve drawn; with both drawn, by the one the windows lie farther from; with neither, ${depositHidden ? 'nothing, since the deposit is hidden' : 'by each shower\'s deposit fit'}.`;
   if (!model.literature.length) return `A literature curve is a dotted line in its own colour; none is drawn now. ${buttons} ${hues}`;
   const refLit = model.literature.find((l) => l.isReference);
   const others = model.literature.filter((l) => !l.isReference);
@@ -1099,9 +1141,9 @@ function misfitLine(items, gates, formName) {
  * text, so each count is the model's and the drawer never states what the
  * plot does not show.
  */
-function resolutionEnergyNotes({ payload, state, experiment, title, windows, shower, reference, literature }) {
+function resolutionEnergyNotes({ payload, state, experiment, title, windows, shower, reference, literature, deposit, eMax }) {
   const notes = new Notes(title ?? resDefaultTitle(payload, true));
-  const model = energyModel(payload, { windows, shower, reference, literature });
+  const model = energyModel(payload, { windows, shower, reference, literature, deposit, eMax });
   if (!model) {
     notes.section(SECTION.disclosures, [
       'This response carries no energy-resolution series with an E-view axis (axis.energy), so the E view draws nothing.',
@@ -1136,22 +1178,37 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   const spanShared = model.spans.shared;
   // The ratio panel's deposit reference per shower, from the payload (brief res-noise §4.2).
   const floors = { noise: noiseMin, curve: model.curveMinGev };
-  const depositRefs = Object.keys(ref.byShower ?? {}).map((sh) => depositRefOf(payload, sh, mode, model.nShowers, floors));
+  // Never read with the deposit hidden: no reference is then its fit, and the drawer does not describe it.
+  const hidden = model.deposit.hidden;
+  const depositRefs = hidden ? [] : Object.keys(ref.byShower ?? {}).map((sh) => depositRefOf(payload, sh, mode, model.nShowers, floors));
   // As the axis writes it: "1/8 to 8".
   const kText = `${ratioTickLabel(1 / ratio.k)} to ${ratioTickLabel(ratio.k)}`;
   const is = (n) => (n === 1 ? 'is' : 'are');
+  // Under E max the axis may end between two ticks of its step: the end is ticked too (`eAxisTicks`).
+  const endTicked = Array.isArray(x.ticks) && x.ticks.length > 0 && x.interval > 0
+    && Math.abs(x.ticks[x.ticks.length - 1] / x.interval - Math.round(x.ticks[x.ticks.length - 1] / x.interval)) > 1e-9;
 
   // ---- Selection
   const selection = resSelectionLines(payload, state, experiment, model, shower);
   selection.push(estimatorLine(w));
   selection.push(`View: ${w.symbol} against the energy E in GeV, 0 to ${formatNumber(x.max)} GeV, with a ratio panel underneath on the same energy axis.`);
-  selection.push(lit
-    ? `Ratio to: ${ref.label}, the literature curve ${referenceEquation(lit)}, the same curve for every shower.`
-    : `Ratio to: ${ref.label}.`);
+  if (x.eMax) {
+    const em = x.eMax;
+    selection.push(`E max: ${formatNumber(x.max)} GeV, set by the card's slider (${formatNumber(em.min)}–${formatNumber(em.max)} GeV in ${formatNumber(em.step)} GeV steps; `
+      + 'its lower end is the data\'s highest window edge, so every window is on the axis). Nothing beyond it is drawn on either panel.');
+  }
+  selection.push(depositSelectionLine(model.deposit));
+  if (ratio.none) {
+    selection.push('Ratio to: none. The deposit is hidden and no literature curve is on, so the ratio panel draws no mark; switch on π±, e± or the deposit to draw one.');
+  } else {
+    selection.push(lit
+      ? `Ratio to: ${ref.label}, the literature curve ${referenceEquation(lit)}, the same curve for every shower.`
+      : `Ratio to: ${ref.label}.`);
+  }
   selection.push(model.literature.length
     ? `Literature curves drawn: ${model.literature.map((l) => `${l.entry.particle}${l.isReference ? ' (the ratio\'s reference)' : ''}`).join(' and ')}.`
     : 'Literature curves drawn: none.');
-  notes.section(SECTION.selection, selection);
+  notes.section(SECTION.selection, selection.filter(Boolean));
 
   // ---- What is drawn
   const spanRule = spanShared && spanList[0].span
@@ -1203,16 +1260,22 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     spanList.length
       ? `Each curve is solid over the span of the windows it was fitted to, the lowest window edge to the highest (${spanRule}), and dashed beyond it.`
       : '',
-    `The energy axis is linear from 0 to ${formatNumber(x.max)} GeV in steps of ${formatNumber(x.interval)} GeV${Number.isFinite(model.dataMaxGev) ? `; the highest window edge is ${formatNumber(model.dataMaxGev)} GeV` : ''}. `
+    `The energy axis is linear from 0 to ${formatNumber(x.max)} GeV in steps of ${formatNumber(x.interval)} GeV${endTicked ? `; the end, ${formatNumber(x.max)} GeV, is ticked too` : ''}${Number.isFinite(model.dataMaxGev) ? `; the highest window edge is ${formatNumber(model.dataMaxGev)} GeV` : ''}. `
       + `${capital(w.symbol)} starts at zero and ends at ${pct(y.hi)}${y.provisional ? ' (provisional)' : ''}.`,
     // The server's own restatement of the one-curve rule is left out: the sentences above say it, and say it once.
-    ...model.notes.map((note, i) => (i === 0 ? rangeBasis(note) : note)).filter((note) => note && !/^Each series draws one fitted curve with no band round it/u.test(note)).map(sentence),
-    `The ratio panel shares the energy axis. A window is drawn as its ${w.symbol} divided by the reference at its E and its whisker, where it has one, as the two ends of its interval divided the same way; each series' drawn curve is divided by the reference too; the curve that is the reference is not drawn, being 1 by construction.`,
-    ...refLines,
-    `The ratio axis is logarithmic and symmetric about 1, from ${kText}, so a factor k above 1 and a factor k below lie at equal distances from the 1.0 rule; `
-      + `k is the first of ${RATIO_STEPS.map(String).join(', ')} that covers the robust ratio marks, the windows alone: those of N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV (whiskers included), `
-      + 'each against a reference that is neither provisional nor of a form that does not describe its windows. No fitted curve sets it: a curve\'s ratio that leaves the axis is clipped there with a caret. '
-      + `The ladder ends at ${RATIO_STEPS[RATIO_STEPS.length - 1]}, and a robust mark beyond it is clipped with a caret.`,
+    // While the deposit is hidden, the range's basis is the server's second one, `y.basis`, verbatim.
+    ...model.notes.map((note, i) => (i === 0 ? (y.basis ?? rangeBasis(note)) : note)).filter((note) => note && !/^Each series draws one fitted curve with no band round it/u.test(note)).map(sentence),
+    // With no reference on show the ratio panel draws nothing: one sentence says so, and no line describes a reference or an axis.
+    ...(ratio.none
+      ? ['The ratio panel shares the energy axis but draws no mark, no 1.0 rule and no scale: no reference is on show (the deposit is hidden and no literature curve is on).']
+      : [
+        `The ratio panel shares the energy axis. A window is drawn as its ${w.symbol} divided by the reference at its E and its whisker, where it has one, as the two ends of its interval divided the same way; each series' drawn curve is divided by the reference too; the curve that is the reference is not drawn, being 1 by construction.`,
+        ...refLines,
+        `The ratio axis is logarithmic and symmetric about 1, from ${kText}, so a factor k above 1 and a factor k below lie at equal distances from the 1.0 rule; `
+          + `k is the first of ${RATIO_STEPS.map(String).join(', ')} that covers the robust ratio marks, the windows alone: those of N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV (whiskers included), `
+          + 'each against a reference that is neither provisional nor of a form that does not describe its windows. No fitted curve sets it: a curve\'s ratio that leaves the axis is clipped there with a caret. '
+          + `The ladder ends at ${RATIO_STEPS[RATIO_STEPS.length - 1]}, and a robust mark beyond it is clipped with a caret.`,
+      ]),
     'The fit table under the plot lists each series\' four fits with their status on this view: its Fit cell names the one curve drawn, and the other three are table only; the affine fit is drawn in the 1/√E view.',
   ]);
 
@@ -1220,7 +1283,9 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   const dis = [];
   if (y.provisional) {
     // What sets a provisional range: the response's weaker windows, counted over every series (the range is the response's).
-    const reported = (payload.series ?? []).flatMap((s) => s.windows ?? [])
+    // The windows of the series on show: every payload series as before, the model series alone while the deposit is hidden.
+    const rangeSeries = hidden ? (payload.series ?? []).filter((s) => !isDepositSeries(s)) : (payload.series ?? []);
+    const reported = rangeSeries.flatMap((s) => s.windows ?? [])
       .filter((w) => Number.isFinite(w.value) && (w.n ?? 0) >= gates.report_n);
     const weakFrom = reported.filter((w) => (w.p_lo ?? 0) >= model.yMinGev && w.n < gates.fit_n).length;
     // Windows of N ≥ 20 from the floor that still set nothing carry no fit weight: never blamed on N (brief-fix F3).
@@ -1379,8 +1444,8 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   for (const s of model.series) dis.push(...unreportedLines(w, s, gates));
   dis.push(...noWeightLines(w, model, points), ...declinedLines(w, model));
 
-  // The ratio panel.
-  dis.push(ratio.provisional
+  // The ratio panel: with no reference on show it draws nothing, so no range, no reference block and no clipped count is stated.
+  if (!ratio.none) dis.push(ratio.provisional
     ? `The ratio range, ${kText}, is provisional: no window of N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV gives a ratio mark against a reference that is neither provisional nor of a form that does not describe its windows, so k is set by the markers alone, or is 2 without any; no fit sets it.`
     : `The ratio range, ${kText}, follows the windows alone: those of N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV (whiskers included), each against a reference that is neither provisional nor of a form that does not describe its windows; no fit sets it.`);
   if (ratio.capped) {
@@ -1403,7 +1468,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   }
   // The drawn windows below the floor of their shower's deposit reference: 1 GeV under the deposit's three-term
   // fit, a₀/√E's 4 GeV where the deposit has none (brief res-noise §4.2), counted from the payload.
-  if (!lit) {
+  if (!lit && !ratio.none) {
     const belowRef = (form) => {
       const refs = depositRefs.filter((r) => r.form === form);
       const n = model.series.reduce((acc, s) => {
@@ -1427,7 +1492,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   for (const r of ratio.noReference) {
     dis.push(`${model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}` : 'The deposit'} has no ratio marks: ${sentence(r.reason)}`);
   }
-  if (!lit) {
+  if (!lit && !ratio.none) {
     for (const r of depositRefs.filter((x) => !x.reason)) {
       const owner = model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}'s` : 'The deposit';
       if (r.provisional) dis.push(`${owner} reference fit is provisional: its ratio marks are conditional on a fit through windows of N < ${formatInt(gates.fit_n)}, so none of them sets the ratio range.`);
@@ -1456,12 +1521,13 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   dis.push('The quadrature b and the affine b are different constant terms: one adds in quadrature, the other linearly, so they are not compared as one number.');
   if (noiseDrawn.length) dis.push(`The b of ${NOISE_FORM} is a third: it is fitted beside the noise term c/E, so it is not compared with either.`);
   dis.push(relationLine(w), RES_DECOMPOSITION);
-  dis.push(...calibrationLines(w));
+  // The deposit's calibration is the deposit's: left out while it is hidden.
+  if (!hidden) dis.push(...calibrationLines(w));
   dis.push(robustFloorLine(w, model));
   dis.push(...responseRangeLines(w, model));
   // Martin's override: the literature curves stay on under the median, and the server's own warning says what that comparison is.
   if (w.name === 'median' && model.literature.length && w.est.literature?.warning) dis.push(w.est.literature.warning);
-  if (m.source === 'xgb') dis.push('The detector series uses every selected event; the XGBoost series only its validation split, so the two series do not share their events.');
+  if (m.source === 'xgb' && !hidden) dis.push('The detector series uses every selected event; the XGBoost series only its validation split, so the two series do not share their events.');
   dis.push('E is the incident momentum p as the producer writes it; for a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.');
   if (model.series.some((s) => s.isB)) {
     const raised = model.series.filter((s) => s.isB && s.lineOpacity(false) > 0.7 + 1e-6)
@@ -1475,17 +1541,19 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   // ---- Marks and legend
   const extrapolation = model.noteText.extrapolation;
   notes.section(SECTION.legend, [
-    'Colour is the series: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). On two-shower data fill and line strength are the shower: shower A is a filled marker with full-strength lines, shower B a hollow marker with its lines at 70% strength, raised to 3:1 where the card needs it. With both showers drawn, a letter "A" or "B" in ink at each curve\'s right end, in a column beside the plot, led by a short key stroke in the curve\'s own colour, dash, width and strength, names the shower; a curve that leaves the plot before the axis end has its caret instead. A larger marker is a window of the 3-anchor fit.',
+    `${colourLead(hidden)} On two-shower data fill and line strength are the shower: shower A is a filled marker with full-strength lines, shower B a hollow marker with its lines at 70% strength, raised to 3:1 where the card needs it. With both showers drawn, a letter "A" or "B" in ink at each curve\'s right end, in a column beside the plot, led by a short key stroke in the curve\'s own colour, dash, width and strength, names the shower; a curve that leaves the plot before the axis end has its caret instead. A larger marker is a window of the 3-anchor fit.`,
     `The dash is extrapolation and the width is the form: a solid line is a fit over the windows it was fitted to and a dashed line the same fit beyond them; the thicker line is ${NOISE_FORM}, the thinner the origin-pinned a₀/√E ⊕ 0 a series draws where it has no ${NOISE_FORM} fit. `
       + `A fit drawn fainter, its curve and dashed extrapolation alike, is ${w.name === 'robust' ? '' : 'provisional or '}of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); no fit, faded or not, sets either panel's range.`,
     w.whiskerLegend,
-    literatureLegendLine(model),
-    `The ratio panel: the 1.0 rule in ink marks ${w.symbol} equal to the reference; ${lit
-      ? 'no band about 1 is drawn, since the literature curve has no interval reported'
-      : 'the reference is held exact'}; the axis is logarithmic and symmetric about 1, with ticks at 1 and at the round steps up to k with their reciprocals, which read 1/x below 1, so ÷3 reads 1/3 beside 3.`,
+    literatureLegendLine(model, hidden),
+    ratio.none
+      ? 'The ratio panel draws no 1.0 rule and no scale: with no reference on show it holds only its frame, the shared energy axis and one sentence saying so.'
+      : `The ratio panel: the 1.0 rule in ink marks ${w.symbol} equal to the reference; ${lit
+        ? 'no band about 1 is drawn, since the literature curve has no interval reported'
+        : 'the reference is held exact'}; the axis is logarithmic and symmetric about 1, with ticks at 1 and at the round steps up to k with their reciprocals, which read 1/x below 1, so ÷3 reads 1/3 beside 3.`,
     `A linked crosshair crosses both panels at one E and reads it on the bottom axis, an exact coordinate readout and no data mark; the item tooltips carry the values. A caret at an axis edge marks a mark clipped there, its true value in its tooltip. The note above the plot lists the windows above the top${extrapolation ? ` and states the extrapolation rule ("${extrapolation}")` : ''}. A legend entry shows or hides every mark of its series.`,
   ]);
-  return notes.done(modelsHazards(payload, 'res-scaling', { windows, shower, view: 'energy', reference, literature }));
+  return notes.done(modelsHazards(payload, 'res-scaling', { windows, shower, view: 'energy', reference, literature, deposit, eMax }));
 }
 
 /**
@@ -1500,24 +1568,25 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
  */
 export function resolutionScalingNotes({
   payload, state = null, experiment = null, title = null, windows = 'anchors', shower = 'both',
-  view = 'linear', reference = 'deposit', literature = undefined,
+  view = 'linear', reference = 'deposit', literature = undefined, deposit = undefined, eMax = undefined,
 } = {}) {
   if (!payload) return null;
-  if (view === 'energy') return resolutionEnergyNotes({ payload, state, experiment, title, windows, shower, reference, literature });
+  if (view === 'energy') return resolutionEnergyNotes({ payload, state, experiment, title, windows, shower, reference, literature, deposit, eMax });
   const notes = new Notes(title ?? resDefaultTitle(payload, false));
-  const model = resolutionModel(payload, { windows, shower });
+  const model = resolutionModel(payload, { windows, shower, deposit });
   if (!model) {
     notes.section(SECTION.disclosures, ['This response carries no energy-resolution series.', ...metaDisclosures(payload)]);
     return notes.done([]);
   }
   const { gates, mode } = model;
+  const hidden = model.deposit.hidden;
   const w = resWords(payload, gates);
   const pct = (v) => (Number.isFinite(v) ? `${sigFigs(v, 3)}%` : '—');
   const sig = (v) => sigFigs(v, 3);
   const m = payload.model ?? {};
 
   // ---- Selection
-  notes.section(SECTION.selection, [...resSelectionLines(payload, state, experiment, model, shower), estimatorLine(w)]);
+  notes.section(SECTION.selection, [...resSelectionLines(payload, state, experiment, model, shower), estimatorLine(w), depositSelectionLine(model.deposit)]);
 
   // ---- What is drawn
   const labels = (payload.series ?? []).map((s) => s.label).filter(Boolean);
@@ -1551,14 +1620,17 @@ export function resolutionScalingNotes({
       ? `Anchors${nominal.length ? ` (nominal: ${nominal.join(', ')})` : ''}: ${sentence(payload.anchors.rule)}`
       : '',
     `The top axis is a second x axis allowed only as an exact unit conversion: ${sentence(payload.axis?.top?.rule ?? 'E = 1/x², an exact relabelling of the bottom axis; no data are plotted against it.')}`,
-    ...noteLines(payload.notes).filter((line) => !restatedNote(line, labels)),
+    ...(hidden ? withoutDeposit(noteLines(payload.notes), payload) : noteLines(payload.notes)).filter((line) => !restatedNote(line, labels)),
   ].filter(Boolean));
 
   // ---- Disclosures
   const disclosures = [];
   // A provisional range takes the server's own basis, which names why no window sets it (N, or no fit weight: brief-fix F3).
   const provisionalBasis = noteLines(payload.notes).find((line) => line.startsWith('The y range is provisional:'));
-  if (model.y.provisional) {
+  if (model.y.basis) {
+    // The deposit is hidden: the range follows the model series alone, and the server's second basis says so, verbatim.
+    disclosures.push(model.y.basis);
+  } else if (model.y.provisional) {
     disclosures.push(provisionalBasis
       ? `${provisionalBasis.replace(/\s*No fit sets it:.*$/su, '')} No fit sets it.`
       : `The y range is provisional: no window reaches N = ${formatInt(gates.fit_n)}, so it is set by weaker windows; no fit sets it.`);
@@ -1569,7 +1641,7 @@ export function resolutionScalingNotes({
   }
   const clipped = model.clipped.markers + model.clipped.whiskers;
   if (clipped) {
-    disclosures.push(`Clipped at the axis in this view, each with a caret and its true values in its tooltip: ${plural(model.clipped.markers, 'marker')}, ${plural(model.clipped.whiskers, 'whisker')} (the server's count over every on-axis window of every series, both modes: ${formatInt(model.y.n_clipped)}).`);
+    disclosures.push(`Clipped at the axis in this view, each with a caret and its true values in its tooltip: ${plural(model.clipped.markers, 'marker')}, ${plural(model.clipped.whiskers, 'whisker')} (the server's count over every on-axis window of every ${hidden ? 'model series' : 'series'}, both modes: ${formatInt(model.y.n_clipped)}).`);
   }
   const cutFits = model.series.flatMap((s) => DRAWN_FORMS.map((f) => s.fits[f]).filter((f) => f?.cut).map((f) => [s, f]));
   if (cutFits.length) {
@@ -1658,15 +1730,15 @@ export function resolutionScalingNotes({
     }
   }
   disclosures.push('The quadrature b and the affine b are different constant terms: one adds in quadrature, the other linearly, so they are not compared as one number.');
-  disclosures.push(w.sample ? '' : sentence(w.est.relation ?? ''), RES_DECOMPOSITION, ...calibrationLines(w), robustFloorLine(w, model), ...responseRangeLines(w, model));
-  if (m.source === 'xgb') disclosures.push('The detector series uses every selected event; the XGBoost series only its validation split, so the two series do not share their events.');
+  disclosures.push(w.sample ? '' : sentence(w.est.relation ?? ''), RES_DECOMPOSITION, ...(hidden ? [] : calibrationLines(w)), robustFloorLine(w, model), ...responseRangeLines(w, model));
+  if (m.source === 'xgb' && !hidden) disclosures.push('The detector series uses every selected event; the XGBoost series only its validation split, so the two series do not share their events.');
   disclosures.push('E on both axes is the incident momentum p as the producer writes it; for a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.');
   disclosures.push(...metaDisclosures(payload));
   notes.section(SECTION.disclosures, disclosures.filter(Boolean));
 
   // ---- Marks and legend
   notes.section(SECTION.legend, [
-    'Colour is the series: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). Shower A is a filled marker and a solid affine line, shower B a hollow marker and a dashed affine line; the origin-pinned fit is a thinner dotted line for both. A larger marker is a window of the 3-anchor fit.',
+    `${colourLead(hidden)} Shower A is a filled marker and a solid affine line, shower B a hollow marker and a dashed affine line; the origin-pinned fit is a thinner dotted line for both. A larger marker is a window of the 3-anchor fit.`,
     w.whiskerLegend,
     'The shaded bands are the fits\' 95% confidence bands from the parameter covariance: ±1.96 √(gᵀΣg) while the windows\' own errors stand, and ±t₀.₉₇₅,ν √(gᵀΣg) once S = √(χ²/ν) > 1 scales the covariance, since S is then estimated from the fit\'s own ν (12.71 at ν = 1). They are the uncertainty of the line, not the spread of the events. The affine band is the stronger wash, the pinned band half of it. '
       + 'A band that spans half its axis or more over its fitted windows (their momentum edges, mapped by x = 1/√E) is drawn as two thin solid edges in the series\' colour, never as a wash; this view marks no extrapolation, so the edges are not dashed beyond those windows.',
@@ -1674,7 +1746,7 @@ export function resolutionScalingNotes({
       + 'no fit, faded or not, sets the range.',
     'The top axis reads the energy at the same x, E = 1/x², with ∞ at the right border; no data are plotted against it. A caret at the axis marks a marker, whisker, fitted line or band clipped there, its true values in its tooltip. A legend entry shows or hides every mark of its series.',
   ]);
-  return notes.done(modelsHazards(payload, 'res-scaling', { windows, shower }));
+  return notes.done(modelsHazards(payload, 'res-scaling', { windows, shower, deposit }));
 }
 
 /* ============================================================ hazards == */
