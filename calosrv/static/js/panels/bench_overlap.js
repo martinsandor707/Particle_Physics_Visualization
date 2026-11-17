@@ -38,7 +38,7 @@ import { tooltipOption } from './tooltip.js';
 import { LEAK_TEXT, leakFlags } from '../catalog/gating.js';
 import {
   baseOption, wrapTooltip, valueAxis, mutedLine, escapeHtml, emptyChartOption, withColour, wrappedLegend,
-  legendTop, legibleOpacity, tickLabel, noticeGraphic, fitName,
+  legendTop, legibleOpacity, tickLabel, noticeGraphic, fitName, exportHidden,
 } from './chart_panel.js';
 import {
   AXIS_LABEL_MARGIN, CATALOG_FRAMES, DEFAULT_WIDTH, LINE_PITCH, N_NOT_REPORTED, CatalogChartPanel, categoryAxis,
@@ -352,6 +352,11 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
   const graphic = [];
   const binLabels = model.bins.map((b) => b.label);
   const unitText = model.unit ? ` [${model.unit}]` : '';
+  // An export leaves out every mark of an entry the legend on show switched off: a frame's dots and its All
+  // rule, every rule with the All entry; on screen (null) nothing is left out.
+  const hidden = exportHidden();
+  const frameOn = (frame) => !hidden?.has(labelOf(payload, 'frame', frame));
+  const rulesOn = !hidden?.has(ALL_RULE_NAME);
 
   graphic.push(...lineGraphics(layout.noteLines, 0.6 * f, layout.top));
 
@@ -370,6 +375,7 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
       nameGap: 3.6 * f, formatter: tickLabel,
     }));
     for (const s of facet.series) {
+      if (!frameOn(s.frame)) continue;
       const colour = hues[s.frame];
       const ink = legibleOpacity(colour, 1);
       const name = labelOf(payload, 'frame', s.frame);
@@ -396,7 +402,7 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
         },
         tooltip: { formatter: (p) => overlapTip(model, payload, facet, s, points[p.dataIndex].i) },
       }, colour));
-      if (Number.isFinite(s.all)) {
+      if (Number.isFinite(s.all) && rulesOn) {
         // Named as the frame, so its legend entry shows and hides the rule with the dots.
         series.push(withColour({
           type: 'custom',
@@ -420,9 +426,12 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
       }
     }
     // The legend entry of the All rule (the rules themselves are named as their frames).
-    series.push(withColour({ type: 'custom', name: ALL_RULE_NAME, xAxisIndex: gi, yAxisIndex: gi, data: [], renderItem: () => null }, textInk(THEME.muted)));
+    if (rulesOn) {
+      series.push(withColour({ type: 'custom', name: ALL_RULE_NAME, xAxisIndex: gi, yAxisIndex: gi, data: [], renderItem: () => null }, textInk(THEME.muted)));
+    }
 
-    if (facet.starved.length && facet.starvation) {
+    // The starvation bracket describes the bins of every frame: it stays while one frame is still drawn.
+    if (facet.starved.length && facet.starvation && facet.series.some((x) => frameOn(x.frame))) {
       // One label per run of adjacent starved bins, over a bracket spanning them, in the band between the
       // title and the plot: never two labels side by side, never on a dot.
       const tip = `<b>${escapeHtml('Information-starved bins')}</b><br/>${escapeHtml(starvationText(facet.starvation, model.bins))}`;

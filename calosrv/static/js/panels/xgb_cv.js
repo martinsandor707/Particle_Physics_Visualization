@@ -53,7 +53,7 @@ import { customWhiskers } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  chartLegend, niceCeil, niceInterval, FINE_STEPS, sigFigs,
+  chartLegend, niceCeil, niceInterval, FINE_STEPS, sigFigs, exportHidden, legendShown,
 } from './chart_panel.js';
 
 /** Narrowest slot (px) a fold column and its mean are drawn in before a line breaks. */
@@ -94,13 +94,15 @@ export function intervalShortName(payload) {
  * A legend of `names` that wraps into rows at `width` instead of paging, on
  * screen as in print: `{legend, top}`, `top` the grid inset under its rows
  * (textfit `legendRows`, the count ECharts' plain legend wraps to between the
- * same left and right insets).
+ * same left and right insets). An export counts the rows of the names it keeps
+ * (`legendShown`), so its figure is laid out without the left-out entries.
  */
 export function wrappedLegend(names, width) {
   const pad = axisPadding();
   const side = pad.right;
-  const rows = !names.length ? 1
-    : Math.max(1, legendRows(names, width - 2 * side, THEME.fontLabel, { fontFamily: THEME.fontFamily }));
+  const shown = legendShown(names);
+  const rows = !shown.length ? 1
+    : Math.max(1, legendRows(shown, width - 2 * side, THEME.fontLabel, { fontFamily: THEME.fontFamily }));
   return {
     legend: chartLegend(names, { type: 'plain', left: side, right: side }),
     top: pad.top + rows * 1.6 * THEME.fontLabel,
@@ -460,6 +462,8 @@ export function meanTip(model, panel, slot) {
 export function xgbCvOption(payload, opts = {}, metrics = {}) {
   const model = cvModel(payload);
   if (!model) return emptyChartOption(opts, metrics, 'This response carries no cross-validation folds.');
+  // An export leaves out every mark of an entry the legend on show switched off; null on screen.
+  const off = exportHidden();
   const width = metrics.width || 600;
   const height = metrics.height || 330;
   const layout = cvLayout(model, width, height);
@@ -633,7 +637,8 @@ export function xgbCvOption(payload, opts = {}, metrics = {}) {
     xAxis: xAxes,
     yAxis: yAxes,
     graphic,
-    series,
+    // The axis break belongs to no entry and stays; folds, means and intervals go with their entry.
+    series: off ? series.filter((s) => !off.has(s.name)) : series,
   };
 }
 

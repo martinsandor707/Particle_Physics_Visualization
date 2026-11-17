@@ -64,7 +64,7 @@ import { customWhiskers, customLine, binHoverSeries } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries, clampInterval,
-  withColour, wrappedLegend, legendTop, legibleOpacity, rgbOf, emptyChartOption, INK_CONTRAST,
+  withColour, wrappedLegend, legendTop, legibleOpacity, rgbOf, emptyChartOption, INK_CONTRAST, exportHidden,
 } from './chart_panel.js';
 
 /** Tick-step mantissas: a step is one of these times a power of ten. */
@@ -416,8 +416,16 @@ export function perfBinsOption(payload, opts = {}, metrics = {}) {
   const { y, unit } = model;
   const series = [];
   const legend = [];
+  // An export leaves out every mark of an entry the legend on show switched off: its bars and dots, its
+  // '· 95% interval' whiskers and its '(clipped)' carets. On screen (null) nothing is left out.
+  const hidden = exportHidden();
 
   for (const s of model.series) {
+    if (hidden?.has(s.label)) {
+      // The entry stays in the legend list, so chartLegend drops it and marks it off.
+      legend.push({ name: s.label, icon: 'rect' });
+      continue;
+    }
     const colour = s.colour;
     const isB = s.shower === 'b' && model.nShowers > 1;
     const base = Math.min(Math.max(0, y.min), y.max);

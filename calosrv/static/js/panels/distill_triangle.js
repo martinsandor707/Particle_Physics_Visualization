@@ -64,7 +64,7 @@ import { tooltipOption } from './tooltip.js';
 import { sourceColours } from './perf_bins.js';
 import {
   ChartPanel, FINE_STEPS, baseOption, emptyChartOption, escapeHtml, fitName, legendTop,
-  legibleOpacity, mutedLine, niceCeil, niceInterval, valueAxis, wrapTooltip, wrappedLegend,
+  legibleOpacity, mutedLine, niceCeil, niceInterval, valueAxis, wrapTooltip, wrappedLegend, exportHidden,
 } from './chart_panel.js';
 
 /* ------------------------------------------------------- shared wording -- */
@@ -566,13 +566,26 @@ function r2Series(model, layout) {
   return out;
 }
 
-/** The MAE dumbbells: the connector, then one custom series per measure. */
-function maeSeries(model, layout) {
+/**
+ * The MAE dumbbells: the connector, then one custom series per measure. `hidden` (an export's left-out
+ * legend entries, or null on screen) also takes out the marks drawn only for them: the connector joins the
+ * network's and the tree's MAE to truth, so it needs both; "tree MAEs not reported" speaks for the tree
+ * entries, and "no MAE in the report" for every MAE entry, so each stays while one of its entries is drawn.
+ */
+function maeSeries(model, layout, hidden = null) {
   const out = [];
   const rowPx = layout.rowPx;
   const offset = Math.max(5, 0.27 * rowPx);
   const r = Math.max(3, Math.min(4.5, 0.18 * rowPx));
-  const pairs = model.rows.filter((row) => row.mae.netTruth !== null && row.mae.treeTruth !== null);
+  const on = (key) => !hidden?.has(MAE_MEASURES.find((m) => m.key === key).name);
+  const listed = legendNames(model);
+  // Every one of `keys` the legend lists is left out (and it lists one): what speaks only for them goes too.
+  const allOff = (keys) => {
+    const names = keys.map((key) => MAE_MEASURES.find((m) => m.key === key).name).filter((n) => listed.includes(n));
+    return names.length > 0 && names.every((n) => hidden?.has(n));
+  };
+  const pairs = on('netTruth') && on('treeTruth')
+    ? model.rows.filter((row) => row.mae.netTruth !== null && row.mae.treeTruth !== null) : [];
   if (pairs.length) {
     out.push({
       type: 'custom',
@@ -631,7 +644,9 @@ function maeSeries(model, layout) {
   }
   // What the report does not give, said in the row itself.
   // (Skipped where no row has an MAE: one centred sentence says so for the whole block.)
-  const gaps = model.maeTop === null ? [] : model.rows.filter((row) => row.noMae || (row.noTreeMae && row.mae.netTruth !== null));
+  const gaps = model.maeTop === null ? [] : model.rows.filter((row) => (row.noMae
+    ? !allOff(MAE_MEASURES.map((m) => m.key))
+    : row.noTreeMae && row.mae.netTruth !== null && !allOff(['treeTruth', 'treeNet'])));
   if (gaps.length) {
     out.push({
       type: 'custom',
@@ -758,7 +773,11 @@ export function distillTriangleOption(payload, opts = {}, metrics = {}) {
     }),
   ];
   const yAxis = [rowAxis(model, 0, true, layout), rowAxis(model, 1, layout.stacked, layout)];
-  const series = [...r2Series(model, layout), ...maeSeries(model, layout)];
+  // An export leaves out every mark of an entry the legend on show switched off, with the marks drawn only
+  // for it (maeSeries); on screen (null) nothing is left out.
+  const hidden = exportHidden();
+  const drawn = [...r2Series(model, layout), ...maeSeries(model, layout, hidden)];
+  const series = hidden ? drawn.filter((s) => !hidden.has(s.name)) : drawn;
   const legendData = legendNames(model).map((name) => ({ name, ...legendIcon(name) }));
   const graphic = decorations(model, layout);
   if (model.maeTop === null) {

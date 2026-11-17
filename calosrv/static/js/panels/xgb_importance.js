@@ -56,7 +56,7 @@ import { customWhiskers } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs,
+  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs, exportHidden,
 } from './chart_panel.js';
 
 /** Most feature rows the card draws. */
@@ -219,6 +219,8 @@ export function xgbImportanceOption(payload, opts = {}, metrics = {}) {
   const xMax = Math.min(100, niceCeil(Math.max(...values, 0.01) * 100, FINE_STEPS));
   const ink = THEME.text;
   const series = [];
+  // An export leaves out every mark of an entry the legend on show switched off; null on screen.
+  const hidden = exportHidden();
 
   series.push({
     type: 'custom',
@@ -354,7 +356,8 @@ export function xgbImportanceOption(payload, opts = {}, metrics = {}) {
       splitLine: { show: false },
     },
     graphic,
-    series,
+    // The row hover targets belong to no entry and stay; bars, dots and fold means go with their entry.
+    series: hidden ? series.filter((s) => !hidden.has(s.name)) : series,
   };
 }
 

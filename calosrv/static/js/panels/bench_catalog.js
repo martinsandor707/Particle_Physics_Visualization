@@ -46,7 +46,7 @@ import { printed, printedQualified } from '../catalog/select.js';
 import { sourceColours } from './perf_bins.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, emptyChartOption, withColour,
-  wrappedLegend, legendTop, legibleOpacity, rgbOf, niceCeil, niceInterval, FINE_STEPS, tickLabel,
+  wrappedLegend, legendTop, legibleOpacity, rgbOf, niceCeil, niceInterval, FINE_STEPS, tickLabel, exportHidden,
 } from './chart_panel.js';
 
 /* ================================================================ shared == */
@@ -462,12 +462,27 @@ export function facetColumns(width, insetPx) {
   return 1;
 }
 
+/**
+ * Whether an export in progress leaves out frame `f` (its legend entry was switched off on screen). False on
+ * screen. Every mark printed for that frame's rows goes with it: its bar, the TTA tick across it, its RMSE
+ * marker, its "R² < 0" / "leak" text and (one species) the row label naming it.
+ */
+function frameLeftOut(payload, f) {
+  const hidden = exportHidden();
+  return Boolean(hidden && hidden.has(labelOf(payload, 'frame', f)));
+}
+
+/** Whether an export in progress leaves out the legend entry `name`; false on screen. */
+function entryLeftOut(name) {
+  return Boolean(exportHidden()?.has(name));
+}
+
 /** The y labels of the facets' rows: the frame (one species) or the species on its group's middle row. */
 function rowLabels(model, payload) {
   return model.keys.map((key) => {
     if (key.startsWith('gap:')) return '';
     const [s, f] = key.split(':');
-    if (!model.all) return labelOf(payload, 'frame', f);
+    if (!model.all) return frameLeftOut(payload, f) ? '' : labelOf(payload, 'frame', f);
     return f === 'trans' ? labelOf(payload, 'species', s) : '';
   });
 }
@@ -487,7 +502,8 @@ const RMSE_NAME = 'RMSE (hollow marker)';
 function noteText(model, payload) {
   const parts = [];
   const without = model.species.filter((s) => !model.ttaSpecies.includes(s));
-  if (without.length) parts.push(`TTA not reported: ${without.map((s) => labelOf(payload, 'species', s)).join(', ')}`);
+  // The TTA caveat qualifies the TTA ticks: an export that leaves them out leaves it out too.
+  if (without.length && !entryLeftOut(TTA_NAME)) parts.push(`TTA not reported: ${without.map((s) => labelOf(payload, 'species', s)).join(', ')}`);
   if (model.scale === 'log') parts.push('angle on a log₁₀ axis: dots, never bars');
   return parts.join(' · ');
 }
@@ -609,7 +625,13 @@ export function benchCatalogOption(payload, opts = {}, metrics = {}) {
     const at = (api, v, idx) => api.coord([v, idx]);
     const base = facet.axis.type === 'log' ? facet.axis.min : 0;
 
+    // An export leaves out every mark of a left-out frame and of a left-out TTA or RMSE entry; on screen, all.
+    const kept = facet.rows.filter((r) => !frameLeftOut(payload, r.frame));
+    const ttaOn = !entryLeftOut(TTA_NAME);
+    const rmseOn = !entryLeftOut(RMSE_NAME);
+
     for (const frame of CATALOG_FRAMES) {
+      if (frameLeftOut(payload, frame)) continue;
       const rows = facet.rows.filter((r) => r.frame === frame && r.value !== null);
       const colour = hues[frame];
       const stroke = legibleOpacity(colour, 1);
@@ -646,7 +668,7 @@ export function benchCatalogOption(payload, opts = {}, metrics = {}) {
     }
 
     // The proton's TTA tick: text ink on a canvas casing, so it reads over the bar and over the card.
-    const tta = facet.rows.filter((r) => Number.isFinite(r.tta));
+    const tta = ttaOn ? kept.filter((r) => Number.isFinite(r.tta)) : [];
     if (tta.length) {
       series.push(withColour({
         type: 'custom',
@@ -672,7 +694,7 @@ export function benchCatalogOption(payload, opts = {}, metrics = {}) {
         tooltip: { formatter: (p) => catalogTip(payload, facet, tta[p.dataIndex]) },
       }, ink));
     }
-    const rmse = facet.rows.filter((r) => Number.isFinite(r.rmse));
+    const rmse = rmseOn ? kept.filter((r) => Number.isFinite(r.rmse)) : [];
     if (rmse.length) {
       series.push(withColour({
         type: 'custom',
@@ -696,7 +718,7 @@ export function benchCatalogOption(payload, opts = {}, metrics = {}) {
     }
 
     // Text marks beside the mark's end: "R² < 0" on a clamped R², "leak" on a flagged frame.
-    const labelled = facet.rows.filter((r) => r.clamped || r.leaks.length);
+    const labelled = kept.filter((r) => r.clamped || r.leaks.length);
     if (labelled.length) {
       series.push({
         type: 'custom',
@@ -708,7 +730,7 @@ export function benchCatalogOption(payload, opts = {}, metrics = {}) {
         data: labelled.map((r, i) => [r.value ?? 0, r.index, i]),
         renderItem: (params, api) => {
           const r = labelled[params.dataIndex];
-          const reach = Math.max(...[r.value, r.tta, r.rmse].filter(Number.isFinite), base);
+          const reach = Math.max(...[r.value, ttaOn ? r.tta : null, rmseOn ? r.rmse : null].filter(Number.isFinite), base);
           const c = at(api, reach, r.index);
           const text = [r.clamped ? 'R² < 0' : null, r.leaks.length ? 'leak' : null].filter(Boolean).join(' · ');
           return {
