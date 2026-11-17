@@ -3493,7 +3493,7 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_the_window_switch_
 
         _click_legend(page, LEGEND_ENTRY)
         _assert_hidden(_drawn(page), fresh["all"], f"{view}: switched off")
-        # Off and on again with no repaint between: ECharts redraws the entry from its own views, all of it.
+        # Off and on again: each click repaints the card (legend-sliders); back on, the entry draws again, all of it.
         _click_legend(page, LEGEND_ENTRY)
         assert _drawn(page) == (fresh["all"], {LEGEND_ENTRY: True}), view
         _click_legend(page, LEGEND_ENTRY)
