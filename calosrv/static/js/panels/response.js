@@ -48,17 +48,19 @@
  * over the marks this card draws. Nothing is rescaled to fit a weak bin. A
  * part with nothing estimable says why, with no labelled scale.
  *
- * ## An export leaves a switched-off entry out
+ * ## A switched-off entry leaves with every mark of it
  *
- * In an export (chart_panel.js `exportHidden`, set by export/figure.js) a
+ * On screen after a legend click, as in an export (chart_panel.js
+ * `hiddenEntries`, set by a paint's `screenBuild` and by export/figure.js), a
  * series whose legend entry is off is drawn nowhere, nor is any mark of its:
  * B1's histogram with its mean and 1/c rules (and their "mean f" and
  * "1/c (Σ E / Σ p)" labels), or a strip series' band rows (events, SD band,
  * mean with its interval, 1/c diamond and interval, every caret), the band
  * itself going with the last row; B2's dots, whiskers, SD boxes and its
  * 1/c rule with its "1/c = …" label and whisker; σ/μ's dots and whiskers.
- * The ranges stay the screen's, and the legend rows are counted without the
- * entry (`legendTop`). With no export in progress nothing changes.
+ * The ranges do not move. On screen the legend keeps the entry, greyed, so a
+ * click brings it back; an export leaves it out and counts the legend rows
+ * without it (`legendTop`). With nothing switched off nothing changes.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt } from '../scale.js';
@@ -68,7 +70,7 @@ import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries,
   clampInterval, showerColour, withColour, niceCeil, niceInterval, FINE_STEPS, legibleOpacity, sigmaText,
-  referenceRule, dispersionBar, dispersionBox, chartLegend, legendTop, exportHidden,
+  referenceRule, dispersionBar, dispersionBox, chartLegend, legendTop, hiddenEntries,
 } from './chart_panel.js';
 
 export const RESPONSE_MODES = Object.freeze(['b1', 'b2', 'resolution']);
@@ -114,7 +116,7 @@ function shownOf(series, shower) {
   return (series ?? []).filter((s) => !shower || shower === 'both' || s.key === shower);
 }
 
-/** Whether an export in progress leaves out legend entry `name` (see the header); false on screen. */
+/** Whether legend entry `name` is left out: switched off on the legend, or left out of an export (see the header). */
 function leftOut(hidden, name) {
   return Boolean(hidden?.has(name));
 }
@@ -217,8 +219,8 @@ function b1Option(payload, opts, metrics) {
   const shown = shownOf(block.series, opts.shower);
   const series = [];
   const legend = [];
-  // The entries an export in progress leaves out with every mark of theirs (see the header); null on screen.
-  const hidden = exportHidden();
+  // The entries left out with every mark of theirs (see the header): switched off, or left out of an export.
+  const hidden = hiddenEntries();
 
   /* ---- density histograms: robust (N ≥ 15), they set the y range -------- */
   const peaks = [];
@@ -271,7 +273,7 @@ function b1Option(payload, opts, metrics) {
   const yMax = hasDensity ? niceCeil(Y_HEADROOM * Math.max(...peaks), FINE_STEPS) : 1;
   const allStrips = shown.filter((s) => s.draw !== 'histogram' || !s.histogram);
   for (const s of allStrips) if (s.strip?.values?.length) legend.push(`${s.label} (events)`);
-  // In an export a strip series left out takes no row; on screen, every one.
+  // A strip series left out takes no row.
   const strips = hidden ? allStrips.filter((s) => !leftOut(hidden, `${s.label} (events)`)) : allStrips;
   const top = legendTop(legend, plotWidthPx);
   const plotHeightPx = Math.max(60, height - top - pad.bottom);
@@ -762,8 +764,8 @@ function b2Option(payload, opts, metrics) {
   const spans = [];
   const calibrations = [];
   let anyMark = false;
-  // The entries an export in progress leaves out with every mark of theirs (see the header); null on screen.
-  const hidden = exportHidden();
+  // The entries left out with every mark of theirs (see the header): switched off, or left out of an export.
+  const hidden = hiddenEntries();
 
   shown.forEach((s, k) => {
     const colour = showerColour(s.key, nShowers);
@@ -798,7 +800,7 @@ function b2Option(payload, opts, metrics) {
       legend.push(label);
       anyMark = true;
     }
-    // Left out of the export: its bins still set the momentum axis, nothing of it is drawn.
+    // Left out (switched off, or left out of an export): its bins still set the momentum axis, nothing of it is drawn.
     if (leftOut(hidden, label)) return;
     // The SD boxes: silent, named in the readout; a dashed outline carries their extent.
     series.push({
@@ -983,8 +985,8 @@ function resolutionOption(payload, opts, metrics) {
   const series = [];
   const legend = [];
   const spans = [];
-  // The entries an export in progress leaves out with every mark of theirs (see the header); null on screen.
-  const hidden = exportHidden();
+  // The entries left out with every mark of theirs (see the header): switched off, or left out of an export.
+  const hidden = hiddenEntries();
 
   for (const s of shown) {
     const colour = showerColour(s.key, nShowers);
@@ -1002,7 +1004,7 @@ function resolutionOption(payload, opts, metrics) {
     }
     // A series that draws nothing gets no legend entry.
     if (items.length) legend.push(label);
-    // Left out of the export: its bins still set the momentum axis, nothing of it is drawn.
+    // Left out (switched off, or left out of an export): its bins still set the momentum axis, nothing of it is drawn.
     if (leftOut(hidden, label)) continue;
     addBinPointMarks(series, {
       label, colour, offsetPx: showerOffset(s.key, both), items, yLo: y.lo, yHi: y.hi,

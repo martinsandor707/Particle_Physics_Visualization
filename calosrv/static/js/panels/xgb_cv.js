@@ -53,7 +53,7 @@ import { customWhiskers } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  chartLegend, niceCeil, niceInterval, FINE_STEPS, sigFigs, exportHidden, legendShown, exportAlias,
+  chartLegend, niceCeil, niceInterval, FINE_STEPS, sigFigs, hiddenEntries, legendShown, exportAlias,
 } from './chart_panel.js';
 
 /** Narrowest slot (px) a fold column and its mean are drawn in before a line breaks. */
@@ -466,8 +466,9 @@ export function meanTip(model, panel, slot) {
 export function xgbCvOption(payload, opts = {}, metrics = {}) {
   const model = cvModel(payload);
   if (!model) return emptyChartOption(opts, metrics, 'This response carries no cross-validation folds.');
-  // An export leaves out every mark of an entry the legend on show switched off; null on screen.
-  const off = exportHidden();
+  // Every mark of an entry switched off on the legend is left out, on screen and in an export (chart_panel.js
+  // `hiddenEntries`).
+  const off = hiddenEntries();
   const width = metrics.width || 600;
   const height = metrics.height || 330;
   const layout = cvLayout(model, width, height);

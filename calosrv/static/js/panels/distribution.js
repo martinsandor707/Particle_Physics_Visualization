@@ -70,9 +70,10 @@
  * mean direction, R̄ and the circular SD instead of a mean and σ. Its curve,
  * where there is one, is the Gaussian fit of the core, named so.
  *
- * ## An export leaves a switched-off entry out
+ * ## A switched-off entry leaves with every mark of it
  *
- * In an export (chart_panel.js `exportHidden`, set by export/figure.js) a
+ * On screen after a legend click, as in an export (chart_panel.js
+ * `hiddenEntries`, set by a paint's `screenBuild` and by export/figure.js), a
  * series whose legend entry is off is drawn nowhere, with every mark of its:
  * C4's step outlines and kernel curve, and the "beyond the display range"
  * caret where only left-out series lie beyond; D4's and the residual's
@@ -80,8 +81,9 @@
  * mean with its interval, every caret), the long-dashed mean rule with its
  * "mean" label, and the "beyond the axis" caret where only left-out series
  * lie beyond. A band left with no row goes. The ranges and the series
- * colours stay the screen's, and the legend rows are counted without the
- * entry (`legendShown`, `legendTop`). With no export in progress nothing
+ * colours do not move. On screen the legend keeps the entry, greyed, so a
+ * click brings it back; an export leaves it out and counts the legend rows
+ * without it (`legendShown`, `legendTop`). With nothing switched off nothing
  * changes.
  */
 
@@ -93,7 +95,7 @@ import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries, seriesStops, niceCeil,
   niceInterval, withColour, chartLegend, FINE_STEPS, legendTop, legibleOpacity, showerColour, sigmaText,
   referenceRule, dispersionBar, clampInterval, liftedSeries, reservedBand, bandCaption, noticeGraphic, tickLabel,
-  coarseInterval, OFFSET_NOTE, exportHidden, legendShown,
+  coarseInterval, OFFSET_NOTE, hiddenEntries, legendShown,
 } from './chart_panel.js';
 
 /** A series below this many showers is drawn dashed (CLAUDE.md histogram floor). */
@@ -222,8 +224,8 @@ export function distributionOption(payload, opts = {}, metrics = {}) {
   const floor = log ? logFloor(list) : 0;
   const series = [];
   const legend = [];
-  // The entries an export in progress leaves out with every mark of theirs (see the header); null on screen.
-  const hidden = exportHidden();
+  // The entries left out with every mark of theirs (see the header): switched off, or left out of an export.
+  const hidden = hiddenEntries();
   const drawn = hidden ? list.filter((s) => !hidden.has(s.label)) : list;
 
   list.forEach((s, k) => {
@@ -650,8 +652,8 @@ function fittedOption(model, opts = {}, metrics = {}) {
   const yMax = model.yMax;
   const hasDensity = Number.isFinite(yMax) && yMax > 0;
   const yTop = hasDensity ? yMax : 1;
-  // The entries an export in progress leaves out with every mark of theirs (see the header); null on screen.
-  const hidden = exportHidden();
+  // The entries left out with every mark of theirs (see the header): switched off, or left out of an export.
+  const hidden = hiddenEntries();
   const entryOf = (e) => (e.none ? `${e.label} (not drawn)` : e.label);
   const entries = hidden ? model.entries.filter((e) => !hidden.has(entryOf(e))) : model.entries;
 

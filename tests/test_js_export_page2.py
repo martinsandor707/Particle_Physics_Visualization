@@ -146,6 +146,7 @@ function check(build, height = () => null) {
   const aCanon = canonOption(a);
   const aHeight = height();
   const names = legendNames(a);
+  const ta0 = gridTops(a);
   const entries = [];
   for (const n of names) {
     cp.setExportHidden([n]);
@@ -163,8 +164,27 @@ function check(build, height = () => null) {
     const tb = gridTops(b);
     const higher = ta.length === tb.length ? tb.filter((t, i) => t > ta[i] + 1e-9).length
       : (Math.min(...tb) > Math.min(...ta) + 1e-9 ? 1 : 0);
+    // The screen with the same entry switched off (legend-sliders): the export's marks and canvas text, with the
+    // legend kept and the entry carried by one of its own series, which the legend filter hides.
+    const sc = cp.screenBuild({ legendSelected: { [n]: false } }, () => ({ option: build() })).option;
+    const sHeight = cp.withScreenHidden([n], () => height());
+    const namesOf = (o) => (o.series ?? []).map((x) => String(x?.name ?? ''));
+    const without = (o) => ({ ...o, series: (o.series ?? []).filter((x) => String(x?.name ?? '') !== n) });
+    cp.setExportHidden([n]);
+    const bTexts = canvasTexts(without(b)).sort();
+    cp.setExportHidden(null);
+    const sTexts = cp.withScreenHidden([n], () => canvasTexts(without(sc)).sort());
+    const screen = {
+      names: legendNames(sc), carried: namesOf(sc).filter((x) => x === n).length, inA: namesOf(a).includes(n),
+      sameMarks: JSON.stringify(namesOf(without(sc))) === JSON.stringify(namesOf(without(b))),
+      sameTexts: JSON.stringify(sTexts) === JSON.stringify(bTexts),
+      // The export lays its legend out without the entry and the screen keeps it, so the screen's height lies
+      // between the export's and the card's with nothing hidden (a catalogue frame's rows go on both).
+      between: (bHeight === null || sHeight >= bHeight - 1e-9) && (aHeight === null || sHeight <= aHeight + 1e-9),
+      higher: gridTops(sc).filter((t, i) => i < ta0.length && t > ta0[i] + 1e-9).length,
+    };
     entries.push({ name: n, listed, markedOff, named, texts, higher, seriesA: (a.series ?? []).length, seriesB: (b.series ?? []).length,
-      taller: aHeight !== null && bHeight !== null && bHeight > aHeight + 1e-9 });
+      taller: aHeight !== null && bHeight !== null && bHeight > aHeight + 1e-9, screen });
   }
   const restored = canonOption(build()) === aCanon;
   return { names, entries, restored };
@@ -299,6 +319,28 @@ def test_no_canvas_text_names_a_left_out_entry(out):
 
 def test_the_legend_rows_and_figure_never_grow(out):
     bad = [(label, e["name"]) for label, e in _entries(out) if e["higher"] or e["taller"]]
+    assert not bad, bad[:10]
+
+
+def test_the_screen_draws_what_the_export_draws_and_keeps_the_entry_on_its_legend(out):
+    """legend-sliders (2026-11-17): a legend click on screen leaves out the same marks, canvas text and category
+    rows as the export does (a catalogue frame's rows go, review R2-7), and the card is never taller than with
+    nothing hidden nor shorter than the export, whose legend drops the entry's row; the legend keeps every
+    entry, the switched-off one carried by one of its own series."""
+    bad = []
+    for label, case in _cases(out):
+        for e in case["entries"]:
+            s = e["screen"]
+            problems = [why for why, failed in (
+                ("the legend lost an entry", s["names"] != case["names"]),
+                ("no series carries the entry", s["inA"] and s["carried"] < 1),
+                ("marks differ from the export's", not s["sameMarks"]),
+                ("canvas text differs from the export's", not s["sameTexts"]),
+                ("height outside the export's and the card's", not s["between"]),
+                ("a grid moved down", s["higher"] > 0),
+            ) if failed]
+            if problems:
+                bad.append((label, e["name"], problems))
     assert not bad, bad[:10]
 
 

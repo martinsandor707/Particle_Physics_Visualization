@@ -56,7 +56,7 @@ import { customWhiskers } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs, exportHidden, exportAlias,
+  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs, hiddenEntries, exportAlias,
 } from './chart_panel.js';
 
 /** Most feature rows the card draws. */
@@ -223,8 +223,9 @@ export function xgbImportanceOption(payload, opts = {}, metrics = {}) {
   const xMax = Math.min(100, niceCeil(Math.max(...values, 0.01) * 100, FINE_STEPS));
   const ink = THEME.text;
   const series = [];
-  // An export leaves out every mark of an entry the legend on show switched off; null on screen.
-  const hidden = exportHidden();
+  // Every mark of an entry switched off on the legend is left out, on screen and in an export (chart_panel.js
+  // `hiddenEntries`).
+  const hidden = hiddenEntries();
 
   series.push({
     type: 'custom',

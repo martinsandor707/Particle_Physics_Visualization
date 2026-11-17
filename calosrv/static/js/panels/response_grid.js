@@ -58,16 +58,18 @@
  * Shower identity is colour (A pink, B blue; one shower takes the accent) and
  * a network's prediction is dashed, its truth or deposit solid.
  *
- * ## An export leaves a switched-off entry out
+ * ## A switched-off entry leaves with every mark of it
  *
- * In an export (chart_panel.js `exportHidden`, set by export/figure.js) a
+ * On screen after a legend click, as in an export (chart_panel.js
+ * `hiddenEntries`, set by a paint's `screenBuild` and by export/figure.js), a
  * series key whose legend entry is off is drawn nowhere: no histogram, curve
  * or "fit (clipped)" caret, no band row (its events, SD band, mean with its
  * interval, summary and events-beyond carets), and a sub-plot's reserved band
- * or a shower's momentum rule drawn only for it goes with it. Each sub-plot
- * keeps the density range the screen shows, and the legend rows are counted
- * without the entry (`legendShown`). With no export in progress nothing
- * changes.
+ * or a shower's momentum rule drawn only for it goes with it, and a bin's
+ * readout names the series still drawn. Each sub-plot keeps its density range.
+ * On screen the legend keeps the entry, greyed, so a click brings it back; an
+ * export leaves it out and counts the legend rows without it (`legendShown`).
+ * With nothing switched off nothing changes.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, formatPercent } from '../scale.js';
@@ -77,7 +79,7 @@ import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, mutedLine, escapeHtml, caretSeries, clampInterval,
   showerColour, niceCeil, coarseInterval, FINE_STEPS, legibleOpacity, sigmaText, referenceRule, dispersionBar,
-  chartLegend, exportHidden, legendShown,
+  chartLegend, hiddenEntries, legendShown,
 } from './chart_panel.js';
 import { curveAreaLine } from './distribution.js';
 
@@ -449,8 +451,8 @@ export function responseGridOption(payload, opts = {}, metrics = {}) {
   const graphic = [];
   // Whether any sub-plot draws a density: the shared axis name is only given then.
   let anyDensity = false;
-  // The series keys an export in progress leaves out with every mark of theirs (see the header); null on screen.
-  const hidden = exportHidden();
+  // The series keys left out with every mark of theirs (see the header): switched off, or left out of an export.
+  const hidden = hiddenEntries();
 
   slices.forEach(({ slice, axis }, k) => {
     const cell = layout.cells[k];
@@ -496,7 +498,7 @@ export function responseGridOption(payload, opts = {}, metrics = {}) {
       });
     }
 
-    // The series drawn: in an export, those whose entry is on (the scale above keeps them all).
+    // The series drawn: those whose entry is on (the scale above keeps them all).
     const drawn = hidden ? entries.filter((e) => !hidden.has(e.label)) : entries;
     const cellSeries = [];
     addDensityMarks(cellSeries, payload, drawn, { slice, lo, hi, scale, nShowers });
@@ -822,7 +824,7 @@ function addLowNRow(out, payload, row, { slice, lo, hi }) {
  * beyond the slice's energy axis.
  */
 function addMomentumRules(out, payload, entries, { slice, axis, lo, hi, nShowers, yMax, liftPx, drawn = entries }) {
-  // A shower's rule belongs to its series: in an export that leaves every one of them out, it goes too.
+  // A shower's rule belongs to its series: when every one of them is left out, it goes too.
   const momenta = ['a', 'b']
     .map((key) => ({ key, marker: axis.momentum?.[key] }))
     .filter(({ key, marker }) => marker && Number.isFinite(marker.mean)

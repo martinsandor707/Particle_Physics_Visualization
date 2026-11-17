@@ -273,14 +273,15 @@
  * centred sentence says so; the screen adds how to draw one, which a printed
  * figure cannot act on. No hazard: nothing is drawn that needs one.
  *
- * ## What an export leaves out
+ * ## What a switched-off entry takes with it
  *
- * An exported figure describes only what is on show (Martin's decision of
- * 2026-11-17): every chart export leaves out a series switched off on the
- * legend, with its legend entry (`chart_panel.exportHidden`, set by
- * export/figure.js; null on screen, where nothing here changes). The 1/√E
- * view needs nothing beyond the shared legend: every mark of a series carries
- * its name. The E view draws text of its own, so `energyViewOption` leaves out
+ * A series switched off on the legend leaves with every mark of it, on screen
+ * as in an export (Martin's decisions of 2026-11-17: a figure describes only
+ * what is on show; `chart_panel.hiddenEntries`, set by a paint's `screenBuild`
+ * and by export/figure.js). On screen its legend entry stays, greyed, so a
+ * click brings it back; an export leaves the entry out too. The 1/√E view
+ * needs nothing beyond the shared legend: every mark of a series carries its
+ * name. The E view draws text of its own, so `energyViewOption` leaves out
  * every mark of a left-out name (`exportView`): its markers, whiskers, carets
  * and curves on both panels, its end labels (the end column is sized and the
  * labels spread without them), its values in the note band's off-scale list,
@@ -301,7 +302,7 @@ import { customWhiskers, customPolyline, customBand } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries, clampInterval,
-  withColour, wrappedLegend, legendTop, legibleOpacity, emptyChartOption, sigFigs, exportHidden, isPrintTheme, tickLabel,
+  withColour, wrappedLegend, legendTop, legibleOpacity, emptyChartOption, sigFigs, hiddenEntries, isPrintTheme, tickLabel,
 } from './chart_panel.js';
 import { SOURCE_ORDER, sourceColours } from './perf_bins.js';
 import {
@@ -3940,8 +3941,9 @@ export function energyDrawsPanels(payload, opts = {}) {
 }
 
 /**
- * The E view's option. Pure but for the export's legend context
- * (`exportHidden`, null on screen): `opts` = {windows, shower, literature
+ * The E view's option. Pure but for the legend context (`hiddenEntries`: the
+ * names switched off on the legend, on screen or in an export; null when none
+ * is): `opts` = {windows, shower, literature
  * (or the older reference), estimator, deposit, eMax, palette, card,
  * tooltipPosition?}; `metrics` = {width, height}. Returns {option,
  * plotGrid}: two grids, the main panel over the ratio panel, on one E axis
@@ -3958,9 +3960,9 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
   const width = metrics.width || 760;
   const height = metrics.height || ENERGY_VIEW_PX;
   const gap = gridGapPx();
-  // An export leaves out every mark of a name the legend on show switched off (`exportHidden`, set by
-  // export/figure.js): its marks on both panels, its end labels and its off-scale values; on screen `view` is `model`.
-  const off = exportHidden();
+  // Every mark of a name switched off on the legend is left out, on screen and in an export (`hiddenEntries`):
+  // its marks on both panels, its end labels and its off-scale values; with none switched off `view` is `model`.
+  const off = hiddenEntries();
   const kept = (name) => !off?.has(name);
   const view = exportView(model, off);
   const right = pad.right + endColumnPx(view);
@@ -3972,7 +3974,8 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
   for (const s of model.series) {
     if (!s.points.length && !s.drawn) continue;
     if (kept(s.label)) series.push(...energySeriesMarks(model, s));
-    // Every entry is listed: an export's legend drops a left-out one and marks it false (chartLegend, legendTop).
+    // Every entry is listed: on screen a left-out one is greyed; an export's legend drops it and marks it false
+    // (chartLegend, legendTop).
     legend.push({ name: s.label, icon: 'circle' });
   }
   // The literature curves drawn: each one's line, caret, legend swatch and end label in its identity colour, and
@@ -4140,14 +4143,15 @@ export function drawnETicks(ticks, max, plotWidthPx) {
 }
 
 /**
- * What an export draws of the E view's `model` (Martin's decision of
- * 2026-11-17: a figure describes only what is on show): with `off`, the legend
- * names an export leaves out (`exportHidden`), a copy whose series, literature
- * curves, end labels and off-scale list hold none of them, and whose note text
- * is recomputed from what is kept (the extrapolation rule from the kept
- * series' dashed runs). The literature disclosure stays while a curve is on:
- * the ratio may still divide by it. On screen (`off` null or empty), `model`
- * itself.
+ * What the E view draws of its `model` with names switched off on the legend
+ * (Martin's decisions of 2026-11-17: a figure describes only what is on show,
+ * and the screen draws what its export would): with `off`, those names
+ * (`hiddenEntries`, on screen or in an export), a copy whose series,
+ * literature curves, end labels and off-scale list hold none of them, and
+ * whose note text is recomputed from what is kept (the extrapolation rule from
+ * the kept series' dashed runs). The literature disclosure stays while a curve
+ * is on: the ratio may still divide by it. With none (`off` null or empty),
+ * `model` itself.
  */
 function exportView(model, off) {
   if (!off || !off.size) return model;

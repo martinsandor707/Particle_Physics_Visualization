@@ -29,7 +29,7 @@ import { printed, printedQualified } from '../catalog/select.js';
 import { tooltipOption } from './tooltip.js';
 import {
   baseOption, wrapTooltip, valueAxis, mutedLine, escapeHtml, emptyChartOption, withColour, wrappedLegend,
-  legendTop, legibleOpacity, tickLabel, fitName, exportHidden,
+  legendTop, legibleOpacity, tickLabel, fitName, hiddenEntries,
 } from './chart_panel.js';
 import {
   AXIS_LABEL_MARGIN, CATALOG_FRAMES, DEFAULT_WIDTH, N_NOT_REPORTED, CatalogChartPanel, buildTable, categoryAxis,
@@ -175,9 +175,9 @@ export function benchDiagnosticsOption(payload, opts = {}, metrics = {}) {
   const graphic = [textGraphic(fitName([`Proton segmentation indecision — ${PROTON_ONLY.toLowerCase()}`, `Proton segmentation — ${PROTON_ONLY.toLowerCase()}`, PROTON_ONLY], width - 1.2 * f),
     0.6 * f, layout.headingY, { colour: THEME.text })];
   const frameLabels = CATALOG_FRAMES.map((fr) => labelOf(payload, 'frame', fr));
-  // An export leaves out the marks of an entry the legend on show switched off; null on screen. The dumbbell's
-  // bar joins the two ends, so it is drawn only while both are.
-  const hidden = exportHidden();
+  // The marks of an entry switched off on the legend are left out, on screen and in an export (chart_panel.js
+  // `hiddenEntries`). The dumbbell's bar joins the two ends, so it is drawn only while both are.
+  const hidden = hiddenEntries();
   const joined = !hidden?.has(TRUTH_NAME);
 
   layout.panels.forEach(({ panel, grid, titleX, titleY, titleW }, index) => {

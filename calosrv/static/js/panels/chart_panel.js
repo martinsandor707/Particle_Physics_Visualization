@@ -39,7 +39,8 @@
  * the reader's, like the Physics page's Marks toggle, and never enters the
  * URL hash, the view state or the Admin defaults. The exporter applies it
  * too (export/figure.js), so a figure leaves out what the screen hides, with
- * their legend entries (below). Page 1's energy panel is
+ * their legend entries (below), and every mark of a switched-off entry leaves
+ * the screen with it (below). Page 1's energy panel is
  * not a ChartPanel and keeps the same memory through the same helpers
  * (`listenToLegend`, `setOptionWithLegend`).
  *
@@ -52,29 +53,51 @@
  * swatch and a line series' swatch line (`withInactiveInk`). The builders and
  * the dark golden keep `THEME.border`: the ink is laid at paint time, and only
  * while something is hidden. A click that hides an entry merges the ink into
- * the legend on show at once, without a repaint, so the legend keeps its page.
+ * the legend on show at once, before the repaint it asks for at the next frame
+ * (below), and that repaint keeps the legend's page.
  *
- * An export leaves out a switched-off series together with its legend entry,
- * and lays the legend rows out without it. export/figure.js sets the export's
- * legend context (`setExportHidden`, the names `legendOffNames` reads off the
- * legend on show: the reader's memory and a builder's own defaults) inside its
- * synchronous window, where it already swaps the print tokens, and clears it
- * in the same `finally`. While it is set, `chartLegend` lists none of those
- * names, marks each it dropped false in its `selected` (so its series is
- * filtered with no entry listing it) and hides a legend left with no entry;
- * `legendTop` counts the rows of the kept names only, so the figure's height
- * is laid out without them; `legendShown` gives a custom legend layout the
- * same list. On screen the context is null and every one of these is the
- * identity: the screen still greys a hidden entry, and the builders' outputs
- * and the dark golden do not move.
+ * ## A switched-off entry takes every mark of it along
+ *
+ * ECharts' legend filter hides only the series named after an entry. Many
+ * builders draw an entry's companions under other names (an interval, a
+ * dispersion, a mean, a "(clipped)" caret, an events-beyond caret shared with
+ * other entries, a bin readout naming every series) and text of their own (the
+ * resolution card's note band and end labels), which the filter cannot reach.
+ * So every builder reads one legend context, `hiddenEntries()`, the entries
+ * whose marks it leaves out: each mark of such an entry, its companions and
+ * any text drawn only for it; a mark shared with entries still on show stays
+ * and names only those. The screen and an export set it alike:
+ *
+ * - On screen, a paint builds under the names the reader switched off
+ *   (`screenBuild`, `withScreenHidden`), and a legend event repaints the panel
+ *   at the next frame (`repaintForLegend`), so the companions leave with their
+ *   entry and come back with it (Martin's decision, 2026-11-17: the screen
+ *   draws what its export would). The legend keeps the entry, greyed, so a
+ *   click brings it back: a builder that left out every series of the entry
+ *   is given one back as its legend carrier (`withLegendCarriers`), because
+ *   ECharts draws an entry only for a name some series carries. With nothing
+ *   switched off a paint builds once with no context, so the builders' outputs
+ *   and the dark golden do not move.
+ * - An export leaves out a switched-off series together with its legend entry,
+ *   and lays the legend rows out without it. export/figure.js sets the export's
+ *   legend context (`setExportHidden`, the names `legendOffNames` reads off the
+ *   legend on show: the reader's memory and a builder's own defaults) inside
+ *   its synchronous window, where it already swaps the print tokens, and clears
+ *   it in the same `finally`. Only in an export does `chartLegend` list none of
+ *   those names, mark each it dropped false in its `selected` (so its series is
+ *   filtered with no entry listing it) and hide a legend left with no entry;
+ *   `legendTop` count the rows of the kept names only, so the figure's height
+ *   is laid out without them; and `legendShown` give a custom legend layout the
+ *   same list. On screen each of these is the identity.
  *
  * Each legend event also tells the panel's `onLegendChange`: the page then
  * rebuilds the card's Details drawer, whose Marks and legend section names the
  * series the reader hid (`legendHiddenNames`, `legendHiddenLine`; added by
  * panel_notes.js `withHiddenLegend` where a section assembles a drawer).
  *
- * While the memory hides anything, `paint` clears the chart before the new
- * option, which disposes every series view. ECharts 5.5.1 reuses a custom
+ * While the memory hides anything, and on every repaint for a legend event,
+ * `paint` clears the chart before the new option, which disposes every series
+ * view. ECharts 5.5.1 reuses a custom
  * series' view across `setOption(notMerge)` when the series id is the same.
  * When the legend filters a series, its view's group is emptied, but the
  * view keeps its old data, whose elements are now detached. The next render
@@ -467,8 +490,9 @@ export function chartLegend(data, extra = {}) {
     itemHeight: 8,
     ...extra,
   };
-  // An export in progress leaves out what the legend on show switched off (see the header); on screen, today's legend.
-  if (!exportHiddenNames || !Array.isArray(legend.data)) return legend;
+  // An export in progress leaves out what the legend on show switched off (see the header); on screen the legend
+  // keeps every entry, a switched-off one greyed, so a click brings it back.
+  if (!exportContext || !hiddenNames || !Array.isArray(legend.data)) return legend;
   const kept = legendShown(legend.data);
   if (kept === legend.data) return legend;
   const keptNames = new Set(kept.map(entryName));
@@ -481,43 +505,166 @@ export function chartLegend(data, extra = {}) {
   };
 }
 
-/* ------------------------------------------------- the export's legend context -- */
+/* ------------------------------------------------------- the legend context -- */
 
-/** The names an export in progress leaves out (a Set), or null on screen. Set only by export/figure.js. */
-let exportHiddenNames = null;
+/**
+ * The entries whose marks every builder leaves out (a Set), or null when none is (see the header). A paint sets it
+ * for the names the reader switched off on the legend on show (`withScreenHidden`, through `screenBuild`); an
+ * export sets it for the names its figure leaves out (`setExportHidden`, export/figure.js). Builders read it
+ * through `hiddenEntries()`.
+ */
+let hiddenNames = null;
+
+/** True while an export sets the context: its legends then list none of the hidden names and lay out without them. */
+let exportContext = false;
 
 /** The name of a legend entry: a string, or an object's `name`. */
 function entryName(entry) {
   return String(entry !== null && typeof entry === 'object' ? entry.name : entry);
 }
 
-/** Set the export's legend context: the names its legends leave out (an array of strings), or null/empty to clear it. */
-export function setExportHidden(names) {
+/** `names` as a Set of strings, or null when it holds none. */
+function nameSet(names) {
   const list = Array.isArray(names) ? names.filter((n) => n !== null && n !== undefined).map(String) : [];
-  exportHiddenNames = list.length ? new Set(list) : null;
+  return list.length ? new Set(list) : null;
 }
 
-/** The Set of names an export in progress leaves out, or null (on screen). */
-export function exportHidden() {
-  return exportHiddenNames;
+/** Set the export's legend context: the names its legends leave out (an array of strings), or null/empty to clear it. */
+export function setExportHidden(names) {
+  hiddenNames = nameSet(names);
+  exportContext = hiddenNames !== null;
+}
+
+/**
+ * Run `fn` under the screen's legend context: every builder leaves out each mark of the entries `names` (the
+ * ones the reader switched off on the legend on show), while the legends keep listing them, greyed, so a click
+ * brings them back. The context in force before is restored however `fn` ends. Returns what `fn` returns.
+ */
+export function withScreenHidden(names, fn) {
+  const before = [hiddenNames, exportContext];
+  hiddenNames = nameSet(names);
+  exportContext = false;
+  try {
+    return fn();
+  } finally {
+    [hiddenNames, exportContext] = before;
+  }
+}
+
+/**
+ * The Set of entries whose marks a builder leaves out: those the reader switched off, while a paint draws on
+ * screen, or those an export leaves out; null when there are none. A builder leaves out each mark of such an
+ * entry: its own series and its companions (an interval, a dispersion, a mean, a "(clipped)" caret, a value
+ * label) and any text on the canvas drawn only for it; a mark shared with entries still on show stays and
+ * names only those.
+ */
+export function hiddenEntries() {
+  return hiddenNames;
+}
+
+/** Whether the context in force is an export's: its legends then drop the hidden entries (`chartLegend`, `legendTop`). */
+export function isExportContext() {
+  return exportContext;
 }
 
 /**
  * An entry whose legend name is chosen by width (`fitName` over `candidates`) is left out of an export under the
  * name it takes at the export's width, `chosen`, when the legend on show switched it off under another of its names
- * (review R2-3: a card about 1100 px wide names an envelope in full, a single-column figure in short). Nothing on
- * screen, where there is no context. The name-choosing function calls it, so every reader of the name agrees.
+ * (review R2-3: a card about 1100 px wide names an envelope in full, a single-column figure in short). Export only:
+ * a paint on screen lays out at the width the reader clicked at, where the names are the legend's own. The
+ * name-choosing function calls it, so every reader of the name agrees.
  */
 export function exportAlias(candidates, chosen) {
-  if (!exportHiddenNames || chosen === null || chosen === undefined) return;
-  if ((candidates ?? []).some((n) => exportHiddenNames.has(String(n)))) exportHiddenNames.add(String(chosen));
+  if (!exportContext || !hiddenNames || chosen === null || chosen === undefined) return;
+  if ((candidates ?? []).some((n) => hiddenNames.has(String(n)))) hiddenNames.add(String(chosen));
 }
 
-/** `entries` (strings or {name}) without the export's left-out names; the same array object when nothing is left out. */
+/**
+ * `entries` (strings or {name}) without the export's left-out names; the same array object when nothing is left
+ * out, and always on screen, where the legend keeps a switched-off entry.
+ */
 export function legendShown(entries) {
-  if (!exportHiddenNames || !Array.isArray(entries)) return entries;
-  const kept = entries.filter((entry) => !exportHiddenNames.has(entryName(entry)));
+  if (!exportContext || !hiddenNames || !Array.isArray(entries)) return entries;
+  const kept = entries.filter((entry) => !hiddenNames.has(entryName(entry)));
   return kept.length === entries.length ? entries : kept;
+}
+
+/** The names the memory ({name: shown}) switches off, in its order. */
+function memoryOff(memory) {
+  return Object.entries(memory ?? {}).filter(([, shown]) => shown === false).map(([name]) => name);
+}
+
+/**
+ * The names the legends of `option` list, as a Set: each shown legend's `data`, or, for a legend without `data`,
+ * every named series (ECharts lists each there). A hidden legend (`show: false`) lists none.
+ */
+export function listedNames(option) {
+  const out = new Set();
+  const series = [option?.series ?? []].flat();
+  for (const legend of [option?.legend ?? []].flat()) {
+    if (!legend || typeof legend !== 'object' || legend.show === false) continue;
+    if (Array.isArray(legend.data)) {
+      for (const d of legend.data) out.add(entryName(d));
+    } else {
+      for (const s of series) if (s && s.name !== undefined && s.name !== null && s.name !== '') out.add(String(s.name));
+    }
+  }
+  return out;
+}
+
+/**
+ * The names `panel`'s memory switches off that the legends of `option` list (`listedNames`): the entries a paint
+ * of that option leaves out on screen, in the memory's order. A remembered name the option does not list is not
+ * among them: nothing of it is drawn, and no entry would bring back a mark left out for it.
+ */
+export function screenHiddenNames(panel, option) {
+  const off = memoryOff(panel?.legendSelected);
+  if (!off.length) return [];
+  const listed = listedNames(option);
+  return off.filter((name) => listed.has(name));
+}
+
+/**
+ * `option` (built under the screen context) with a legend carrier for each name of `off` that none of its series
+ * carries: the first series of that name in `plain`, the same option built with no context. ECharts draws a
+ * legend entry only for a name some series carries (LegendView: `getSeriesByName(name)[0]`), so without one the
+ * switched-off entry would leave the legend and could not be clicked back on. The carrier is the very series
+ * whose look the entry had, so its swatch does not change; the legend filter hides it, as it hid the series.
+ * An `id` another series already holds is dropped. `option` itself when nothing is carried.
+ */
+function withLegendCarriers(option, plain, off) {
+  if (!option?.legend) return option;
+  const series = [option.series ?? []].flat();
+  const carried = new Set(series.filter((s) => s && s.name !== undefined && s.name !== null).map((s) => String(s.name)));
+  const ids = new Set(series.filter((s) => s && s.id !== undefined && s.id !== null).map((s) => String(s.id)));
+  const carriers = [];
+  for (const name of off) {
+    if (carried.has(name)) continue;
+    const first = [plain?.series ?? []].flat().find((s) => s && String(s.name) === name);
+    if (!first) continue;
+    const carrier = { ...first };
+    if (carrier.id !== undefined && carrier.id !== null && ids.has(String(carrier.id))) delete carrier.id;
+    carriers.push(carrier);
+  }
+  return carriers.length ? { ...option, series: [...series, ...carriers] } : option;
+}
+
+/**
+ * What a paint of `panel` sets on screen: `build()` (a builder's {option, ...}) under the screen's legend context.
+ * With nothing switched off in the reader's memory, one build with no context, exactly as before (the dark golden
+ * does not move). Otherwise the option is built once with no context (`plain`), which says what its legends list;
+ * with no listed name switched off, that is the result. Else it is built again with those names hidden
+ * (`withScreenHidden`), so every builder leaves out their marks, companions and text as an export does, and given
+ * their legend carriers (`withLegendCarriers`). The result is the second build's, with `plain` (the first build,
+ * for what never depends on the legend: the energy card's notices and table) and `hidden` (the names left out).
+ */
+export function screenBuild(panel, build) {
+  if (!memoryOff(panel?.legendSelected).length) return build();
+  const plain = build();
+  const off = screenHiddenNames(panel, plain?.option);
+  if (!off.length) return plain;
+  const built = withScreenHidden(off, build);
+  return { ...built, option: withLegendCarriers(built.option, plain.option, off), plain, hidden: off };
 }
 
 /**
@@ -529,9 +676,9 @@ export function legendShown(entries) {
  */
 export function legendOffNames(panel) {
   const out = [];
-  // The reader's memory laid over the legend on show first: a legend click repaints nothing, so the live legend's
-  // own `selected` is as of the last paint, and a second click, or a click that turns an entry back on, is in the
-  // memory alone (review R2-1, R2-2). A true in the memory clears a stale false.
+  // The reader's memory laid over the legend on show first: a legend click repaints only at the next frame, so the
+  // live legend's own `selected` can be as of an earlier paint, and a second click, or a click that turns an entry
+  // back on, is in the memory alone until then (review R2-1, R2-2). A true in the memory clears a stale false.
   const live = panel?.liveLegend ?? null;
   const laid = live ? withLegendMemory({ legend: live }, panel?.legendSelected).legend : null;
   for (const legend of [laid ?? []].flat()) {
@@ -686,19 +833,47 @@ export function withInactiveInk(option, ink = null) {
  * read. Returns the option set. ChartPanel and EnergyPanel paint through it.
  */
 export function setOptionWithLegend(panel, option) {
-  const shown = withInactiveInk(withLegendMemory(option, panel.legendSelected));
+  let shown = withInactiveInk(withLegendMemory(option, panel.legendSelected));
+  // A repaint for a legend event keeps the page the reader had scrolled the legend to.
+  if (panel.legendRepainting) shown = withLegendPage(shown, panel.chart);
   panel.liveLegend = shown.legend ?? null;
-  if (legendHides(panel.legendSelected)) panel.chart.clear();
+  if (legendHides(panel.legendSelected) || panel.legendRepainting) panel.chart.clear();
   panel.chart.setOption(shown, { notMerge: true });
   return shown;
 }
 
 /**
+ * `option` with each scroll legend at the page the chart's legend of the same index is on (`scrollDataIndex`, which
+ * ECharts' legendScroll action keeps in the legend's model): a repaint for a legend event would otherwise send the
+ * reader back to the first page of a legend they had scrolled. The option itself when no page is to be kept.
+ */
+function withLegendPage(option, chart) {
+  if (!option?.legend || typeof chart?.getModel !== 'function') return option;
+  const model = chart.getModel();
+  const pageOf = (i) => {
+    const index = model?.getComponent?.('legend', i)?.get?.('scrollDataIndex');
+    return Number.isFinite(index) && index > 0 ? index : null;
+  };
+  const paged = (legend, i) => {
+    const index = legend && typeof legend === 'object' && legend.type === 'scroll' ? pageOf(i) : null;
+    return index === null ? legend : { ...legend, scrollDataIndex: index };
+  };
+  if (Array.isArray(option.legend)) {
+    const legends = option.legend.map(paged);
+    return legends.every((l, i) => l === option.legend[i]) ? option : { ...option, legend: legends };
+  }
+  const legend = paged(option.legend, 0);
+  return legend === option.legend ? option : { ...option, legend };
+}
+
+/**
  * Listen to the legend events of `panel.chart` (a ChartPanel, the energy
  * panel), once: each records what it changed in `panel.legendSelected`, an
- * entry it hides takes the legible ink at once (`inkLiveLegend`), and
- * `panel.onLegendChange(panel)` is told, so the page can rebuild the card's
- * drawer. Guarded on `chart.on`, so the Node fakes keep working.
+ * entry it hides takes the legible ink at once (`inkLiveLegend`), the panel is
+ * repainted at the next frame so every mark of the entry follows it
+ * (`repaintForLegend`), and `panel.onLegendChange(panel)` is told, so the page
+ * can rebuild the card's drawer. Guarded on `chart.on`, so the Node fakes keep
+ * working.
  */
 export function listenToLegend(panel) {
   const chart = panel.chart;
@@ -706,15 +881,41 @@ export function listenToLegend(panel) {
   const remember = (event) => {
     Object.assign(panel.legendSelected, legendChange(event));
     inkLiveLegend(panel);
+    repaintForLegend(panel);
     if (typeof panel.onLegendChange === 'function') panel.onLegendChange(panel);
   };
   for (const type of LEGEND_EVENTS) chart.on(type, remember);
 }
 
 /**
+ * Repaint `panel` at the next animation frame after a legend event (see the header). ECharts' own legend filter
+ * hides only the series named after the entry, at once; the repaint draws the option again under the screen's
+ * legend context (`screenBuild`), so the entry's companions and the text drawn only for it leave with it, and come
+ * back with it. Coalesced: one repaint per frame however many events land. The chart is cleared first, so no
+ * series view is reused across the legend's filter (see the header), and a scroll legend keeps its page. Nothing
+ * for a panel without a picture; synchronous where there is no animation frame (the Node fakes).
+ */
+function repaintForLegend(panel) {
+  if (typeof panel.paint !== 'function' || panel.legendRepaint) return;
+  const run = () => {
+    panel.legendRepaint = 0;
+    if (!panel.lastPayload) return;
+    panel.legendRepainting = true;
+    try {
+      panel.paint();
+    } finally {
+      panel.legendRepainting = false;
+    }
+  };
+  if (typeof requestAnimationFrame === 'function') panel.legendRepaint = requestAnimationFrame(run);
+  else run();
+}
+
+/**
  * Give the legend on show the legible ink of the entries the memory now
- * hides, without a repaint: the legend still carries the ink of its last
- * paint, `THEME.border` while nothing was hidden. Only the inks are merged
+ * hides at once, before the repaint the event asks for: the legend still
+ * carries the ink of its last paint, `THEME.border` while nothing was hidden,
+ * and a frame is not to pass with an entry off in an illegible ink. Only the inks are merged
  * (`setOption` without notMerge), into each legend whose ink must change, so
  * the legend keeps its `selected` state and its page, and every series its
  * view. Nothing when no listed entry is hidden or the ink is already there.
@@ -782,7 +983,7 @@ export function legendTop(names, plotWidthPx, { wrap = false } = {}) {
   const names2 = (legendShown(names ?? []) ?? []).map((n) => String(n?.name ?? n));
   // An export that leaves every entry out lays out no legend row (review R2-6); on screen, and for a legend that never
   // had an entry, the one row stays as before.
-  if (!names2.length && exportHiddenNames && (names ?? []).length) return pad.top;
+  if (!names2.length && exportContext && (names ?? []).length) return pad.top;
   const rows = !names2.length ? 1
     : ((THEME.legendWrap || wrap) ? Math.max(1, legendRows(names2, plotWidthPx, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1);
   return pad.top + rows * 1.6 * THEME.fontLabel;
@@ -1209,6 +1410,10 @@ export class ChartPanel {
     this.liveLegend = null;
     // Told after each legend event, with the panel: the page rebuilds the card's drawer.
     this.onLegendChange = null;
+    // The entries the last paint left out on screen (`screenBuild`), and the repaint a legend event asked for.
+    this.screenHidden = [];
+    this.legendRepaint = 0;
+    this.legendRepainting = false;
   }
 
   /** Create the chart on first use; idempotent. */
@@ -1276,7 +1481,10 @@ export class ChartPanel {
       readoutPosition: this.readoutPosition,
     };
     const metrics = { width, height };
-    const { option, plotGrid = null } = this.buildOption({ payload: this.lastPayload, opts, metrics });
+    // Under the screen's legend context: the marks of an entry the reader switched off leave with it (see the header).
+    const built = screenBuild(this, () => this.buildOption({ payload: this.lastPayload, opts, metrics }));
+    const { option, plotGrid = null } = built;
+    this.screenHidden = built.hidden ?? [];
     this.laidOut = { width, height };
     this.liveGrid = option.grid ?? null;
     // A builder that draws outside any cartesian grid (a tree, a matrix)

@@ -61,6 +61,12 @@
  * label) and any text on the canvas drawn only for it. The context is cleared
  * in the same `finally` that restores the screen theme.
  *
+ * The screen already draws those marks so: a paint builds under the same
+ * context, set for the names the reader switched off (chart_panel.js
+ * `screenBuild`), and a legend click repaints. What an export adds is the
+ * legend: the screen keeps a switched-off entry, greyed, so a click brings it
+ * back, and the figure leaves it out with its row.
+ *
  * `buildPrintOption` then lays the panel's legend memory (`legendSelected`)
  * over the print option with the screen's own helper, `withLegendMemory`, and
  * `printLegendOption` makes every legend of the option, shown or not, list
@@ -74,7 +80,7 @@
 
 import { THEME, restoreScreenTheme } from '../scale.js';
 import {
-  exportHidden, legendOffNames, setExportHidden, withLegendMemory,
+  hiddenEntries, legendOffNames, setExportHidden, withLegendMemory,
 } from '../panels/chart_panel.js';
 import { renderRaster } from '../decode.js';
 import { PRINT_TOKENS, PX_RATIO, widthToPx } from './tokens.js';
@@ -175,7 +181,7 @@ export function exportPanel(panel, { panelId, format = 'svg', widthMm, state, me
 function buildPrintOption(panel, { width, height }) {
   const metrics = { width, height };
   const legend = panel.legendSelected ?? null;
-  const off = [...(exportHidden() ?? [])];
+  const off = [...(hiddenEntries() ?? [])];
 
   if (panel.kind === 'projection') {
     // The raster is rebuilt rather than borrowed, so it can be upscaled for

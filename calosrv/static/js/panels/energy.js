@@ -59,15 +59,16 @@
  * as long as the panel, `clear()` keeps it, and it never enters the hash.
  * `onLegendChange` tells main.js, which names them in the drawer.
  *
- * An export leaves a switched-off entry out with every mark of it (Martin's
- * decision, 2026-11-17; export/figure.js sets the context, chart_panel.js
- * `exportHidden`): a histogram, a fitted curve and its "(clipped)" caret, a
- * strip row's events with its dispersion band and its mean with the 95%
- * interval (the row is not laid out; the reserved band goes with the last
- * row), a reference's rule, band and label. Its legend entry goes too, and
- * the two legends' rows are counted without it (`legendShown`). The density
- * axis keeps the range the screen shows. With no export in progress nothing
- * changes.
+ * A switched-off entry leaves with every mark of it, on screen as in an
+ * export (Martin's decisions, 2026-11-17; chart_panel.js `hiddenEntries`, set
+ * by a paint through `screenBuild` and by export/figure.js): a histogram, a
+ * fitted curve and its "(clipped)" caret, a strip row's events with its
+ * dispersion band and its mean with the 95% interval (the row is not laid
+ * out; the reserved band goes with the last row), a reference's rule, band
+ * and label. On screen its legend entry stays, greyed, so a click brings it
+ * back; an export leaves the entry out too, and the two legends' rows are
+ * counted without it (`legendShown`). The density axis keeps its range. The
+ * notices and the table never depend on the legend.
  */
 
 import {
@@ -75,7 +76,7 @@ import {
 } from '../scale.js';
 import { categoricalStops } from '../palette.js';
 import {
-  exportHidden, isPrintTheme, legendShown, listenToLegend, onLightCard, seriesStops, setOptionWithLegend,
+  hiddenEntries, isPrintTheme, legendShown, listenToLegend, onLightCard, screenBuild, seriesStops, setOptionWithLegend,
 } from './chart_panel.js';
 import { fitsWidth, legendRows, wrapText } from '../textfit.js';
 import { hideTooltipOnScroll, plotBoxFromGrid, tooltipOption, tooltipPosition } from './tooltip.js';
@@ -190,11 +191,17 @@ export class EnergyPanel {
   paint() {
     const width = this.element.clientWidth;
     const height = this.element.clientHeight;
-    const { option, notices, table } = this.buildOption({
+    // Under the screen's legend context (chart_panel.js `screenBuild`): the
+    // marks of an entry the reader switched off leave with it. The notices and
+    // the table never depend on the legend, so they come from the build with
+    // no context.
+    const built = screenBuild(this, () => this.buildOption({
       payload: this.lastPayload,
       opts: this.lastOpts || {},
       metrics: { width, height },
-    });
+    }));
+    const { option } = built;
+    const { notices, table } = built.plain ?? built;
     this.laidOut = { width, height };
     this.liveGrid = option.grid ?? null;
     // The reader's legend laid over the option, a hidden entry in a legible
@@ -257,8 +264,9 @@ export class EnergyPanel {
     const counts = payload.slice_counts || {};
     const axis = payload.axis || {};
     const thresholds = payload.thresholds || {};
-    // The names an export in progress leaves out with every mark of theirs (see the header); null on screen.
-    const hidden = exportHidden();
+    // The entries whose marks are left out (see the header): switched off on the legend on show, or left out of
+    // an export; null when none is.
+    const hidden = hiddenEntries();
     const off = (name) => Boolean(hidden?.has(name));
 
     // On the light screen card the slices take `seriesStops`, each colour at
@@ -368,7 +376,7 @@ export class EnergyPanel {
       const slice = slices.find((s) => s.index === entry.slice);
       return `E_${entry.shower.toUpperCase()} · ${slice ? slice.label : String(entry.slice)}`;
     };
-    // In an export a row left out (its events' entry off) takes no place in the band.
+    // A row left out (its events' entry off) takes no place in the band.
     const stripRows = hidden
       ? stripEntries.filter((e) => !off(`${stripName(e)} (events)`))
       : stripEntries;
@@ -387,7 +395,7 @@ export class EnergyPanel {
       const values = (entry.strip && entry.strip.values) || [];
       const row = stripRows.indexOf(entry);
       if (row < 0) {
-        // Left out of the export: its entry stays in the names, so the legend marks it off.
+        // Left out: its entry stays in the names, so the legend keeps it (greyed on screen; an export drops it).
         if (values.length) legendNames.push(`${name} (events)`);
         return;
       }

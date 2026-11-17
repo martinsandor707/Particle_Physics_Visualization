@@ -57,7 +57,7 @@ import { tooltipOption } from './tooltip.js';
 import { wrappedLegend } from './xgb_cv.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  isPrintTheme, exportHidden, exportAlias,
+  isPrintTheme, hiddenEntries, exportAlias,
 } from './chart_panel.js';
 
 /** Below this width the matrix stands above the rates. */
@@ -377,8 +377,9 @@ function matrixGraphics(model, m) {
 export function xgbBinaryOption(payload, opts = {}, metrics = {}) {
   const model = binaryModel(payload);
   if (!model) return emptyChartOption(opts, metrics, 'This response carries no confusion matrix.');
-  // An export leaves out every mark of an entry the legend on show switched off; null on screen.
-  const off = exportHidden();
+  // Every mark of an entry switched off on the legend is left out, on screen and in an export (chart_panel.js
+  // `hiddenEntries`).
+  const off = hiddenEntries();
   const width = metrics.width || 600;
   const height = metrics.height || 330;
   const layout = binaryLayout(model, width, height);

@@ -38,7 +38,7 @@ import { tooltipOption } from './tooltip.js';
 import { LEAK_TEXT, leakFlags } from '../catalog/gating.js';
 import {
   baseOption, wrapTooltip, valueAxis, mutedLine, escapeHtml, emptyChartOption, withColour, wrappedLegend,
-  legendTop, legibleOpacity, tickLabel, noticeGraphic, fitName, exportHidden,
+  legendTop, legibleOpacity, tickLabel, noticeGraphic, fitName, hiddenEntries,
 } from './chart_panel.js';
 import {
   AXIS_LABEL_MARGIN, CATALOG_FRAMES, DEFAULT_WIDTH, LINE_PITCH, N_NOT_REPORTED, CatalogChartPanel, categoryAxis,
@@ -352,9 +352,9 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
   const graphic = [];
   const binLabels = model.bins.map((b) => b.label);
   const unitText = model.unit ? ` [${model.unit}]` : '';
-  // An export leaves out every mark of an entry the legend on show switched off: a frame's dots and its All
-  // rule, every rule with the All entry; on screen (null) nothing is left out.
-  const hidden = exportHidden();
+  // Every mark of an entry switched off on the legend is left out, on screen and in an export (chart_panel.js
+  // `hiddenEntries`): a frame's dots and its All rule, every rule with the All entry.
+  const hidden = hiddenEntries();
   const frameOn = (frame) => !hidden?.has(labelOf(payload, 'frame', frame));
   const rulesOn = !hidden?.has(ALL_RULE_NAME);
 

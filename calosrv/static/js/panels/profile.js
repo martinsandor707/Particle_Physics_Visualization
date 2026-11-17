@@ -48,14 +48,16 @@
  * so and nothing is drawn over the plot. The profile itself is never pooled:
  * Pooled draws boundaries here. The radial card takes none of it.
  *
- * ## An export leaves a switched-off entry out
+ * ## A switched-off entry leaves with every mark of it
  *
- * In an export (chart_panel.js `exportHidden`, set by export/figure.js) a
+ * On screen after a legend click, as in an export (chart_panel.js
+ * `hiddenEntries`, set by a paint's `screenBuild` and by export/figure.js), a
  * mark whose legend entry is off is drawn nowhere, with its companions: the
  * SD band with its edges and its "(clipped)" carets, the envelope with its
  * carets, the mean, or the pooled line with its own 95% interval and carets.
- * The y range stays the screen's, and the legend rows are counted without the
- * entry (`legendShown`). With no export in progress nothing changes.
+ * The y range does not move. On screen the legend keeps the entry, greyed, so a
+ * click brings it back; an export leaves it out and counts the legend rows
+ * without it (`legendShown`). With nothing switched off nothing changes.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, formatPercent } from '../scale.js';
@@ -66,7 +68,7 @@ import { layerGroupSeries, localBadge, stripReserve, STRIP_ID, SPOT_ID } from '.
 import { withHighlight, groupOfLayer, groupLabel, intText, percentText } from '../layer_groups.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries,
-  clampInterval, showerColour, withColour, legibleOpacity, chartLegend, EDGE_DASH, exportHidden, legendShown,
+  clampInterval, showerColour, withColour, legibleOpacity, chartLegend, EDGE_DASH, hiddenEntries, legendShown,
 } from './chart_panel.js';
 
 /** Legend text of each mark: short, the full name lives in the tooltip and drawer. */
@@ -218,8 +220,8 @@ export function profileOption(payload, opts = {}, metrics = {}) {
   const unit = ax.value_unit ?? '% per cm';
   const series = [];
   const legend = [];
-  // The entries an export in progress leaves out with every mark of theirs (see the header); false on screen.
-  const hidden = exportHidden();
+  // The entries left out with every mark of theirs (see the header): switched off, or left out of an export.
+  const hidden = hiddenEntries();
   const off = (name) => Boolean(hidden?.has(name));
 
   /* ---- SD band: uncapped, clipped at the axis, a caret where cut -------- */

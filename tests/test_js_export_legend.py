@@ -194,11 +194,22 @@ const runCase = (build) => {
       .filter((s) => (s.startsWith(`${base} ·`) || s.startsWith(`${base} (`)) && ownerOf(s, entries) === null);
     const rowMarksA = base === null ? 0 : [].concat(a.series ?? []).map((s) => String(s?.name ?? ''))
       .filter((s) => (s.startsWith(`${base} ·`) || s.startsWith(`${base} (`)) && ownerOf(s, entries) === null).length;
+    // The screen with the same entry switched off (legend-sliders): the export's marks and canvas text, with the
+    // legend kept and the entry carried by one of its own series, which the legend filter hides.
+    const sc = cp.screenBuild({ legendSelected: { [n]: false } }, () => ({ option: build() })).option;
+    const namesOf = (o) => [].concat(o.series ?? []).map((x) => String(x?.name ?? ''));
+    const without = (o) => ({ ...o, series: [].concat(o.series ?? []).filter((x) => String(x?.name ?? '') !== n) });
+    const screen = {
+      entries: entriesOf(sc), carried: namesOf(sc).filter((x) => x === n).length, inA: namesOf(a).includes(n),
+      sameMarks: JSON.stringify(namesOf(without(sc))) === JSON.stringify(namesOf(without(b))),
+      sameTexts: JSON.stringify(canvasTexts(without(sc)).sort()) === JSON.stringify(canvasTexts(without(b)).sort()),
+      top: topOf(sc),
+    };
     checks.push({ n, listed, markedOff, owned, named, rowMarks, rowMarksA, topA: topOf(a), topB: topOf(b),
-      fewer: [].concat(b.series ?? []).length <= [].concat(a.series ?? []).length });
+      fewer: [].concat(b.series ?? []).length <= [].concat(a.series ?? []).length, screen });
   }
   const again = serialise(build());
-  return { entries, checks, back: again === aText, contextCleared: cp.exportHidden() === null };
+  return { entries, checks, back: again === aText, contextCleared: cp.hiddenEntries() === null };
 };
 
 out.cases = {};
@@ -366,6 +377,30 @@ def test_the_grid_never_moves_down_when_an_entry_is_left_out(result, medium):
             if c["topA"] is None:
                 continue
             assert c["topB"] <= c["topA"] + 1e-9, (key, c["n"], c["topA"], c["topB"])
+
+
+@pytest.mark.parametrize("medium", ["", "@print"])
+def test_the_screen_draws_what_the_export_draws_and_keeps_the_entry_on_its_legend(result, medium):
+    """legend-sliders (2026-11-17): a legend click on screen leaves out the same marks and canvas text as the
+    export does, so a companion leaves with its entry; the legend keeps every entry, the switched-off one carried by
+    one of its own series (hidden by the legend filter), and the grid never moves down."""
+    bad = []
+    for case_id, case in _cases(result).items():
+        if (medium and not case_id.endswith(medium)) or (not medium and case_id.endswith("@print")):
+            continue
+        for c in case["checks"]:
+            s = c["screen"]
+            if s["entries"] != case["entries"]:
+                bad.append((case_id, c["n"], "the legend lost an entry"))
+            if s["inA"] and s["carried"] < 1:
+                bad.append((case_id, c["n"], "no series carries the entry"))
+            if not s["sameMarks"]:
+                bad.append((case_id, c["n"], "marks differ from the export's"))
+            if not s["sameTexts"]:
+                bad.append((case_id, c["n"], "canvas text differs from the export's"))
+            if s["top"] is not None and c["topA"] is not None and s["top"] > c["topA"] + 1e-9:
+                bad.append((case_id, c["n"], "the grid moved down"))
+    assert not bad, bad[:10]
 
 
 def test_with_the_context_cleared_every_builder_returns_its_output_again(result):

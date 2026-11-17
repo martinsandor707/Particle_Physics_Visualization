@@ -64,7 +64,7 @@ import { tooltipOption } from './tooltip.js';
 import { sourceColours } from './perf_bins.js';
 import {
   ChartPanel, FINE_STEPS, baseOption, emptyChartOption, escapeHtml, fitName, legendTop,
-  legibleOpacity, mutedLine, niceCeil, niceInterval, valueAxis, wrapTooltip, wrappedLegend, exportHidden,
+  legibleOpacity, mutedLine, niceCeil, niceInterval, valueAxis, wrapTooltip, wrappedLegend, hiddenEntries,
 } from './chart_panel.js';
 
 /* ------------------------------------------------------- shared wording -- */
@@ -773,9 +773,9 @@ export function distillTriangleOption(payload, opts = {}, metrics = {}) {
     }),
   ];
   const yAxis = [rowAxis(model, 0, true, layout), rowAxis(model, 1, layout.stacked, layout)];
-  // An export leaves out every mark of an entry the legend on show switched off, with the marks drawn only
-  // for it (maeSeries); on screen (null) nothing is left out.
-  const hidden = exportHidden();
+  // Every mark of an entry switched off on the legend is left out, with the marks drawn only for it
+  // (maeSeries), on screen and in an export (chart_panel.js `hiddenEntries`).
+  const hidden = hiddenEntries();
   const drawn = [...r2Series(model, layout), ...maeSeries(model, layout, hidden)];
   const series = hidden ? drawn.filter((s) => !hidden.has(s.name)) : drawn;
   const legendData = legendNames(model).map((name) => ({ name, ...legendIcon(name) }));

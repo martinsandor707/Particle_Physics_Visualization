@@ -323,7 +323,7 @@ const exportOf = (p) => {
     show: set.map(([, option]) => option.legend?.show ?? null),
     inks: set.map(([, option]) => [option.legend?.inactiveColor ?? null, option.legend?.inactiveBorderColor ?? null]),
     lines: set.map(([, option]) => option.legend?.lineStyle?.inactiveColor ?? null),
-    screenBack: THEME.medium !== 'print', contextCleared: cp.exportHidden() === null };
+    screenBack: THEME.medium !== 'print', contextCleared: cp.hiddenEntries() === null };
 };
 out.export = { hidden: exportOf(panel) };
 const plain = {
@@ -449,17 +449,17 @@ out.export.allShown = exportWith({ A: true });
     topWrap: cp.legendTop(long, 300, { wrap: true }), topScreen: cp.legendTop(long, 300),
     topObjects: cp.legendTop(long.map((name) => ({ name })), 300, { wrap: true }), topNone: cp.legendTop([], 300),
   });
-  const ctx = { neverSet: cp.exportHidden(), before: snapshot() };
+  const ctx = { neverSet: cp.hiddenEntries(), before: snapshot() };
   ctx.sameData = cp.chartLegend(entries).data === entries;
   ctx.shownSame = cp.legendShown(entries) === entries;
   cp.setExportHidden(null);
-  ctx.afterNull = { hidden: cp.exportHidden(), same: snapshot() === ctx.before };
+  ctx.afterNull = { hidden: cp.hiddenEntries(), same: snapshot() === ctx.before };
   cp.setExportHidden([]);
-  ctx.afterEmpty = { hidden: cp.exportHidden(), same: snapshot() === ctx.before };
+  ctx.afterEmpty = { hidden: cp.hiddenEntries(), same: snapshot() === ctx.before };
 
   const hide = ['B', long[1], long[2], long[3], long[4]];
   cp.setExportHidden(hide);
-  const set = cp.exportHidden();
+  const set = cp.hiddenEntries();
   const plainOff = cp.chartLegend(entries);
   const extraOff = cp.chartLegend(entries, extra);
   const allOff = cp.chartLegend(['B', { name: long[1] }]);
@@ -489,7 +489,7 @@ out.export.allShown = exportWith({ A: true });
   ctx.top.full = cp.legendTop(long, 300, { wrap: true });
   ctx.top.keptNoContext = cp.legendTop([long[0], long[5]], 300, { wrap: true });
   ctx.untouchedNoContext = json(cp.chartLegend(keptOnly));
-  ctx.cleared = { hidden: cp.exportHidden(), same: snapshot() === ctx.before };
+  ctx.cleared = { hidden: cp.hiddenEntries(), same: snapshot() === ctx.before };
 
   // legendOffNames on fake panels.
   ctx.off = {
@@ -624,7 +624,11 @@ def test_the_panel_listens_to_every_legend_event_once(result):
     assert result["handlers"] == {event: 1 for event in result["events"]}, result["handlers"]
 
 
-def test_the_chart_is_cleared_before_the_option_only_while_the_legend_hides_a_series(result):
+def test_the_chart_is_cleared_before_the_option_while_the_legend_hides_a_series_and_on_a_legend_repaint(result):
+    """A legend event repaints the panel (at the next frame; at once in Node, which has none), so the marks an
+    entry takes with it follow the click (legend-sliders, 2026-11-17). That repaint always clears first, so no
+    series view is reused across the legend's filter; any other paint clears only while the memory hides a
+    series."""
     steps = _steps(result)
     set_only = lambda selected: [["setOption", selected, True]]  # noqa: E731
     cleared = lambda selected: [["clear"], ["setOption", selected, True]]  # noqa: E731
@@ -632,26 +636,26 @@ def test_the_chart_is_cleared_before_the_option_only_while_the_legend_hides_a_se
     merged = [["setOption", None, False]]
     assert steps["first render"]["calls"] == set_only(None)
     assert steps["a click switches A off"]["memory"] == {"A": False}
-    assert steps["a click switches A off"]["calls"] == merged
+    assert steps["a click switches A off"]["calls"] == merged + cleared({"A": False})
     assert steps["a repaint (theme, control)"]["calls"] == cleared({"A": False})
     assert steps["a relayout at a new width"]["calls"] == cleared({"A": False})
     assert steps["a new payload"]["calls"] == cleared({"A": False})
     # A card held at zero size paints nothing; shown again it paints with the memory.
     assert steps["held at zero size"]["calls"] == []
     assert steps["shown again"]["calls"] == cleared({"A": False})
-    # Switched back on: nothing hidden, no clear; the remembered `true` is laid over the option.
+    # Switched back on: no ink to merge; the click's own repaint clears and lays the remembered `true`, and any
+    # later paint, with nothing hidden, does not clear.
     assert steps["a click switches A on"]["memory"] == {"A": True}
-    # Nothing is drawn as off any more: no merge (the legend keeps the ink until the next paint, which lays none).
-    assert steps["a click switches A on"]["calls"] == []
+    assert steps["a click switches A on"]["calls"] == cleared({"A": True})
     assert steps["a repaint with nothing hidden"]["calls"] == set_only({"A": True})
     assert steps["a scripted unselect of B"]["memory"] == {"A": True, "B": False}
-    assert steps["a scripted unselect of B"]["calls"] == merged
+    assert steps["a scripted unselect of B"]["calls"] == merged + cleared({"A": True, "B": False})
     assert steps["a repaint with B hidden"]["calls"] == cleared({"A": True, "B": False})
     assert steps["select all"]["memory"] == {"A": True, "B": True}
-    assert steps["select all"]["calls"] == []
+    assert steps["select all"]["calls"] == cleared({"A": True, "B": True})
     assert steps["a repaint after select all"]["calls"] == set_only({"A": True, "B": True})
     assert steps["inverse"]["memory"] == {"A": False, "B": False}
-    assert steps["inverse"]["calls"] == merged
+    assert steps["inverse"]["calls"] == merged + cleared({"A": False, "B": False})
     assert steps["a repaint after inverse"]["calls"] == cleared({"A": False, "B": False})
 
 
@@ -664,7 +668,7 @@ def test_the_memory_survives_the_panels_clear(result):
 
 
 def test_every_legend_event_tells_the_page_once_with_the_panel(result):
-    """A legend click redraws nothing of the page, but the drawer names what is hidden: `onLegendChange` is told."""
+    """A legend click repaints its own chart alone; the drawer names what is hidden: `onLegendChange` is told."""
     for step in result["steps"]:
         expected = [True] if step["what"].startswith(("a click", "a scripted", "select all", "inverse")) else []
         assert step["told"] == expected, step
@@ -706,11 +710,16 @@ def test_the_ink_is_laid_only_while_the_legend_hides_an_entry(result):
     for what in ("a repaint (theme, control)", "a relayout at a new width", "a new payload", "shown again",
                  "a repaint with B hidden", "a repaint after inverse"):
         assert [pick(i) for i in steps[what]["inks"]] == [hidden], (what, steps[what]["inks"])
-    # A click that hides an entry merges the inks alone into the legend on show: it keeps its state and its page.
+    # A click that hides an entry merges the inks alone into the legend on show at once (it keeps its state and its
+    # page until the repaint), and the repaint the click asks for lays them over the whole legend.
     for what in ("a click switches A off", "a scripted unselect of B", "inverse"):
         ink = steps[what]["inks"]
-        assert ink == [{**hidden, "keys": ["inactiveBorderColor", "inactiveColor", "lineStyle"]}], (what, ink)
+        assert ink[0] == {**hidden, "keys": ["inactiveBorderColor", "inactiveColor", "lineStyle"]}, (what, ink)
+        assert [pick(i) for i in ink[1:]] == [hidden], (what, ink)
         assert steps[what]["liveLegend"]["inactive"] == DARK_INACTIVE, steps[what]
+    # A click that leaves nothing hidden merges nothing, and its repaint lays the builder's own ink.
+    for what in ("a click switches A on", "select all"):
+        assert [pick(i) for i in steps[what]["inks"]] == [builders], (what, steps[what]["inks"])
     # On the light card, the light card's ink.
     assert [pick(i) for i in result["lightPaint"]] == [{k: LIGHT_INACTIVE for k in ("inactive", "border", "line")}]
 
@@ -854,17 +863,22 @@ def test_the_energy_panel_keeps_the_legend_clears_while_hiding_and_inks_the_hidd
     border = "#30363d"
     # The first paint: nothing hidden, no clear, the builder's inks on both legends.
     assert _sets(got, "fresh") == [(True, 29, [(14, None, border, None, None), (2, None, border, None, None)])]
-    # The click merges the ink into the series legend alone (index 0), not a repaint.
-    assert _sets(got, "click") == [(False, 0, [(0, None, DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE),
-                                              (0, None, None, None, None)])]
     hidden = (DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE)
+    # The click merges the ink into the series legend alone (index 0) at once, then repaints: the entry's fit leaves
+    # the option and one series of its name stays as its legend carrier, so the count is the same.
+    assert _sets(got, "click") == [(False, 0, [(0, None, DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE),
+                                              (0, None, None, None, None)]),
+                                   "clear", (True, 29, [(14, {entry: False}, *hidden), (2, None, border, None, None)])]
     # Every repaint after it clears first and lays the memory and the ink over the series legend.
     assert _sets(got, "repaint") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, None, border, None, None)])]
     # Shower A alone draws fewer series and fewer entries; the entry is still listed, and still off.
     assert _sets(got, "showerA") == ["clear", (True, 15, [(7, {entry: False}, *hidden), (1, None, border, None, None)])]
     assert _sets(got, "both") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, None, border, None, None)])]
-    # A reference switched off: its own legend (index 1) takes the ink; the series legend has it already.
-    assert _sets(got, "referenceClick") == [(False, 0, [(0, None, None, None, None), (0, None, *hidden)])]
+    # A reference switched off: its own legend (index 1) takes the ink; the series legend has it already. Then the
+    # repaint.
+    reference = got["reference"]
+    assert _sets(got, "referenceClick") == [(False, 0, [(0, None, None, None, None), (0, None, *hidden)]), "clear",
+                                            (True, 29, [(14, {entry: False}, *hidden), (2, {reference: False}, *hidden)])]
     # Everything back on: the next paint lays no ink and no clear.
     after = _sets(got, "afterAll")
     assert len(after) == 1 and after[0][0] is True and after[0][1] == 29, after

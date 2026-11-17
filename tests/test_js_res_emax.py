@@ -455,6 +455,10 @@ if (opts.part === 'export') {
             } finally {
               cp.setExportHidden(null);
             }
+            // The screen with the same names switched off on the legend (legend-sliders): the export's marks, end
+            // labels and note band, with the legend kept and each name carried by one of its own series.
+            const S = cp.screenBuild({ legendSelected: Object.fromEntries(off.map((n) => [n, false])) },
+              () => ({ option: rs.energyViewOption(p, o, RE).option })).option;
             const keys = m.series.filter((s) => off.includes(s.label)).map((s) => s.key);
             const lits = m.literature.filter((l) => off.includes(l.legend)).map((l) => l.key);
             const offTokens = m.offScale.flatMap((g) => g.entries.filter((e) => keys.includes(e.key)).map((e) => `${e.short} ${sig(e.value)}%%`));
@@ -483,7 +487,14 @@ if (opts.part === 'export') {
               linTopA: gridOf(linA)[0].top, linTopB: gridOf(linB)[0].top,
               restored: snap(rs.energyViewOption(p, o, RE).option) === plain,
               linRestored: snap(rs.resolutionScalingOption(p, { ...o, view: 'linear' }, RW)) === linPlain,
-              exportHiddenAfter: cp.exportHidden(),
+              exportHiddenAfter: cp.hiddenEntries(),
+              screen: {
+                legend: legendNames(S),
+                series: [].concat(S.series ?? []).map((s) => ({ name: s.name ?? null, id: s.id ?? '' })),
+                graphics: graphicsOf(S),
+                labels: { main: endLabelsOf(S, false).map(({ text, y }) => ({ text, y })), ratio: endLabelsOf(S, true).map(({ text, y }) => ({ text, y })) },
+                top: gridOf(S)[0].top, right: gridOf(S)[0].right,
+              },
             });
           }
         }
@@ -869,6 +880,24 @@ def test_an_export_leaves_out_every_mark_of_a_left_out_legend_entry(export):
         for token in c["offTokens"]:
             assert token not in text, (token, off)
         assert c["topB"] <= c["topA"] and c["rightB"] <= c["rightA"]
+
+
+def test_on_screen_the_e_view_draws_what_its_export_draws_and_keeps_its_legend(export):
+    """legend-sliders (2026-11-17): with the same names switched off on the legend, the screen draws the export's
+    marks, end labels and note band (an off-scale value of a hidden series leaves the note too), while its legend
+    keeps every entry, each switched-off one carried by one of its own series; the end column is the export's, and
+    the main panel never moves down."""
+    for c in export["cases"]:
+        s, off = c["screen"], c["off"]
+        assert s["legend"] == c["legendA"], c["off"]
+        assert [x["name"] for x in s["series"] if x["name"] not in off] == [x["name"] for x in c["seriesB"] if x["name"] not in off], off
+        for n in off:
+            if any(x["name"] == n for x in c["seriesA"]):
+                assert any(x["name"] == n for x in s["series"]), (n, "no carrier")
+        assert sorted(_flat(t) for t in s["graphics"]) == sorted(_flat(t) for t in c["graphicsB"]), off
+        assert s["labels"] == c["labelsB"], off
+        assert s["right"] == c["rightB"], off
+        assert c["topB"] <= s["top"] <= c["topA"], off
 
 
 def test_an_export_spreads_the_end_labels_it_keeps_without_the_left_out_ones(export):

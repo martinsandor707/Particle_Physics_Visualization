@@ -51,7 +51,7 @@ const exported = (hidden, fn) => {
   try {
     const option = fn();
     return { legend: legendNames(option), series: seriesNames(option), texts: texts(option),
-      context: [...(cp.exportHidden() ?? [])] };
+      context: [...(cp.hiddenEntries() ?? [])] };
   } finally {
     cp.setExportHidden(null);
     scale.restoreScreenTheme();
@@ -91,13 +91,13 @@ for (const name of ['xgb_cv_momentum', 'xgb_cv_angle']) {
 // The helper itself: nothing without a context; the chosen name joins it only when another name is in it.
 cp.setExportHidden(['Long name']);
 cp.exportAlias(['Long name', 'Short'], 'Short');
-const joined = [...cp.exportHidden()];
+const joined = [...cp.hiddenEntries()];
 cp.setExportHidden(['Other']);
 cp.exportAlias(['Long name', 'Short'], 'Short');
-const untouched = [...cp.exportHidden()];
+const untouched = [...cp.hiddenEntries()];
 cp.setExportHidden(null);
 cp.exportAlias(['Long name', 'Short'], 'Short');
-out.helper = { joined, untouched, screen: cp.exportHidden() };
+out.helper = { joined, untouched, screen: cp.hiddenEntries() };
 process.stdout.write(JSON.stringify(out));
 """
 
