@@ -53,7 +53,7 @@ import { customWhiskers } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  chartLegend, niceCeil, niceInterval, FINE_STEPS, sigFigs, exportHidden, legendShown,
+  chartLegend, niceCeil, niceInterval, FINE_STEPS, sigFigs, exportHidden, legendShown, exportAlias,
 } from './chart_panel.js';
 
 /** Narrowest slot (px) a fold column and its mean are drawn in before a line breaks. */
@@ -329,7 +329,11 @@ export function cvLegendNames(model, width = Infinity) {
  */
 export function intervalLegend(model, width = Infinity) {
   const px = width - 2 * axisPadding().right - 26;
-  return fitName([model.intervalShort ?? model.intervalLabel, '95% interval of the mean'], px);
+  const candidates = [model.intervalShort ?? model.intervalLabel, '95% interval of the mean'];
+  const name = fitName(candidates, px);
+  // Switched off on the screen's legend under another of its names, it is left out of an export under this one.
+  exportAlias(candidates, name);
+  return name;
 }
 
 /**

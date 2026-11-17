@@ -62,8 +62,11 @@ import { SECTION, notesText, warningsNotShown, withHiddenLegend } from './panel_
 import { describeError } from './page_common.js';
 import { viewFrame, effectiveSpecies } from './capabilities.js';
 import { MODELS_LABELS, featureChoices } from './labels.js';
-import { RESOLUTION_REFERENCES, REFERENCE_UNITS, referenceEquation } from './catalog/resolution_refs.js';
-import { depositShown, depositForced, eMaxRange, eMaxOf, isDepositWarning } from './res_axis.js';
+import {
+  RESOLUTION_REFERENCES, REFERENCE_UNITS, referenceEquation, referenceOf, literatureLegendName,
+} from './catalog/resolution_refs.js';
+import { legendOffNames } from './panels/chart_panel.js';
+import { depositShown, depositForced, eMaxRange, eMaxOf, isDepositWarning, isDepositSeries } from './res_axis.js';
 
 /** Where each panel class lives; fetched on first use. Literal specifiers, so the server stamps them. */
 const PANEL_MODULES = {
@@ -812,7 +815,10 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
  * What an exported figure is named by: its response's meta and frame, and the
  * resolution card's estimator, view, deposit, E max and ratio reference.
  */
-export function exportMeta(payload, opts = null) {
+export function exportMeta(payload, opts = null, legendOff = []) {
+  // The names the legend on show has switched off (chart_panel.js `legendOffNames`): the figure leaves them out,
+  // so its name does not say they are drawn (review R2-5).
+  const off = new Set((legendOff ?? []).map(String));
   const meta = { ...(payload?.meta ?? {}) };
   const coord = meta.coord_system ?? payload?.coord_system;
   if (coord) meta.coord_system = coord;
@@ -823,7 +829,14 @@ export function exportMeta(payload, opts = null) {
   if (resolution && RES_ESTIMATORS.includes(served)) meta.estimator = served;
   else if (resolution && RES_ESTIMATORS.includes(opts?.estimator)) meta.estimator = opts.estimator;
   // Whether the figure draws the calibrated deposit (export/filename.js `deposit-off` when it does not).
-  if (opts?.card === 'res-scaling') meta.deposit = depositShown(payload, opts?.deposit);
+  if (opts?.card === 'res-scaling') {
+    // Hidden by the toggle, or every deposit entry on show switched off on the legend: the figure draws no deposit.
+    const nShowers = new Set((payload?.series ?? []).map((s) => s.shower).filter(Boolean)).size;
+    const onShow = (payload?.series ?? []).filter((s) => isDepositSeries(s)
+      && (!opts?.shower || opts.shower === 'both' || nShowers < 2 || s.shower === opts.shower));
+    const legendHides = onShow.length > 0 && onShow.every((s) => off.has(String(s.label)));
+    meta.deposit = depositShown(payload, opts?.deposit) && !legendHides;
+  }
   // The resolution card's E view is another figure of the same response, so its file names the
   // view, its axis end and what its ratio divides by (export/filename.js).
   if (opts?.view === 'energy') {
@@ -833,7 +846,9 @@ export function exportMeta(payload, opts = null) {
     // with both, the reference follows from the windows and is named on the ratio axis. With no curve and the
     // deposit hidden there is nothing to divide by, and the ratio panel draws no mark.
     const drawn = Array.isArray(opts.literature) ? opts.literature : [];
-    if (drawn.length > 1) meta.literature = drawn;
+    // With both on, the name lists the curves the figure draws: a curve switched off on the legend is not one.
+    const kept = drawn.filter((key) => { const e = referenceOf(key); return !e || !off.has(literatureLegendName(e)); });
+    if (drawn.length > 1) { if (kept.length) meta.literature = kept; }
     else if (!drawn.length && !depositShown(payload, opts.deposit)) meta.reference = 'none';
     else meta.reference = drawn[0] ?? 'deposit';
   }
@@ -1599,7 +1614,7 @@ export class ModelsSection {
     if (!record) return undefined;
     if (!record.spec.exportable || record.element.hidden || record.disabled || record.notice) return null;
     if (!record.panel || !record.payload) return null;
-    return { panel: record.panel, meta: exportMeta(record.payload, record.opts) };
+    return { panel: record.panel, meta: exportMeta(record.payload, record.opts, legendOffNames(record.panel)) };
   }
 
   /**

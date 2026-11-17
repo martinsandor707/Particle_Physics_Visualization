@@ -2650,6 +2650,7 @@ const fixtures = loadAll(fixturePaths);
 const cards = await import(cardsUrl);
 const { State } = await import(stateUrl);
 const caps = await import(capsUrl);
+const { RESOLUTION_REFERENCES } = await import(new URL('./catalog/resolution_refs.js', cardsUrl).href);
 const { MODELS_LABELS } = await import(labelsUrl);
 const exps = Object.fromEntries(catalogue.experiments.map((e) => [e.capabilities.kind, e]));
 const out = { labels: { forced: MODELS_LABELS.res_deposit_forced, emaxTitle: MODELS_LABELS.res_emax.title,
@@ -2710,6 +2711,22 @@ out.metas = {
   // Without the option (the builders' own callers) nothing new is named in the E view.
   noOption: cards.exportMeta(two, { card: 'res-scaling', estimator: 'median', view: 'energy', literature: [] }),
 };
+// Review R2-5: what the legend on show switched off names the figure too (exportTarget passes legendOffNames).
+{
+  const depositLabels = two.series.filter((s) => s.source === 'detector').map((s) => s.label);
+  const litName = (entry) => `${entry.particle} lit. — σ/E = ${entry.a.toFixed(entry.dp.a)}/√E ⊕ ${entry.b.toFixed(entry.dp.b)}`;
+  const piName = litName(RESOLUTION_REFERENCES.find((e) => e.key === 'pi'));
+  const eName = litName(RESOLUTION_REFERENCES.find((e) => e.key === 'e'));
+  out.legendMetas = {
+    depositBoth: cards.exportMeta(two, opt({ resDeposit: 'on' }), depositLabels),
+    depositOne: cards.exportMeta(two, opt({ resDeposit: 'on' }), depositLabels.slice(0, 1)),
+    depositOneShowerA: cards.exportMeta(two, opt({ resDeposit: 'on', resScalingShower: 'a' }), depositLabels.filter((l) => l.startsWith('Shower A'))),
+    litE: cards.exportMeta(two, opt({}), [eName]),
+    litBoth: cards.exportMeta(two, opt({}), [eName, piName]),
+    litOneToggled: cards.exportMeta(two, opt({ resLiterature: 'e' }), [eName]),
+    nothing: cards.exportMeta(two, opt({}), []),
+  };
+}
 
 // ---- the section on the fake document
 const frames = new Map();
@@ -2957,6 +2974,20 @@ def test_an_exported_resolution_figure_names_its_deposit_e_max_and_reference(res
     assert m["linear"] == {"estimator": "median", "deposit": False}
     assert m["flat"]["eMax"] == 80
     assert m["noOption"] == {"estimator": "median", "deposit": True, "view": "energy", "reference": "deposit"}
+
+
+def test_an_exported_figures_name_follows_what_the_legend_switched_off(res_card_results):
+    # Review R2-5: a deposit drawn by the toggle but switched off on the legend (every entry on show) names
+    # deposit-off; one of two showers' entries does not; with both curves on, lit- lists the curves drawn; a single
+    # curve's ratio token names what the ratio divides by, drawn or not.
+    m = {k: _naming(v) for k, v in res_card_results["legendMetas"].items()}
+    assert m["depositBoth"]["deposit"] is False
+    assert m["depositOne"]["deposit"] is True
+    assert m["depositOneShowerA"]["deposit"] is False
+    assert m["litE"]["literature"] == ["pi"]
+    assert "literature" not in m["litBoth"] and "reference" not in m["litBoth"]
+    assert m["litOneToggled"]["reference"] == "e" and "literature" not in m["litOneToggled"]
+    assert m["nothing"]["literature"] == ["pi", "e"] and m["nothing"]["deposit"] is False
 
 
 def test_the_e_max_slider_is_a_labelled_range_built_without_markup(res_card_results):

@@ -76,6 +76,15 @@ export function referenceEquation(entry) {
 /** The units of `referenceEquation`, said wherever the equation is read away from the axes. */
 export const REFERENCE_UNITS = 'σ/E in percent, E in GeV';
 
+/**
+ * The curve's legend entry on the resolution card's E view: "π± lit. — σ/E = 27.2/√E ⊕ 1.0". One definition, read by
+ * the panel and by the export's file name (models_cards.js `exportMeta`), so a curve the reader switched off on the
+ * legend is known by the same name in both.
+ */
+export function literatureLegendName(entry) {
+  return `${entry.particle} lit. — ${referenceEquation(entry)}`;
+}
+
 /** The button label: "π± 27.2/√E ⊕ 1.0". */
 export function referenceLabel(entry) {
   return `${entry.particle} ${entry.a.toFixed(entry.dp.a)}/√E ⊕ ${entry.b.toFixed(entry.dp.b)}`;

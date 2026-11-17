@@ -56,7 +56,7 @@ import { customWhiskers } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs, exportHidden,
+  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs, exportHidden, exportAlias,
 } from './chart_panel.js';
 
 /** Most feature rows the card draws. */
@@ -174,7 +174,11 @@ export function importanceLegendNames(model, width = Infinity) {
 /** The envelope's legend name at `width`: the full label where it fits a legend row, else the generic one. */
 export function envelopeLegend(model, width = Infinity) {
   const short = model.interval?.method === 'corrected_resampled_t' ? ['Fold mean · 95% NB-corrected t CI'] : [];
-  return fitName([model.envelope, ...short, 'Fold mean · 95% interval of the mean'], width - 2 * axisPadding().right - 26);
+  const candidates = [model.envelope, ...short, 'Fold mean · 95% interval of the mean'];
+  const name = fitName(candidates, width - 2 * axisPadding().right - 26);
+  // Switched off on the screen's legend under another of its names, it is left out of an export under this one.
+  exportAlias(candidates, name);
+  return name;
 }
 
 /** The grid at `width` × `height`; `height` null sizes the rows for print. */

@@ -502,6 +502,17 @@ export function exportHidden() {
   return exportHiddenNames;
 }
 
+/**
+ * An entry whose legend name is chosen by width (`fitName` over `candidates`) is left out of an export under the
+ * name it takes at the export's width, `chosen`, when the legend on show switched it off under another of its names
+ * (review R2-3: a card about 1100 px wide names an envelope in full, a single-column figure in short). Nothing on
+ * screen, where there is no context. The name-choosing function calls it, so every reader of the name agrees.
+ */
+export function exportAlias(candidates, chosen) {
+  if (!exportHiddenNames || chosen === null || chosen === undefined) return;
+  if ((candidates ?? []).some((n) => exportHiddenNames.has(String(n)))) exportHiddenNames.add(String(chosen));
+}
+
 /** `entries` (strings or {name}) without the export's left-out names; the same array object when nothing is left out. */
 export function legendShown(entries) {
   if (!exportHiddenNames || !Array.isArray(entries)) return entries;
@@ -518,7 +529,12 @@ export function legendShown(entries) {
  */
 export function legendOffNames(panel) {
   const out = [];
-  for (const legend of [panel?.liveLegend ?? []].flat()) {
+  // The reader's memory laid over the legend on show first: a legend click repaints nothing, so the live legend's
+  // own `selected` is as of the last paint, and a second click, or a click that turns an entry back on, is in the
+  // memory alone (review R2-1, R2-2). A true in the memory clears a stale false.
+  const live = panel?.liveLegend ?? null;
+  const laid = live ? withLegendMemory({ legend: live }, panel?.legendSelected).legend : null;
+  for (const legend of [laid ?? []].flat()) {
     if (!legend || typeof legend !== 'object' || legend.show === false) continue;
     const selected = legend.selected ?? {};
     const names = Array.isArray(legend.data) ? legend.data.map(entryName) : Object.keys(selected);
@@ -712,9 +728,10 @@ function inkLiveLegend(panel) {
     ? { inactiveColor: legend.inactiveColor, inactiveBorderColor: legend.inactiveBorderColor,
       lineStyle: { inactiveColor: legend.lineStyle?.inactiveColor } }
     : {}));
+  // The legend kept is the memory's whether or not its ink changes (review R2-1): every later reader sees every click.
+  panel.liveLegend = next;
   if (!patch.some((p) => 'inactiveColor' in p)) return;
   panel.chart.setOption({ legend: Array.isArray(live) ? patch : patch[0] });
-  panel.liveLegend = next;
 }
 
 /**
@@ -763,6 +780,9 @@ export function legendHiddenLine(names) {
 export function legendTop(names, plotWidthPx, { wrap = false } = {}) {
   const pad = axisPadding();
   const names2 = (legendShown(names ?? []) ?? []).map((n) => String(n?.name ?? n));
+  // An export that leaves every entry out lays out no legend row (review R2-6); on screen, and for a legend that never
+  // had an entry, the one row stays as before.
+  if (!names2.length && exportHiddenNames && (names ?? []).length) return pad.top;
   const rows = !names2.length ? 1
     : ((THEME.legendWrap || wrap) ? Math.max(1, legendRows(names2, plotWidthPx, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1);
   return pad.top + rows * 1.6 * THEME.fontLabel;

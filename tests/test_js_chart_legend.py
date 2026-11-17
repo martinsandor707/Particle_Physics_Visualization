@@ -502,6 +502,29 @@ out.export.allShown = exportWith({ A: true });
     none: [cp.legendOffNames(null), cp.legendOffNames({}), cp.legendOffNames({ liveLegend: null }),
       cp.legendOffNames({ liveLegend: { data: ['A'] } })],
   };
+  // Clicks with no repaint between (review R2-1, R2-2): a legend click repaints nothing, so what an export leaves out
+  // is read from the reader's memory, not from the legend of the last paint.
+  const handlers = {};
+  const quiet = { on: (type, fn) => { (handlers[type] ??= []).push(fn); }, setOption: () => {} };
+  const p2 = { chart: quiet, legendSelected: {}, liveLegend: { data: ['A', 'B', 'C'], selected: {} }, onLegendChange: null };
+  cp.listenToLegend(p2);
+  const click = (name, selected) => (handlers.legendselectchanged ?? [])
+    .forEach((fn) => fn({ type: 'legendselectchanged', name, selected }));
+  const seq = [];
+  click('A', { A: false, B: true, C: true }); seq.push(cp.legendOffNames(p2));
+  click('B', { A: false, B: false, C: true }); seq.push(cp.legendOffNames(p2));
+  click('A', { A: true, B: false, C: true }); seq.push(cp.legendOffNames(p2));
+  click('B', { A: true, B: true, C: true }); seq.push(cp.legendOffNames(p2));
+  // A stale live legend (an older paint's false) with the memory turning the entry back on.
+  const stale = cp.legendOffNames({ liveLegend: { data: ['A', 'B'], selected: { A: false } }, legendSelected: { A: true } });
+  ctx.clicks = { seq, live: p2.liveLegend.selected, stale };
+  // Every entry left out: no legend row is laid out; with nothing given, the one row stays (review R2-6).
+  cp.setExportHidden(['A', 'B']);
+  const allOut = cp.legendTop(['A', 'B'], 400, { wrap: true });
+  const noneGiven = cp.legendTop([], 400, { wrap: true });
+  cp.setExportHidden(null);
+  ctx.rows = { allOut, noneGiven, screenNone: cp.legendTop([], 400, { wrap: true }),
+    padTop: cp.legendTop([], 400) - 1.6 * scale.THEME.fontLabel };
   out.exportContext = ctx;
 }
 
@@ -945,6 +968,21 @@ def test_legend_top_counts_the_rows_of_the_kept_names_only(result):
     assert got["kept"] < got["full"], got
     assert got["kept"] == got["keptNoContext"] == got["objects"], got
     assert got["wrapped"] == [LONG[0], LONG[5]], got
+
+
+def test_an_export_that_leaves_every_entry_out_lays_out_no_legend_row(result):
+    r = result["exportContext"]["rows"]
+    assert r["allOut"] == pytest.approx(r["padTop"]), r
+    assert r["noneGiven"] == r["screenNone"] > r["allOut"], r
+
+
+def test_legend_off_names_follow_every_click_with_no_repaint_between(result):
+    # Review R2-1, R2-2: the second click and a click turning an entry back on reach the export; the live legend keeps
+    # the memory after every click, ink change or not, and a memory true clears a stale false.
+    got = result["exportContext"]["clicks"]
+    assert got["seq"] == [["A"], ["A", "B"], ["B"], []], got
+    assert got["live"] == {"A": True, "B": True}, got
+    assert got["stale"] == [], got
 
 
 def test_legend_off_names_reads_what_each_legend_on_show_marks_off(result):

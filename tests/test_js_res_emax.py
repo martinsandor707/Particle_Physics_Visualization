@@ -240,6 +240,18 @@ if (opts.part === 'deposit') {
       shown: rs.energyDrawsPanels(p, o),
     };
   }
+  // The same state in print (review R2-4): no hidden series named, no screen instruction.
+  {
+    const p = load('res_scaling_robust_xgb');
+    const o = { windows: 'anchors', shower: 'both', literature: ['pi', 'e'], deposit: false, palette: 'viridis', card: 'res-scaling' };
+    Object.assign(scale.THEME, PRINT_TOKENS);
+    try {
+      out.emptyPrint = [graphicsOf(rs.energyViewOption(p, { ...o, view: 'energy' }, RE).option),
+        graphicsOf(rs.resolutionScalingOption(p, o, RW))];
+    } finally {
+      scale.restoreScreenTheme();
+    }
+  }
 }
 
 /* ---- E max -------------------------------------------------------------------------------------------- */
@@ -588,6 +600,12 @@ def test_the_deposit_is_forced_on_where_it_is_the_only_series(deposit):
         assert case["eY"]["hi"] == payload["axis"]["energy"]["y"]["hi"] and case["rY"]["hi"] == payload["axis"]["y"]["hi"]
         assert case["reference"] == "deposit"
         assert case["sameLinear"] and case["sameEnergy"], case
+
+
+def test_the_empty_state_in_print_names_no_hidden_series_and_gives_no_instruction(deposit):
+    # Review R2-4: an exported figure of the deposit-hidden empty state says what is missing, nothing more.
+    for texts in deposit["emptyPrint"]:
+        assert [_flat(t) for t in texts] == ["The model series have no window to draw in this selection."], texts
 
 
 def test_the_empty_state_names_the_hidden_deposit_where_the_model_series_draw_nothing(deposit):

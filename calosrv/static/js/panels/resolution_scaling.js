@@ -295,7 +295,7 @@ import { THEME, axisPadding, formatNumber, formatInt, typographic } from '../sca
 import { literatureColour } from '../palette.js';
 import { measureText } from '../textfit.js';
 import {
-  REFERENCE_KEYS, referenceOf, referenceValue, referenceEquation, referenceLabel, REFERENCE_UNITS,
+  REFERENCE_KEYS, referenceOf, referenceValue, referenceEquation, referenceLabel, REFERENCE_UNITS, literatureLegendName,
 } from '../catalog/resolution_refs.js';
 import { customWhiskers, customPolyline, customBand } from './marks.js';
 import { tooltipOption } from './tooltip.js';
@@ -581,6 +581,12 @@ function rangeInForce(full, modelOnly, hidden, estimator) {
  * draw nothing, no point and no curve (brief res-emax section 5.6, verbatim).
  */
 export const RES_DEPOSIT_HIDDEN_EMPTY = 'The calibrated deposit is hidden, and the model series have no window to draw in this selection; switch on Deposit to draw it.';
+
+/**
+ * The same state in print (review R2-4): an exported figure names no hidden series and gives no instruction a
+ * printed page cannot act on, so it says only what is missing.
+ */
+export const RES_DEPOSIT_HIDDEN_EMPTY_PRINT = 'The model series have no window to draw in this selection.';
 
 /**
  * The sentence the ratio panel shows with no reference on show (the deposit
@@ -1245,7 +1251,8 @@ function seriesMarks(model, s, payload) {
 function depositHiddenEmpty(payload, opts, model, empty = (m) => !m.nPoints || !(m.y.hi > 0)) {
   if (!model?.deposit?.hidden) return null;
   if (!shownSeries(payload, opts?.shower).length) return null;
-  return !model.series.length || empty(model) ? RES_DEPOSIT_HIDDEN_EMPTY : null;
+  if (!(!model.series.length || empty(model))) return null;
+  return isPrintTheme() ? RES_DEPOSIT_HIDDEN_EMPTY_PRINT : RES_DEPOSIT_HIDDEN_EMPTY;
 }
 
 /** "holds two events" at the report floor N = 2; "reaches N = 20" under the robust estimator's floor. */
@@ -2850,7 +2857,7 @@ export function energyModel(payload, opts = {}) {
       ratio = { rows, runs: clipLog(rows, k), cut: rcut };
     }
     literature.push({
-      key, entry: lit, isReference: key === referenceKey, label: lit.particle, legend: `${lit.particle} lit. — ${referenceEquation(lit)}`,
+      key, entry: lit, isReference: key === referenceKey, label: lit.particle, legend: literatureLegendName(lit),
       colour: literatureColour(key, THEME.qualitativePalette), curve, runs: clipPolyline(curve, 0, hi), cut, ratio,
     });
   }
