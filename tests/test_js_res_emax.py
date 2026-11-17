@@ -240,6 +240,18 @@ if (opts.part === 'deposit') {
       shown: rs.energyDrawsPanels(p, o),
     };
   }
+  // Neither the model series nor the deposit draws (B's finding on the two-event baseline): the sentence would advise
+  // a switch that changes nothing, so each view keeps its own empty state.
+  {
+    const p = clone(load('res_scaling_robust_xgb'));
+    for (const s of p.series) {
+      for (const w of s.windows ?? []) { w.value = null; w.ci95 = null; w.whisker = false; }
+      s.fits = {};
+    }
+    const o = { windows: 'all', shower: 'both', literature: ['pi', 'e'], deposit: false, palette: 'viridis', card: 'res-scaling' };
+    out.neitherDraws = [graphicsOf(rs.energyViewOption(p, { ...o, view: 'energy' }, RE).option),
+      graphicsOf(rs.resolutionScalingOption(p, o, RW))];
+  }
   // The same state in print (review R2-4): no hidden series named, no screen instruction.
   {
     const p = load('res_scaling_robust_xgb');
@@ -600,6 +612,13 @@ def test_the_deposit_is_forced_on_where_it_is_the_only_series(deposit):
         assert case["eY"]["hi"] == payload["axis"]["energy"]["y"]["hi"] and case["rY"]["hi"] == payload["axis"]["y"]["hi"]
         assert case["reference"] == "deposit"
         assert case["sameLinear"] and case["sameEnergy"], case
+
+
+def test_the_deposit_sentence_is_said_only_where_the_deposit_would_draw(deposit):
+    # Agent B's finding: where the deposit has no window either, each view keeps its own empty state.
+    for texts in deposit["neitherDraws"]:
+        flat = [_flat(t) for t in texts]
+        assert flat and EMPTY_SENTENCE not in flat, flat
 
 
 def test_the_empty_state_in_print_names_no_hidden_series_and_gives_no_instruction(deposit):

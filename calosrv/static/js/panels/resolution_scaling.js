@@ -1248,10 +1248,14 @@ function seriesMarks(model, s, payload) {
  * deposit included, keeps its own sentence; a forced deposit is shown, so its
  * view keeps its own empty states.
  */
-function depositHiddenEmpty(payload, opts, model, empty = (m) => !m.nPoints || !(m.y.hi > 0)) {
+function depositHiddenEmpty(payload, opts, model, empty = (m) => !m.nPoints || !(m.y.hi > 0), build = null) {
   if (!model?.deposit?.hidden) return null;
   if (!shownSeries(payload, opts?.shower).length) return null;
   if (!(!model.series.length || empty(model))) return null;
+  // Only where the deposit would draw something (agent B's finding on the two-event baseline): else switching it on
+  // changes nothing, and the view's own empty state says why nothing is drawn.
+  const shown = typeof build === 'function' ? build({ ...opts, deposit: true }) : null;
+  if (shown && (!shown.series.length || empty(shown))) return null;
   return isPrintTheme() ? RES_DEPOSIT_HIDDEN_EMPTY_PRINT : RES_DEPOSIT_HIDDEN_EMPTY;
 }
 
@@ -1297,7 +1301,7 @@ export function resolutionScalingOption(payload, opts = {}, metrics = {}) {
   if (opts?.view === 'energy') return energyViewOption(payload, opts, metrics).option;
   const model = resolutionModel(payload, opts);
   if (!model) return emptyChartOption(opts, metrics, 'This response carries no energy-resolution series.');
-  const hiddenEmpty = depositHiddenEmpty(payload, opts, model);
+  const hiddenEmpty = depositHiddenEmpty(payload, opts, model, undefined, (o) => resolutionModel(payload, o));
   if (hiddenEmpty) return emptyChartOption(opts, metrics, hiddenEmpty);
   if (!model.series.length) {
     return emptyChartOption(opts, metrics, 'No series of the chosen shower in this response.');
@@ -3923,7 +3927,7 @@ function energyEmptyText(model) {
 function energyEmptyReason(model, opts = {}) {
   if (!model) return 'This response carries no energy-resolution series for the E view.';
   const empty = (m) => (!m.nPoints && !m.nLines) || !(m.y.hi > 0);
-  const hiddenEmpty = depositHiddenEmpty(model.payload, opts, model, empty);
+  const hiddenEmpty = depositHiddenEmpty(model.payload, opts, model, empty, (o) => energyModel(model.payload, o));
   if (hiddenEmpty) return hiddenEmpty;
   if (!model.series.length) return 'No series of the chosen shower in this response.';
   if (empty(model)) return energyEmptyText(model);
