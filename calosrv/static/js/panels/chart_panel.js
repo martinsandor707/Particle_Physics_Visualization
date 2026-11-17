@@ -38,8 +38,8 @@
  * panel: across payloads, views, themes, card controls and `clear()`. It is
  * the reader's, like the Physics page's Marks toggle, and never enters the
  * URL hash, the view state or the Admin defaults. The exporter applies it
- * too (export/figure.js), so a figure leaves out what the screen hides, and
- * its legend greys their entries, which says so. Page 1's energy panel is
+ * too (export/figure.js), so a figure leaves out what the screen hides, with
+ * their legend entries (below). Page 1's energy panel is
  * not a ChartPanel and keeps the same memory through the same helpers
  * (`listenToLegend`, `setOptionWithLegend`).
  *
@@ -53,6 +53,20 @@
  * the dark golden keep `THEME.border`: the ink is laid at paint time, and only
  * while something is hidden. A click that hides an entry merges the ink into
  * the legend on show at once, without a repaint, so the legend keeps its page.
+ *
+ * An export leaves out a switched-off series together with its legend entry,
+ * and lays the legend rows out without it. export/figure.js sets the export's
+ * legend context (`setExportHidden`, the names `legendOffNames` reads off the
+ * legend on show: the reader's memory and a builder's own defaults) inside its
+ * synchronous window, where it already swaps the print tokens, and clears it
+ * in the same `finally`. While it is set, `chartLegend` lists none of those
+ * names, marks each it dropped false in its `selected` (so its series is
+ * filtered with no entry listing it) and hides a legend left with no entry;
+ * `legendTop` counts the rows of the kept names only, so the figure's height
+ * is laid out without them; `legendShown` gives a custom legend layout the
+ * same list. On screen the context is null and every one of these is the
+ * identity: the screen still greys a hidden entry, and the builders' outputs
+ * and the dark golden do not move.
  *
  * Each legend event also tells the panel's `onLegendChange`: the page then
  * rebuilds the card's Details drawer, whose Marks and legend section names the
@@ -439,7 +453,7 @@ export function wrapTooltip(tooltip) {
  * #d0d7de border is 1.45:1 there, as #30363d is 1.33:1 on the dark one).
  */
 export function chartLegend(data, extra = {}) {
-  return {
+  const legend = {
     show: data.length > 0,
     type: THEME.legendWrap ? 'plain' : 'scroll',
     top: 0,
@@ -453,6 +467,64 @@ export function chartLegend(data, extra = {}) {
     itemHeight: 8,
     ...extra,
   };
+  // An export in progress leaves out what the legend on show switched off (see the header); on screen, today's legend.
+  if (!exportHiddenNames || !Array.isArray(legend.data)) return legend;
+  const kept = legendShown(legend.data);
+  if (kept === legend.data) return legend;
+  const keptNames = new Set(kept.map(entryName));
+  const dropped = legend.data.map(entryName).filter((name) => !keptNames.has(name));
+  return {
+    ...legend,
+    show: legend.show !== false && kept.length > 0,
+    data: kept,
+    selected: { ...(legend.selected ?? {}), ...Object.fromEntries(dropped.map((name) => [name, false])) },
+  };
+}
+
+/* ------------------------------------------------- the export's legend context -- */
+
+/** The names an export in progress leaves out (a Set), or null on screen. Set only by export/figure.js. */
+let exportHiddenNames = null;
+
+/** The name of a legend entry: a string, or an object's `name`. */
+function entryName(entry) {
+  return String(entry !== null && typeof entry === 'object' ? entry.name : entry);
+}
+
+/** Set the export's legend context: the names its legends leave out (an array of strings), or null/empty to clear it. */
+export function setExportHidden(names) {
+  const list = Array.isArray(names) ? names.filter((n) => n !== null && n !== undefined).map(String) : [];
+  exportHiddenNames = list.length ? new Set(list) : null;
+}
+
+/** The Set of names an export in progress leaves out, or null (on screen). */
+export function exportHidden() {
+  return exportHiddenNames;
+}
+
+/** `entries` (strings or {name}) without the export's left-out names; the same array object when nothing is left out. */
+export function legendShown(entries) {
+  if (!exportHiddenNames || !Array.isArray(entries)) return entries;
+  const kept = entries.filter((entry) => !exportHiddenNames.has(entryName(entry)));
+  return kept.length === entries.length ? entries : kept;
+}
+
+/**
+ * The names the legends on show (`panel.liveLegend`, an object or an array)
+ * list that their `selected` marks false, in legend order, once each: the
+ * reader's memory and a builder's own defaults, which is what an export
+ * leaves out. A legend lists its `data`, or the keys of its `selected` when it
+ * has none; a hidden legend (`show: false`) is skipped. [] without one.
+ */
+export function legendOffNames(panel) {
+  const out = [];
+  for (const legend of [panel?.liveLegend ?? []].flat()) {
+    if (!legend || typeof legend !== 'object' || legend.show === false) continue;
+    const selected = legend.selected ?? {};
+    const names = Array.isArray(legend.data) ? legend.data.map(entryName) : Object.keys(selected);
+    for (const name of names) if (selected[name] === false && !out.includes(name)) out.push(name);
+  }
+  return out;
 }
 
 /**
@@ -684,11 +756,12 @@ export function legendHiddenLine(names) {
  * scrolls), as many as the printed legend wraps to (THEME.legendWrap), so a
  * second row never overprints the plot. `ChartPanel.exportMetrics` reads it.
  * `wrap: true` (opt-in) counts the rows on screen too, for a legend built with
- * `wrappedLegend`, which wraps instead of paging.
+ * `wrappedLegend`, which wraps instead of paging. An export counts the rows of
+ * the names it keeps (`legendShown`).
  */
 export function legendTop(names, plotWidthPx, { wrap = false } = {}) {
   const pad = axisPadding();
-  const names2 = (names ?? []).map((n) => String(n?.name ?? n));
+  const names2 = (legendShown(names ?? []) ?? []).map((n) => String(n?.name ?? n));
   const rows = !names2.length ? 1
     : ((THEME.legendWrap || wrap) ? Math.max(1, legendRows(names2, plotWidthPx, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1);
   return pad.top + rows * 1.6 * THEME.fontLabel;

@@ -43,7 +43,15 @@ Pinned here:
   response: the same listeners, memory, clear and ink through the shared
   helpers, on its two legends (the series and the references) each taking the
   names it lists; across shower A alone (fewer series) and back; its drawer
-  line; its export.
+  line; its export;
+* the export's legend context (res-emax, Martin's decision of 2026-11-17):
+  with none set, ``chartLegend``, ``wrappedLegend`` and ``legendTop`` return
+  what they returned before ``setExportHidden`` was ever called; with one set,
+  a legend lists none of its names (string and {name} entries), marks each it
+  dropped false over the builder's ``selected``, hides itself when nothing is
+  left, and ``legendTop`` counts the kept names' rows only; ``legendShown``
+  returns the same array when nothing is left out; ``legendOffNames`` reads
+  what each legend on show marks off.
 
 Skipped when ``node`` is not on the PATH.
 """
@@ -413,6 +421,74 @@ out.export.allShown = exportWith({ A: true });
   out.energy = record;
 }
 
+/* ---- the export's legend context: setExportHidden, legendShown, legendOffNames ---- */
+{
+  // Long names, so a wrapped legend over a narrow plot takes several rows and leaving entries out drops rows.
+  const long = [1, 2, 3, 4, 5, 6].map((i) => `Shower ${i} · Calibrated deposit c·E_dep — linear-sum benchmark`);
+  const entries = ['A', { name: 'B', icon: 'circle' }, 'C'];
+  const extra = { selected: { A: true, B: true, C: false }, left: 5 };
+  const snapshot = () => json({
+    plain: cp.chartLegend(entries), extra: cp.chartLegend(entries, extra), empty: cp.chartLegend([]),
+    wrapped: cp.wrappedLegend(long, { left: 10, right: 10 }),
+    topWrap: cp.legendTop(long, 300, { wrap: true }), topScreen: cp.legendTop(long, 300),
+    topObjects: cp.legendTop(long.map((name) => ({ name })), 300, { wrap: true }), topNone: cp.legendTop([], 300),
+  });
+  const ctx = { neverSet: cp.exportHidden(), before: snapshot() };
+  ctx.sameData = cp.chartLegend(entries).data === entries;
+  ctx.shownSame = cp.legendShown(entries) === entries;
+  cp.setExportHidden(null);
+  ctx.afterNull = { hidden: cp.exportHidden(), same: snapshot() === ctx.before };
+  cp.setExportHidden([]);
+  ctx.afterEmpty = { hidden: cp.exportHidden(), same: snapshot() === ctx.before };
+
+  const hide = ['B', long[1], long[2], long[3], long[4]];
+  cp.setExportHidden(hide);
+  const set = cp.exportHidden();
+  const plainOff = cp.chartLegend(entries);
+  const extraOff = cp.chartLegend(entries, extra);
+  const allOff = cp.chartLegend(['B', { name: long[1] }]);
+  const keptOnly = ['A', 'C'];
+  ctx.set = { isSet: set instanceof Set, names: set ? [...set] : null };
+  ctx.plain = { data: plainOff.data, show: plainOff.show, selected: plainOff.selected ?? null,
+    rest: json({ ...plainOff, data: null, selected: null }) === json({ ...cp.chartLegend(['A']), data: null, selected: null }) };
+  ctx.extra = { data: extraOff.data, show: extraOff.show, selected: extraOff.selected, left: extraOff.left };
+  ctx.allOff = { data: allOff.data, show: allOff.show, selected: allOff.selected };
+  ctx.explicitHidden = cp.chartLegend(entries, { show: false }).show;
+  // Nothing of it left out: today's legend, the same data array.
+  ctx.untouched = { same: (() => { const d = keptOnly; const l = cp.chartLegend(d); return l.data === d && !('selected' in l); })(),
+    json: json(cp.chartLegend(keptOnly)) };
+  ctx.shown = {
+    strings: cp.legendShown(['A', 'B', 'C']),
+    objects: cp.legendShown([{ name: 'A' }, { name: 'B', icon: 'line' }]),
+    same: (() => { const a = ['A', { name: 'C' }]; return cp.legendShown(a) === a; })(),
+    notArray: [cp.legendShown(null), cp.legendShown(undefined) ?? 'undefined'],
+  };
+  ctx.top = {
+    kept: cp.legendTop(long, 300, { wrap: true }),
+    objects: cp.legendTop(long.map((name) => ({ name })), 300, { wrap: true }),
+    wrapped: cp.wrappedLegend(long, { left: 10, right: 10 }).data,
+  };
+  ctx.untouchedJson = json(cp.chartLegend(keptOnly));
+  cp.setExportHidden(null);
+  ctx.top.full = cp.legendTop(long, 300, { wrap: true });
+  ctx.top.keptNoContext = cp.legendTop([long[0], long[5]], 300, { wrap: true });
+  ctx.untouchedNoContext = json(cp.chartLegend(keptOnly));
+  ctx.cleared = { hidden: cp.exportHidden(), same: snapshot() === ctx.before };
+
+  // legendOffNames on fake panels.
+  ctx.off = {
+    memory: cp.legendOffNames({ liveLegend: { data: ['A', { name: 'B' }, 'C'], selected: { C: false, A: false, Z: false } } }),
+    builderDefault: cp.legendOffNames({ liveLegend: { data: ['A', 'B'], selected: { B: false } } }),
+    showFalse: cp.legendOffNames({ liveLegend: { show: false, data: ['A'], selected: { A: false } } }),
+    dataless: cp.legendOffNames({ liveLegend: { selected: { Q: false, R: true, S: false } } }),
+    array: cp.legendOffNames({ liveLegend: [{ data: ['A', 'B'], selected: { B: false } },
+      { data: ['R', 'B'], selected: { R: false, B: false } }, { data: ['Q'], show: false, selected: { Q: false } }, null] }),
+    none: [cp.legendOffNames(null), cp.legendOffNames({}), cp.legendOffNames({ liveLegend: null }),
+      cp.legendOffNames({ liveLegend: { data: ['A'] } })],
+  };
+  out.exportContext = ctx;
+}
+
 console.log(JSON.stringify(out));
 process.exit(0);
 """
@@ -771,3 +847,81 @@ def test_the_energy_export_leaves_out_what_the_legend_hides(result):
     assert series["selected"] == {entry: False} and references["selected"] == {reference: False}, got
     for legend in (series, references):
         assert (legend["inactive"], legend["border"], legend["line"]) == (PRINT_INACTIVE,) * 3, legend
+
+
+# ------------------------------------------- the export's legend context (res-emax) --
+#
+# An export leaves out every series the legend on show switched off, with its entry, and lays the legend rows out
+# without it (Martin's decision, 2026-11-17). export/figure.js sets the context inside its synchronous window; on
+# screen it is null and every helper is the identity, so the builders' outputs and the dark golden do not move.
+
+#: What the context leaves out in the script: one short entry and four of the six long names.
+LONG = [f"Shower {i} · Calibrated deposit c·E_dep — linear-sum benchmark" for i in range(1, 7)]
+
+
+def test_without_a_context_the_legend_helpers_are_unchanged(result):
+    ctx = result["exportContext"]
+    assert ctx["neverSet"] is None
+    # chartLegend keeps the very data array it was given, and legendShown is the identity.
+    assert ctx["sameData"] and ctx["shownSame"], ctx
+    # chartLegend, wrappedLegend and legendTop deep-equal their output before setExportHidden was ever called: after
+    # setExportHidden(null), after setExportHidden([]) and after a context is cleared.
+    for key in ("afterNull", "afterEmpty", "cleared"):
+        assert ctx[key] == {"hidden": None, "same": True}, (key, ctx[key])
+
+
+def test_the_context_is_a_set_of_the_names_left_out(result):
+    assert result["exportContext"]["set"] == {"isSet": True, "names": ["B", *LONG[1:5]]}
+
+
+def test_an_export_legend_lists_none_of_the_names_left_out_and_marks_them_off(result):
+    ctx = result["exportContext"]
+    # A string entry and a {name} entry are both dropped; the dropped name is marked false, so its series is
+    # filtered although no entry lists it; every other key is today's.
+    assert ctx["plain"] == {"data": ["A", "C"], "show": True, "selected": {"B": False}, "rest": True}, ctx["plain"]
+    # The builder's own `selected` is kept, the dropped name's false laid over it.
+    assert ctx["extra"] == {"data": ["A", "C"], "show": True, "selected": {"A": True, "B": False, "C": False},
+                            "left": 5}, ctx["extra"]
+    # Every entry dropped: the legend is hidden, its names still off.
+    assert ctx["allOff"] == {"data": [], "show": False, "selected": {"B": False, LONG[1]: False}}, ctx["allOff"]
+    # A legend the builder hides stays hidden.
+    assert ctx["explicitHidden"] is False
+
+
+def test_a_legend_with_nothing_left_out_is_todays_legend(result):
+    ctx = result["exportContext"]
+    assert ctx["untouched"]["same"], "the same data array and no `selected`"
+    assert ctx["untouched"]["json"] == ctx["untouchedJson"] == ctx["untouchedNoContext"]
+
+
+def test_legend_shown_filters_and_returns_the_same_array_when_nothing_is_left_out(result):
+    got = result["exportContext"]["shown"]
+    assert got["strings"] == ["A", "C"]
+    assert got["objects"] == [{"name": "A"}]
+    assert got["same"] is True
+    # Anything that is no array passes through.
+    assert got["notArray"] == [None, "undefined"]
+
+
+def test_legend_top_counts_the_rows_of_the_kept_names_only(result):
+    got = result["exportContext"]["top"]
+    # The six long names wrap to several rows over a 300 px plot; leaving four out drops rows, exactly as many as a
+    # legend of the two kept names takes without a context.
+    assert got["kept"] < got["full"], got
+    assert got["kept"] == got["keptNoContext"] == got["objects"], got
+    assert got["wrapped"] == [LONG[0], LONG[5]], got
+
+
+def test_legend_off_names_reads_what_each_legend_on_show_marks_off(result):
+    got = result["exportContext"]["off"]
+    # In legend order; the reader's memory and a builder's default alike; a name the legend does not list (Z) is not
+    # named, since nothing of it is drawn.
+    assert got["memory"] == ["A", "C"], got
+    assert got["builderDefault"] == ["B"], got
+    # A hidden legend is skipped; a legend without data lists the keys of its `selected`.
+    assert got["showFalse"] == [], got
+    assert got["dataless"] == ["Q", "S"], got
+    # Across an array of legends, once each, a hidden legend and a null skipped.
+    assert got["array"] == ["B", "R"], got
+    # No panel, no live legend, a legend that hides nothing.
+    assert got["none"] == [[], [], [], []], got
