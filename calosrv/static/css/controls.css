@@ -105,6 +105,60 @@ input[type="file"]::file-selector-button:hover {
 }
 .numeric-pair .numeric { -moz-appearance: textfield; appearance: textfield; }
 
+/* Every single range input: a 4 px track in --range-track, 3:1 or more on
+   every ground it sits on in both themes (tokens.css), and the dual sliders'
+   thumb. Chromium and Firefox each take their own pseudo-elements, each in a
+   rule of its own: an engine drops a whole selector list that holds a
+   pseudo-element it does not know. A single slider draws no filled part in
+   either engine; its thumb and its readout carry the value. The dual sliders
+   below draw their own track and fill and keep their own thumbs, so :not()
+   leaves them out and their geometry does not move. */
+input[type="range"]:not(.dual input) {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+}
+input[type="range"]:not(.dual input)::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--range-track);
+}
+input[type="range"]:not(.dual input)::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--range-track);
+}
+input[type="range"]:not(.dual input)::-moz-range-progress { background: transparent; }
+input[type="range"]:not(.dual input)::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  width: 14px; height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--accent);
+  cursor: grab;
+}
+input[type="range"]:not(.dual input)::-moz-range-thumb {
+  box-sizing: border-box;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--accent);
+  cursor: grab;
+}
+input[type="range"]:not(.dual input):active::-webkit-slider-thumb { cursor: grabbing; }
+input[type="range"]:not(.dual input):active::-moz-range-thumb { cursor: grabbing; }
+input[type="range"]:not(.dual input):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* appearance: none takes the engine's disabled look away, so it is stated. */
+input[type="range"]:not(.dual input):disabled { opacity: 0.6; cursor: not-allowed; }
+input[type="range"]:not(.dual input):disabled::-webkit-slider-thumb { cursor: not-allowed; }
+input[type="range"]:not(.dual input):disabled::-moz-range-thumb { cursor: not-allowed; }
+
 /* Two range inputs stacked over one track; the thumbs stay independently
    grabbable because only the thumbs receive pointer events. */
 .dual {
@@ -120,7 +174,7 @@ input[type="file"]::file-selector-button:hover {
   border-radius: 2px;
   pointer-events: none;
 }
-.dual .track { left: 0; right: 0; background: var(--border); }
+.dual .track { left: 0; right: 0; background: var(--range-track); }
 .dual .fill { background: var(--accent); }
 
 .dual input[type="range"] {

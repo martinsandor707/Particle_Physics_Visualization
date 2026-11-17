@@ -324,9 +324,7 @@
   flex: 0 1 9em;
   width: 9em;
   min-width: 0;
-  accent-color: var(--accent);
 }
-.curve-control input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .curve-control-value {
   min-width: 5.5em;
   color: var(--text);
