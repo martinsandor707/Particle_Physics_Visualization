@@ -930,8 +930,9 @@ export class PhysicsSection {
           mode: record.spec.mode,
           axis: record.spec.id === 'profile-r' ? 'r' : undefined,
         });
-        // A legend click redraws nothing of the page, but the drawer names
-        // what the legend hides (`notes`): the page rebuilds it.
+        // A legend click repaints its own chart alone (chart_panel.js
+        // `repaintForLegend`), and the drawer names what the legend hides
+        // (`notes`): the page rebuilds it.
         panel.onLegendChange = () => {
           if (record.payload) this.onRendered(record.spec.id, record.payload);
         };

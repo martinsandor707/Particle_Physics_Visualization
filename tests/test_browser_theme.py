@@ -1346,3 +1346,153 @@ def test_the_dark_controls_keep_todays_computed_colours(live_server):
     assert got["mini"] == {"bg": "rgb(33, 38, 45)", "ink": "rgb(201, 209, 217)"}, got
     assert got["primary"] == {"bg": "rgb(88, 166, 255)", "ink": "rgb(4, 16, 31)"}, got
     assert problems == [], problems
+
+
+# -------------------------------------------------- the range sliders' tracks --
+
+#: tokens.css `--range-track`, `--card`, `--canvas-alt`, `--text` and `--accent` per theme (legend-sliders, 0c7755e).
+RANGE_TRACK = {"dark": "#6e7681", "light": "#818b98"}
+CARD = {"dark": "#1c2128", "light": "#ffffff"}
+SIDEBAR = {"dark": "#161b22", "light": "#ffffff"}
+THUMB = {"dark": "#e6edf3", "light": "#111827"}
+ACCENT = {"dark": "#58a6ff", "light": "#0b5fbe"}
+#: The floor a mark the reader must see clears against its ground (CLAUDE.md §2).
+MARK_FLOOR = 3.0
+#: How far a sampled pixel may sit from its token, per channel (antialiasing at the edges is not sampled).
+PIXEL_TOL = 3
+
+#: A PNG screenshot decoded in the page: its width, height and RGBA bytes (no image library in the test environment).
+_PIXELS = """async (b64) => {
+  const img = new Image();
+  img.src = `data:image/png;base64,${b64}`;
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0);
+  return { w: img.width, h: img.height, data: Array.from(g.getImageData(0, 0, img.width, img.height).data) };
+}"""
+
+
+def _rgb(hex_colour):
+    return tuple(int(hex_colour[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def _luminance(rgb):
+    def lin(v):
+        s = v / 255
+        return s / 12.92 if s <= 0.03928 else ((s + 0.055) / 1.055) ** 2.4
+    r, g, b = (lin(v) for v in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contrast(a, b):
+    hi, lo = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _near(px, colour, tol=PIXEL_TOL):
+    return all(abs(p - c) <= tol for p, c in zip(px, colour))
+
+
+def _shot(page, locator):
+    """An element's screenshot as {w, h, at(x, y) -> (r, g, b)}."""
+    import base64
+
+    got = page.evaluate(_PIXELS, base64.b64encode(locator.screenshot()).decode("ascii"))
+    w, data = got["w"], got["data"]
+    return {"w": w, "h": got["h"], "at": lambda x, y: tuple(data[(y * w + x) * 4:(y * w + x) * 4 + 3])}
+
+
+def _track_rows(shot, x, colour):
+    """The rows of column `x` painted in `colour`: the track's height there."""
+    return [y for y in range(shot["h"]) if _near(shot["at"](x, y), colour)]
+
+
+def _assert_single_track(shot, scheme, ground, where):
+    """A single range input: its far side (the thumb at the other end) is the 4 px track in --range-track, the rows
+    above and below it are the ground, the track clears 3:1 against that ground, and the thumb's disc in --text is
+    drawn. Returns what was measured."""
+    track, text = _rgb(RANGE_TRACK[scheme]), _rgb(THUMB[scheme])
+    columns = [int(shot["w"] * f) for f in (0.6, 0.7, 0.8, 0.9)]
+    rows = {x: _track_rows(shot, x, track) for x in columns}
+    assert all(len(r) >= 3 for r in rows.values()), (where, "no track in --range-track on the far side", rows,
+                                                     [shot["at"](x, shot["h"] // 2) for x in columns])
+    x = columns[-1]
+    above = shot["at"](x, 0)
+    assert _near(above, _rgb(ground)), (where, "the ground beside the track is not the expected token", above, ground)
+    ratio = _contrast(track, above)
+    assert ratio >= MARK_FLOOR, (where, "the track is under 3:1 on its ground", ratio)
+    thumb = [(x, y) for x in range(shot["w"]) for y in range(shot["h"]) if _near(shot["at"](x, y), text)]
+    assert thumb, (where, "no pixel of the thumb's --text disc")
+    return {"track": track, "ground": above, "ratio": round(ratio, 2), "rows": len(rows[x]), "thumb_px": len(thumb)}
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_every_range_track_is_the_token_at_3_to_1_on_its_ground(live_server, scheme):
+    """One slider style (legend-sliders, 0c7755e): every range track used to be the browser's grey, 1.44:1 on the
+    dark card and 1.15:1 on white. Measured on the pixels Chromium draws (`::-webkit-slider-runnable-track` is not
+    readable through getComputedStyle):
+
+    - the resolution card's E max slider (Models page, E view, the thumb at its lower end, where the card opens): the
+      track on the far side is --range-track, at least 3 rows tall, on the card, at 3:1 or more; the thumb's disc in
+      --text is drawn;
+    - the Physics sidebar's Grid resolution `#resolution` (in Continuous Field, where it is enabled; the thumb at
+      150 of 50–400): the same on the sidebar's --canvas-alt;
+    - the E₁ dual slider, narrowed to 6–12 GeV by the link: the accent fill between the thumbs and the --range-track
+      track outside them, both visible, the track at 3:1 or more on the sidebar."""
+    from test_browser_models import RES_EMAX, RES_TWO, _serve_res_fixture
+
+    measured = {}
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, _ = _open(
+            p, live_server["base"], "/models", scheme=scheme, fragment=f"#table_name={BASELINE_TABLE}&model=energy")
+        _serve_res_fixture(page, RES_TWO)
+        _models_card(page, "res-scaling")
+        slider = page.locator(f"{RES_EMAX} input")
+        slider.wait_for(state="visible", timeout=10_000)
+        state = page.evaluate("(sel) => { const i = document.querySelector(`${sel} input`);"
+                              " return [i.min, i.max, i.value, i.disabled]; }", RES_EMAX)
+        assert state[2] == state[0] and state[0] != state[1] and not state[3], ("E max opens on its lower end", state)
+        slider.scroll_into_view_if_needed()
+        page.mouse.move(2, 2)
+        measured["emax"] = _assert_single_track(_shot(page, slider), scheme, CARD[scheme], "E max")
+        page.close()
+
+        _, page, found, _ = _open(p, live_server["base"], "/", scheme=scheme, browser=browser,
+                                  fragment=f"#table_name={BASELINE_TABLE}&e1_min=6&e1_max=12")
+        problems += found
+        page.check('input[name="display"][value="continuous"]')
+        page.wait_for_function("() => !document.getElementById('ctl-resolution').classList.contains('is-disabled')",
+                               timeout=10_000)
+        page.mouse.move(2, 2)
+        resolution = page.locator("#resolution")
+        resolution.scroll_into_view_if_needed()
+        assert page.evaluate("() => document.getElementById('resolution').value") == "150"
+        measured["resolution"] = _assert_single_track(_shot(page, resolution), scheme, SIDEBAR[scheme], "#resolution")
+
+        # The E₁ dual slider: the fill between the thumbs, the track outside them.
+        dual = page.locator("#ctl-e1 .dual")
+        dual.scroll_into_view_if_needed()
+        box = page.evaluate("""() => {
+          const d = document.querySelector('#ctl-e1 .dual').getBoundingClientRect();
+          const f = document.getElementById('e1-fill').getBoundingClientRect();
+          return { left: f.left - d.left, right: f.right - d.left, width: d.width, mid: f.top - d.top + f.height / 2 };
+        }""")
+        assert box["left"] > 24 and box["width"] - box["right"] > 24, ("E₁ is not narrowed by the link", box)
+        shot = _shot(page, dual)
+        y = round(box["mid"] - 0.5)
+        track, accent = _rgb(RANGE_TRACK[scheme]), _rgb(ACCENT[scheme])
+        outside = [shot["at"](x, y) for x in (4, int(box["left"] / 2) - 4, int((box["right"] + box["width"]) / 2) + 4,
+                                              int(box["width"]) - 5)]
+        inside = [shot["at"](int(box["left"] + (box["right"] - box["left"]) * f), y) for f in (0.35, 0.5, 0.65)]
+        assert all(_near(px, track) for px in outside), ("the dual track outside the thumbs", outside, track, box)
+        assert all(_near(px, accent) for px in inside), ("the dual fill between the thumbs", inside, accent, box)
+        ground = shot["at"](4, 0)
+        assert _near(ground, _rgb(SIDEBAR[scheme])), ("the E₁ slider's ground", ground)
+        ratio = _contrast(track, ground)
+        assert ratio >= MARK_FLOOR, ("the dual track is under 3:1 on the sidebar", ratio)
+        measured["e1"] = {"track": outside[0], "fill": inside[1], "ground": ground, "ratio": round(ratio, 2)}
+        print(scheme, measured)
+        browser.close()
+    assert problems == [], problems

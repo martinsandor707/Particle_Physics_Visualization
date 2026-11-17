@@ -57,6 +57,8 @@ DARK = {
     "--lg-handle": "#e6edf3",
     "--lg-handle-focus": "#ffe7a3",
     "--lg-profile": "#4493f8",
+    # Added with the shared slider style (legend-sliders, 2026-11-17).
+    "--range-track": "#6e7681",
 }
 NON_COLOUR = {"--radius", "--gap", "--sidebar-width", "--inspector-width", "--mono", "--sans"}
 COLOUR_TOKENS = set(DARK) - NON_COLOUR

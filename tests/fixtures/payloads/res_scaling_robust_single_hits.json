@@ -113,6 +113,7 @@
    "unit": "%",
    "name": "Robust σ/E [%]"
   },
+  "y_model": null,
   "energy": {
    "x": {
     "min": 0.0,
@@ -131,6 +132,7 @@
     "unit": "%",
     "name": "Robust σ/E [%]"
    },
+   "y_model": null,
    "curve_min_gev": 4.0,
    "noise_min_gev": 1.0,
    "y_min_gev": 2.0,

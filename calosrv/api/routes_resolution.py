@@ -22,6 +22,12 @@ the noise block carries no all-free face and no ``band_quantile``: nothing reads
 them. No fit block carries a note (FX3): the card read none, and its facts are
 the block's fields.
 
+``axis.y_model`` and ``axis.energy.y_model`` are the two views' σ/E ranges over
+the model series alone, by the full ranges' own rule, with the model series'
+keys and a sentence saying what set them (``null`` without a model series), so
+the card's Deposit toggle can hide the calibrated deposit with no request
+(Martin's decision, 2026-11-17).
+
 ``coord_system`` picks the energy network's input frame on two-shower data
 (the D-frame's view asks for ``lab``, whose networks it uses); on the other
 kinds it is validated and stated in ``meta`` as not applying.
@@ -132,6 +138,9 @@ def get_resolution_scaling(
     # band_quantile and the second scale's c_low and n_low back off the wire and shortened the
     # weight label, the scale rules and the E view's two notes: 61,928 under median, 72,645 under
     # robust and 66,918 under sample, each noise block 415–460 bytes (2026-11-15, at fa85fe8, after
-    # the review's wording fixes; 63,044, 74,982 and 68,268 at 711fcf3).
+    # the review's wording fixes; 63,044, 74,982 and 68,268 at 711fcf3). The model series' own
+    # ranges, axis.y_model and axis.energy.y_model (res-emax, 2026-11-17), add 676–716 bytes:
+    # 62,644 under median, 73,335 under robust and 67,594 under sample (the recorded two-shower
+    # fixture, served, measured 2026-11-17 on rx-s from main at cba1710).
     return budget.serve_measured(build, steps[0], shrink, _describe,
                                  remedy="a narrower momentum selection brings it under")

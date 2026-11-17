@@ -1368,10 +1368,28 @@ the panel's own (`legendSelected`), never in the view state or the hash. Every
 `ChartPanel` keeps it, and so does Page 1's energy card (`EnergyPanel`), through
 the same helpers (`chart_panel.js` `listenToLegend`, `setOptionWithLegend`).
 - Every repaint is `setOption(…, {notMerge: true})`, which used to drop it.
-- While anything is off, the panel clears the chart before the new option.
-  ECharts 5.5.1 otherwise diffs a hidden custom series against elements the
-  legend detached and throws halfway through the render, drawing a hidden
-  series' points without its lines when the next option has fewer windows.
+- While anything is off, and on the repaint a legend click asks for, the panel
+  clears the chart before the new option. ECharts 5.5.1 otherwise diffs a
+  hidden custom series against elements the legend detached and throws halfway
+  through the render, drawing a hidden series' points without its lines when
+  the next option has fewer windows.
+- **A switched-off entry takes every mark of it along, on screen as in an
+  export** (legend-sliders, Martin's request of 2026-11-17). ECharts' legend
+  filter hides only the series named after the entry, so its companions (an
+  interval, a dispersion, a mean, a "(clipped)" caret, an events-beyond caret,
+  a bin readout naming every series) and text of its own (the resolution
+  card's end labels and note-band values) used to stay on screen. Every
+  builder now reads one legend context (`chart_panel.js` `hiddenEntries`): a
+  paint sets it for the names the reader switched off (`screenBuild`), an
+  export for the names it leaves out, and a legend click repaints the card at
+  the next frame, keeping a scrolled legend's page. The screen keeps the entry
+  in its legend, greyed, carried by one of its own series so a click brings it
+  back; only an export drops the entry and its row. With nothing switched off
+  a paint builds once, exactly as before.
+- **The catalogue card lays its rows out without a switched-off frame**
+  (review R2-7): its facets drop the frame's rows, labels and height, so no
+  empty, unlabelled slot is left, on screen (the card shrinks and grows back)
+  and in the export; the axes never move.
 - A hidden entry is drawn in a legible grey, where ECharts drew it in the
   border ink (1.33:1 on the dark card): the faintest tint of the muted ink that
   clears 4.5:1 on the card, `#808993` on the dark card and `#6e7780` on the
@@ -1382,8 +1400,11 @@ the same helpers (`chart_panel.js` `listenToLegend`, `setOptionWithLegend`).
   legend* (on the energy card, in a section of that name before *Reading the
   density axis*), and a legend click rebuilds an open drawer. It is the
   reader's own choice, so it raises no hazard.
-- An export leaves the hidden series out and greys their legend entries
-  (`#6f7681` on white).
+- An export leaves the hidden series out together with their legend entries,
+  their companion marks and any canvas text that names them, and lays the
+  legend rows out without them; it greys no entry (res-emax, Martin's
+  decision, 2026-11-17, replacing the greyed entry of 2026-11-11). This holds
+  for every chart export on both pages.
 
 **The Details drawer.** The four on-card footnotes are gone. Each card has a
 **Details** button — its title row is clickable too — that opens a right-hand
@@ -1406,6 +1427,18 @@ cells clipped to the ends of the colour ramp in the Absolute frame, or its
 bins below the display floor in a co-registered frame), the energy card's
 low-statistics notices (`#energy-sparse`, which also carry the energy-axis
 clipping note), and the sidebar's ⓘ dots (the comb and frame notices).
+
+**One slider style** (legend-sliders, 2026-11-17). Every range input on the
+three pages draws one track and one thumb (`css/controls.css`): a 4 px track in
+`--range-track` (`#6e7681` dark, `#818b98` light) and a 14 px disc in the text
+ink with an accent rim. The browser's own track was 1.44:1 on the dark card and
+1.15:1 on white; the token clears 3:1 on every ground a slider sits on (dark:
+3.52:1 on the card, 3.77:1 on the sidebar; light: 3.45:1 on white, 3.24:1 on
+the canvas). A single slider draws no filled part, in either engine: its thumb
+and its readout carry the value. The dual filter sliders keep their own track
+and accent fill, the track in the same token; the fill is 2 px taller than the
+track, so the selected interval's edges stand against the sidebar (the accent
+and the track are only 1.8:1 apart).
 
 Each filter carries **both a numeric pair and a slider, on one shared grid**.
 The slider's integer domain *is* the numeric step — 0.05 GeV for the energies,
@@ -3794,7 +3827,7 @@ is left out; nothing is substituted for what is missing.
 | Section | `two_shower_hits` | `single_shower_hits` | `single_shower_events` (aggregate) |
 |---|---|---|---|
 | Model performance | The energy and angle networks' per-shower predictions, in every input frame at once (segmentation has no per-shower prediction) | Absent: no networks | The **XGBoost** hold-out series, once an analysis is done; otherwise absent |
-| Energy resolution | The calibrated deposit and the energy network of the selected frame, showers A and B kept apart | The calibrated deposit, named after the selection's species | The calibrated deposit and, once an analysis is done, the XGBoost momentum hold-out |
+| Energy resolution | The calibrated deposit (hidden by the card's Deposit toggle until switched on) and the energy network of the selected frame, showers A and B kept apart | The calibrated deposit, named after the selection's species (drawn whatever the Deposit toggle says: it is the only series) | The calibrated deposit and, once an analysis is done, the XGBoost momentum hold-out (the deposit then hidden by the Deposit toggle until switched on; drawn whatever it says before) |
 | XGBoost model | Absent | Absent | Shown when a model run pairs with the experiment; its cards open when the analysis is done and current |
 | Event features | Both showers, each in its own right, in the Absolute, per-shower translated and Local frames, rebuilt from the per-event Group-1 sums | Shower A, same frames | The producer's own feature columns, as stored |
 | Primaries | Absent: the species columns are not in the two-shower export | The share of events with no primary-tagged hit | Absent: no hits |
@@ -4029,8 +4062,10 @@ by name, its reconstruction being Page 1's energy panel.
 
 ### The energy-resolution card
 
-`GET /api/resolution-scaling` feeds one card, **Median Relative Error vs. 1/√E**
-by default, or **vs. E** in its second view (below); the title follows the
+`GET /api/resolution-scaling` feeds one card. It opens on the **E (GeV) + ratio**
+view, **Median Relative Error vs. E**, with the calibrated deposit hidden, both
+showers and E max at the lower end of its slider (res-emax, Martin's decisions,
+2026-11-17); the other view is **vs. 1/√E**. The title follows the
 Estimator control, and under Robust σ (IQR) and Sample σ/μ it reads **Energy
 Resolution vs. 1/√E** (**vs. E**). It is in
 a section of its own: its detector series needs no model, so it shows on every
@@ -4162,7 +4197,37 @@ kind of experiment, where the performance section does not
     mid-range, which narrows a σ near its training range's ends and adds a bias
     to the median rel. there. Each model series' median-response range is in the
     drawer and the notes.
-- **The series.** The detector series is labelled "Calibrated deposit c·E_dep —
+- **The card's new controls** (res-emax, Martin's decisions, 2026-11-17).
+  - **Deposit.** A toggle, off by default, on both views. While it is off, the
+    calibrated deposit's windows, its fitted curve and its fit-table rows are not
+    drawn, and the error-scale range follows the model series alone: the same
+    response carries `axis.y_model` (1/√E view) and `axis.energy.y_model` (E
+    view), each the windows-alone range over the model series with its own
+    `series` and `note`, and `null` with no model series. Where the deposit is
+    the response's only series the toggle is shut and the deposit is drawn.
+  - **E max.** A slider on the E view only (hidden on the 1/√E view, whose right
+    border stays the origin), from the data's highest window edge rounded up to
+    5 GeV to the server's axis end, in 5 GeV steps, opening on its lower end
+    (`static/js/res_axis.js`). It only crops: nothing beyond it is drawn and no
+    fit is refitted. Ticks are every 5 GeV up to 40 GeV and every 10 GeV above.
+    A curve fitted up to E max is solid to the end, and the note about dashed
+    extrapolation is shown only while a dashed run is drawn. Measured on
+    2026-11-17 (read-only, `data/calorimeter.duckdb`, median estimator; a
+    measurement, not a constant): all 11 ready experiments have an axis end of
+    80 GeV and a highest window edge of 20 GeV (18 GeV on `experiment_baseline`
+    and `hits_all_models_dummy`), so three quarters of the former axis was
+    dashed extrapolation. On `hits_all_models` the E view's top was 40%, set by
+    shower A's deposit (36.9%), against 22.9% (A) and 19.2% (B) for the energy
+    networks; on `muon_hits_with_model_outputs` 350%, the deposit at 321–331%
+    and the networks at 308–310%.
+  - **No reference.** With the deposit hidden and no literature curve on, the
+    ratio panel draws no ratio mark and no 1.0 rule, leaves its axis unlabelled
+    and says in one sentence that no reference is on show. It raises no hazard.
+  - **Export file name.** `emax-<n>` (the integer GeV, after `energy`),
+    `deposit-off` and `ratio-none` join the existing tokens, and a series
+    switched off on the legend is left out of the figure with its entry.
+- **The series.** The detector series (hidden by default; see the Deposit
+  toggle above) is labelled "Calibrated deposit c·E_dep —
   linear-sum benchmark": a plain sum, which a model reading the shower's shape
   can beat, so it is a benchmark and not a limit. Two-shower data adds the energy
   network of the selected frame (the D-frame reads the absolute-frame networks),
@@ -4236,8 +4301,9 @@ kind of experiment, where the performance section does not
   - **The axes.**
     - A window sits at E = 1/⟨1/√p⟩², the 1/√E view's own abscissa mapped
       back, so a window on its line there sits on its curve here.
-    - The x axis runs from 0 to 80 GeV (or to the dataset's top edge when
-      higher); σ/E runs from zero.
+    - The x axis runs from 0 to E max (the card's slider, above; the
+      server's axis ends at 80 GeV, or at the dataset's top edge rounded up
+      when higher); σ/E runs from zero.
     - **All windows** also draws the windows below 4 GeV, as points: those
       from 1 GeV with a fit weight are the noise fit's, the rest no fit's.
   - **The vertical range.** It follows the windows of N ≥ 20 from 2 GeV alone;
@@ -5402,7 +5468,7 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks. `slice_by=d` (the default on two-shower data) slices by the A–B separation, with `d_edges`, from the `coord_system`'s segmentation network (`meta.network`). `slice_by=momentum` (the only slicing of a single-shower experiment, and the B3 card's) places each shower by its own incident momentum: `p_slices=notebook` (default: windows 1, 2, 5, 10, 15 and 19 GeV), `bins` (the producer's 1 GeV bins) or comma-separated window centres in GeV; `p_half_width` (0.5 GeV, up to 10, refused with `bins`); `series=truth\|model\|all` on two-shower data (the deposit split by the true segmentation fraction, the network's, or both). Each slice carries its own axis (`slice_axes`). A parameter of the other slicing is a 422 naming it. **Two-shower `p_slices=bins` with `series=all` is refused (422 on `series`)**: 80 fitted series measured 148,703 B on the synthetic two-shower fixture and about 167 KB on a constructed production-sized sample, over the 100 KB contract at the coarsest rendering the guard reaches; truth or model alone fits, and the notebook windows with `series=all` still serve. More than 40 fitted series (slices × series) on two-shower data is a 422 on `p_slices`. The default `slice_by=d` payload is byte-identical to the one before momentum slicing (pinned by `tests/golden/energy_default.json`). |
 | `GET /api/profiles` | C7, the longitudinal and radial profile cards. `shower=a\|b\|both`, `depth=w\|native`, `notebook=false\|true` (the notebook convention is defined along w: a 422 with `depth=native`). Per-bin sums come from `profiles_` and `layers_`, so the response is about 15 KB on every selection. `depth_layers` gives the reach of relative layers for `depth=native` and says that w has no layer grid. A stale experiment is refused with the rebuild it needs. |
 | `GET /api/response` | The sampling-fraction cards B1 and B2 and the resolution σ/μ. `parts=b1,b2,resolution` (default all three; a part not asked for is `null`), `shower=a\|b\|both`, `clip_low` and `clip_high` (the percentiles of B1's displayed axis, which is zero-based, so they are reported, not applied), `bins` (8–500, B1's histogram, default adapted to the smallest drawn series). Also `calibration` and `n_events`. Every kind answers, the aggregate from its event table. The body is measured as served: while it is over 100 KB the numbers are written at fewer significant figures and B1's histogram coarsened, and the step is disclosed; no statistic changes. |
-| `GET /api/resolution-scaling` | The Models page's energy-resolution card ([The energy-resolution card](#the-energy-resolution-card)). `estimator=median\|robust\|sample` (default `median`, a 422 naming `estimator` otherwise; one estimator per response, so the body stays under 100 KB: the largest stored body is 82,002 B under median, on the muon two-shower file, Local frame, measured 2026-11-15 at fa85fe8 after the noise fit's band fields and the second scale left the wire; it was 84,202 B at a55f1ea and 96,519 B before the unread text left the wire on 2026-11-13). Per series - the detector's calibrated deposit, the energy network of `coord_system` on two-shower data, or the XGBoost momentum hold-out on a paired aggregate - and per 1 GeV momentum window: the active estimator's value of the per-event ratio E_est/p in percent (median \|rel. err.\|, robust σ/E or sample σ/E), its interval, its bootstrap SE and κ (`se`, `se_rel`, information; under `sample` the delta-method SE), the series' pooled fit-weight scale `weight_scale` (`c`, `n_windows`, `rule`; null under `sample`; the noise fit weights its windows of 1–4 GeV by the same `c`), the two other estimators as `alt` (the tail share from N = 300), the median response and ⟨1/√p⟩. The weighted fits a/√E + b and a₀/√E, with the quadrature form tabled (no band on the wire), through the three nominal anchors and through every window from 4 GeV, each with χ², its p-value, the PDG scale factor and, for these two, its 95 % band at 21 points; and the constrained noise fit a/√E ⊕ b ⊕ c/E (`fits[mode].noise`, compact: `params` with its squares, SEs and correlations, no `params.free`, no `band_quantile`, no curve and no band points; `noise_reason` when absent; `noise_min_gev` = 1 in `gates` and `axis.energy`) through every window from 1 GeV or the anchors plus the low anchor (`low_anchor` null when there is none); the E view draws no band round it. No fit carries a prose note on the wire; the axes (the reversed 1/√E, the exact energy relabelling, the zero-based y); the off-axis windows below 4 GeV. For the card's E view, in the same body: `axis.energy` (E from 0 to 80 GeV, its own zero-based error-scale range from the windows of N ≥ 20 from 2 GeV alone, no fit setting it, and its sentences), and each mode's `span_gev`. `coord_system=lab\|trans\|local` (default `lab`, a 422 naming it otherwise; it applies to two-shower networks only, and `meta.notes` says so). Gate `res-scaling`, open on every kind. It reads the event table and the XGBoost predictions, never a hit. The body is measured under 100 KB, stepping down significant figures and then band points, with a sentence. |
+| `GET /api/resolution-scaling` | The Models page's energy-resolution card ([The energy-resolution card](#the-energy-resolution-card)). `estimator=median\|robust\|sample` (default `median`, a 422 naming `estimator` otherwise; one estimator per response, so the body stays under 100 KB: the largest stored body is 82,002 B under median, on the muon two-shower file, Local frame, measured 2026-11-15 at fa85fe8 after the noise fit's band fields and the second scale left the wire; it was 84,202 B at a55f1ea and 96,519 B before the unread text left the wire on 2026-11-13). Per series - the detector's calibrated deposit, the energy network of `coord_system` on two-shower data, or the XGBoost momentum hold-out on a paired aggregate - and per 1 GeV momentum window: the active estimator's value of the per-event ratio E_est/p in percent (median \|rel. err.\|, robust σ/E or sample σ/E), its interval, its bootstrap SE and κ (`se`, `se_rel`, information; under `sample` the delta-method SE), the series' pooled fit-weight scale `weight_scale` (`c`, `n_windows`, `rule`; null under `sample`; the noise fit weights its windows of 1–4 GeV by the same `c`), the two other estimators as `alt` (the tail share from N = 300), the median response and ⟨1/√p⟩. The weighted fits a/√E + b and a₀/√E, with the quadrature form tabled (no band on the wire), through the three nominal anchors and through every window from 4 GeV, each with χ², its p-value, the PDG scale factor and, for these two, its 95 % band at 21 points; and the constrained noise fit a/√E ⊕ b ⊕ c/E (`fits[mode].noise`, compact: `params` with its squares, SEs and correlations, no `params.free`, no `band_quantile`, no curve and no band points; `noise_reason` when absent; `noise_min_gev` = 1 in `gates` and `axis.energy`) through every window from 1 GeV or the anchors plus the low anchor (`low_anchor` null when there is none); the E view draws no band round it. No fit carries a prose note on the wire; the axes (the reversed 1/√E, the exact energy relabelling, the zero-based y); the off-axis windows below 4 GeV. For the card's E view, in the same body: `axis.y_model` and `axis.energy.y_model` (the error-scale range over the model series alone, with `series` and `note`, used while the card's Deposit toggle hides the deposit; `null` with no model series), and `axis.energy` (E from 0 to 80 GeV, the server's axis end, which the card's E max slider crops; its own zero-based error-scale range from the windows of N ≥ 20 from 2 GeV alone, no fit setting it, and its sentences), and each mode's `span_gev`. `coord_system=lab\|trans\|local` (default `lab`, a 422 naming it otherwise; it applies to two-shower networks only, and `meta.notes` says so). Gate `res-scaling`, open on every kind. It reads the event table and the XGBoost predictions, never a hit. The body is measured under 100 KB, stepping down significant figures and then band points, with a sentence. |
 | `GET /api/distributions` | C4. `quantity=u\|v\|w\|energy\|theta\|phi\|p` (default `theta`), `weighting=shower\|hit` (theta, phi and p only: the hit quantities are counted per hit, and `weighting=shower` with them is a 422), `shower`, `clip_low`, `clip_high`, `preview`. One series per 1 GeV momentum bin (up to 20) on shared display bins, exact counts. u, v, w and energy need hits (a 422 on the events-only kind). The display bins coarsen 2× then 4× if a response would reach 100 KB, and say so. |
 | `GET /api/correlations` | C8. `coord_system=local\|trans\|lab` (default `local`), `shower`, `energy_scale=linear\|log10`, `preview`. The Pearson matrix of seven variables with event-grouped jackknife intervals, `mardia`, `groups`, `dof` and the method named in the payload. |
 | `GET /api/statistics` | C1 and C9. `coord_system=local\|trans\|lab` (default `local`; the absolute frame adds the `z − 3649 mm` row), `shower`, `preview`. `describe` (unweighted and energy-weighted), `n_events` and `negative_w` (a stale experiment gets `available: false` with the reason). |

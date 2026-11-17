@@ -42,28 +42,47 @@
  * Details drawer (panel_notes.js), which is what an author carries into the
  * manuscript caption. The ramp's print title still names the display floor.
  *
- * ## What the legend hides stays hidden
+ * ## What the legend hides is left out, with its entry
  *
  * A series the reader switched off on a chart panel's legend, or on the
- * energy panel's, is left out of its figure: `buildPrintOption` lays the
- * panel's legend memory (`legendSelected`) over the print option with the
- * screen's own helper, `withLegendMemory` (panels/chart_panel.js). The figure
- * is then the plot the reader is looking at, and its legend greys the hidden
- * entries, which says on the figure that they are off. The grey is the
- * print's own: ECharts draws a hidden entry, text and swatch, in the legend's
- * `inactiveColor`, which `chartLegend` takes from `THEME.border`, and the
- * print border is the near-black #111827, darker than the #374151 of the
- * entries on show. A legend that hides an entry therefore takes
- * `printInactiveInk()`, the lightest tint of the print muted ink that still
- * clears 4.5:1 on the print card, so the hidden entry reads lighter and stays
- * legible, laid by the screen's `withInactiveInk` (text, swatch and a line
- * series' swatch line, as on screen in the screen's own ink). A panel without
- * a memory (the 2 × 2's spatial panels), and a legend that hides nothing,
+ * energy panel's, or one a builder starts off (`selected: false`), is left out
+ * of its figure together with its legend entry (Martin's decision,
+ * 2026-11-17, replacing the greyed entry of 2026-11-11): the figure describes
+ * only what is on show. Inside the synchronous window, right after the print
+ * tokens are swapped in, `legendOffNames(panel)` reads those names off the
+ * legend on show (`panel.liveLegend`, the reader's memory laid over the
+ * builder's defaults) and `setExportHidden` makes them the export's legend
+ * context (panels/chart_panel.js), before `panel.exportMetrics(width)`, so the
+ * figure's height is laid out without the left-out legend rows. While it is
+ * set, `chartLegend` and `legendTop` list and count the kept names only, a
+ * custom legend layout takes `legendShown`, and every builder leaves out each
+ * mark of a left-out entry: its own series and its companions (a dispersion,
+ * an interval, a mean, a "(clipped)" caret, an events-beyond caret, a value
+ * label) and any text on the canvas drawn only for it. The context is cleared
+ * in the same `finally` that restores the screen theme.
+ *
+ * The screen already draws those marks so: a paint builds under the same
+ * context, set for the names switched off on the legend on show, the reader's
+ * memory and a builder's own defaults (chart_panel.js `screenBuild`), and a
+ * legend click repaints. What an export adds is the
+ * legend: the screen keeps a switched-off entry, greyed, so a click brings it
+ * back, and the figure leaves it out with its row.
+ *
+ * `buildPrintOption` then lays the panel's legend memory (`legendSelected`)
+ * over the print option with the screen's own helper, `withLegendMemory`, and
+ * `printLegendOption` makes every legend of the option, shown or not, list
+ * none of the left-out names (a legend without `data` is given the names it
+ * would list, minus those) and mark each of them false, so nothing of a
+ * left-out entry is drawn even where a builder still names it. No exported
+ * entry is greyed: there is no hidden entry left to grey. A panel without a
+ * memory (the 2 × 2's spatial panels), and a legend that leaves nothing out,
  * export their option unchanged.
  */
 
 import { THEME, restoreScreenTheme } from '../scale.js';
-import { legendInactiveInk, withInactiveInk, withLegendMemory } from '../panels/chart_panel.js';
+import {
+  hiddenEntries, legendOffNames, setExportHidden, withLegendMemory,
+} from '../panels/chart_panel.js';
 import { renderRaster } from '../decode.js';
 import { PRINT_TOKENS, PX_RATIO, widthToPx } from './tokens.js';
 import { displayOf } from './caption.js';
@@ -111,6 +130,9 @@ export function exportPanel(panel, { panelId, format = 'svg', widthMm, state, me
     try {
       /* ---- the synchronous window: no await, no timer, no yield --------- */
       Object.assign(THEME, PRINT_TOKENS);
+      // What the legend on show switches off is left out, with its entry, and
+      // the legend rows are laid out without it (see the header).
+      setExportHidden(legendOffNames(panel));
 
       const metrics = panel.exportMetrics(width);
       host.style.height = `${metrics.height}px`;
@@ -129,6 +151,7 @@ export function exportPanel(panel, { panelId, format = 'svg', widthMm, state, me
         mime = 'image/png';
       }
     } finally {
+      setExportHidden(null);
       restoreScreenTheme();
       Object.assign(THEME, saved);
     }
@@ -151,13 +174,15 @@ export function exportPanel(panel, { panelId, format = 'svg', widthMm, state, me
  * The two panel classes return different shapes - the energy panel also hands
  * back the data its HTML side-tables need - so the difference is absorbed here
  * rather than forcing one of them to pretend it is the other. Either way the
- * panel's legend memory is laid over the option, as the screen lays it, and a
- * legend that then hides an entry greys it (see the header); a panel without
- * a memory exports the option as built.
+ * panel's legend memory is laid over the option, as the screen lays it, and
+ * every legend then lists none of the names the export leaves out (the
+ * context `exportPanel` set, see the header); a panel without a memory, with
+ * nothing left out, exports the option as built.
  */
 function buildPrintOption(panel, { width, height }) {
   const metrics = { width, height };
   const legend = panel.legendSelected ?? null;
+  const off = [...(hiddenEntries() ?? [])];
 
   if (panel.kind === 'projection') {
     // The raster is rebuilt rather than borrowed, so it can be upscaled for
@@ -167,7 +192,7 @@ function buildPrintOption(panel, { width, height }) {
       opts: panel.lastOpts || { palette: panel.palette },
       raster: printRaster(panel, width),
       metrics,
-    }), legend);
+    }), legend, off);
   }
 
   const { option } = panel.buildOption({
@@ -175,32 +200,69 @@ function buildPrintOption(panel, { width, height }) {
     opts: panel.lastOpts || {},
     metrics,
   });
-  return withPrintLegend(option, legend);
+  return withPrintLegend(option, legend, off);
 }
 
 /**
- * `option` with the panel's legend memory laid over it, and each legend that
- * then hides an entry given the print's inactive ink for that entry's text,
- * swatch and swatch line. Called inside the synchronous window, under the
- * print tokens.
+ * `option` with the panel's legend memory laid over it and the names `off`
+ * left out of every legend (`printLegendOption`). Called inside the
+ * synchronous window, under the print tokens.
  */
-function withPrintLegend(option, memory) {
+function withPrintLegend(option, memory, off) {
+  return printLegendOption(option, memory, off);
+}
+
+/** The name of a legend entry: a string, or an object's `name`. */
+function entryName(entry) {
+  return String(entry !== null && typeof entry === 'object' ? entry.name : entry);
+}
+
+/** The names a legend without `data` lists: every named series, once each, in series order. */
+function seriesNames(option) {
+  const out = [];
+  for (const s of [option?.series ?? []].flat()) {
+    const name = s?.name;
+    if (name === undefined || name === null || name === '') continue;
+    if (!out.includes(String(name))) out.push(String(name));
+  }
+  return out;
+}
+
+/**
+ * The print legend of `option`, pure: the reader's legend memory laid over it
+ * as on screen (`withLegendMemory`), then every legend object of the option,
+ * shown or not, an object or each of an array, lists none of the names `off`
+ * (a legend without `data` is given an explicit `data` of the names it would
+ * list, every named series, minus `off`) and marks each name of `off` false
+ * in its `selected`, so ECharts filters every series of that name whether an
+ * entry lists it or not. A shown legend left with no entry is hidden. No ink
+ * is laid: a left-out entry is not there to grey. With nothing in `off` the
+ * memory's option is returned as it is (the same object when the memory
+ * changes nothing). Neither `option` nor `memory` is changed.
+ */
+export function printLegendOption(option, memory, off = []) {
   const remembered = withLegendMemory(option, memory);
-  if (remembered === option) return option;
-  return withInactiveInk(remembered, printInactiveInk());
-}
-
-/**
- * The ink of a legend entry the reader switched off, on the print card: the
- * screen's rule (chart_panel.js `legendInactiveInk`), taken under the print
- * tokens: the lightest tint of `THEME.muted` that clears 4.5:1 against
- * `THEME.card`, each channel rounded towards the muted ink, which on white
- * only darkens it. Under the print tokens (muted #374151, card #FFFFFF) it is
- * #6f7681, 4.58:1: lighter than the entries on show, at 10.3:1, and held to
- * the print text floor.
- */
-export function printInactiveInk() {
-  return legendInactiveInk();
+  const names = [...new Set((off ?? []).filter((n) => n !== null && n !== undefined).map(String))];
+  if (!names.length || !remembered?.legend) return remembered;
+  const drop = new Set(names);
+  const leaveOut = (legend) => {
+    if (!legend || typeof legend !== 'object') return legend;
+    const listed = Array.isArray(legend.data) ? legend.data : seriesNames(remembered);
+    const data = listed.filter((entry) => !drop.has(entryName(entry)));
+    const dropped = data.length < listed.length;
+    const selected = { ...(legend.selected ?? {}) };
+    for (const name of names) selected[name] = false;
+    return {
+      ...legend,
+      ...(dropped && legend.show !== false ? { show: data.length > 0 } : {}),
+      data,
+      selected,
+    };
+  };
+  const legend = Array.isArray(remembered.legend)
+    ? remembered.legend.map(leaveOut)
+    : leaveOut(remembered.legend);
+  return { ...remembered, legend };
 }
 
 /**

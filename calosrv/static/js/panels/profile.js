@@ -47,6 +47,17 @@
  * (θ, φ), there is no common layer grid: a muted badge in the same band says
  * so and nothing is drawn over the plot. The profile itself is never pooled:
  * Pooled draws boundaries here. The radial card takes none of it.
+ *
+ * ## A switched-off entry leaves with every mark of it
+ *
+ * On screen after a legend click, as in an export (chart_panel.js
+ * `hiddenEntries`, set by a paint's `screenBuild` and by export/figure.js), a
+ * mark whose legend entry is off is drawn nowhere, with its companions: the
+ * SD band with its edges and its "(clipped)" carets, the envelope with its
+ * carets, the mean, or the pooled line with its own 95% interval and carets.
+ * The y range does not move. On screen the legend keeps the entry, greyed, so a
+ * click brings it back; an export leaves it out and counts the legend rows
+ * without it (`legendShown`). With nothing switched off nothing changes.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, formatPercent } from '../scale.js';
@@ -57,7 +68,7 @@ import { layerGroupSeries, localBadge, stripReserve, STRIP_ID, SPOT_ID } from '.
 import { withHighlight, groupOfLayer, groupLabel, intText, percentText } from '../layer_groups.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries,
-  clampInterval, showerColour, withColour, legibleOpacity, chartLegend, EDGE_DASH,
+  clampInterval, showerColour, withColour, legibleOpacity, chartLegend, EDGE_DASH, hiddenEntries, legendShown,
 } from './chart_panel.js';
 
 /** Legend text of each mark: short, the full name lives in the tooltip and drawer. */
@@ -209,10 +220,14 @@ export function profileOption(payload, opts = {}, metrics = {}) {
   const unit = ax.value_unit ?? '% per cm';
   const series = [];
   const legend = [];
+  // The entries left out with every mark of theirs (see the header): switched off, or left out of an export.
+  const hidden = hiddenEntries();
+  const off = (name) => Boolean(hidden?.has(name));
 
   /* ---- SD band: uncapped, clipped at the axis, a caret where cut -------- */
   const band = ax.band && marks.band?.drawn ? ax.band : null;
-  if (band) {
+  if (band && off(SHORT.band)) legend.push(SHORT.band);
+  else if (band) {
     const lo = band.lo.map((v) => (Number.isFinite(v) ? Math.max(yLo, Math.min(v, yHi)) : null));
     const hi = band.hi.map((v) => (Number.isFinite(v) ? Math.max(yLo, Math.min(v, yHi)) : null));
     const both = lo.map((v, i) => (Number.isFinite(v) && Number.isFinite(hi[i]) ? v : null));
@@ -250,7 +265,8 @@ export function profileOption(payload, opts = {}, metrics = {}) {
 
   /* ---- the 95% Student-t envelope: capped, at the bin centres ----------- */
   const envelope = ax.envelope && marks.envelope?.drawn ? ax.envelope : null;
-  if (envelope) {
+  if (envelope && off(SHORT.envelope)) legend.push(SHORT.envelope);
+  else if (envelope) {
     const label = marks.envelope.label;
     const clusterText = envelope.cluster === 'event' ? 'events as clusters' : 'each shower its own unit';
     const tip = (i) => {
@@ -283,7 +299,7 @@ export function profileOption(payload, opts = {}, metrics = {}) {
   const meanTip = `${escapeHtml(marks.mean?.label ?? SHORT.mean)}<br/>${mutedLine(marks.mean?.meaning ?? '')}`
     + (ensembleLabel(payload) ? `<br/><i>${escapeHtml(ensembleLabel(payload))}</i>` : '');
   if (marks.mean?.drawn !== false) {
-    for (const [first, last] of finiteRuns(ax.mean)) {
+    for (const [first, last] of off(SHORT.mean) ? [] : finiteRuns(ax.mean)) {
       series.push(withColour(customPolyline({
         name: SHORT.mean, points: stepPoints(edges, ax.mean, first, last),
         color: colour, width: 2 * THEME.lineAxis, z: 6, tooltip: meanTip,
@@ -294,7 +310,8 @@ export function profileOption(payload, opts = {}, metrics = {}) {
 
   /* ---- the pooled ratio of sums, dashed, with its own capped interval ---- */
   const pooled = marks.pooled?.drawn ? ax.pooled : null;
-  if (pooled) {
+  if (pooled && off(SHORT.pooled)) legend.push(SHORT.pooled);
+  else if (pooled) {
     const pooledTip = `${escapeHtml(marks.pooled.label)}<br/>${mutedLine(marks.pooled.meaning ?? '')}`;
     for (const [first, last] of finiteRuns(pooled.value)) {
       series.push(withColour(customPolyline({
@@ -362,7 +379,8 @@ export function profileOption(payload, opts = {}, metrics = {}) {
   /* ---- axes, legend, the low-N label -------------------------------------- */
   const wraps = THEME.legendWrap;
   const plotWidthPx = Math.max(80, width - pad.left - pad.right);
-  const rows = wraps ? Math.max(1, legendRows(legend, plotWidthPx, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1;
+  // An export counts the rows of the entries it keeps (`legendShown`; the same array on screen).
+  const rows = wraps ? Math.max(1, legendRows(legendShown(legend), plotWidthPx, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1;
   // The channels' strip (or the w badge) takes a band of its own between the
   // legend and the plot, so it never covers a mark.
   const top = pad.top + rows * 1.6 * THEME.fontLabel + stripReserve(groups);

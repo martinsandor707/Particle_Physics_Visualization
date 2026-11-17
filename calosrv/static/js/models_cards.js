@@ -62,7 +62,11 @@ import { SECTION, notesText, warningsNotShown, withHiddenLegend } from './panel_
 import { describeError } from './page_common.js';
 import { viewFrame, effectiveSpecies } from './capabilities.js';
 import { MODELS_LABELS, featureChoices } from './labels.js';
-import { RESOLUTION_REFERENCES, REFERENCE_UNITS, referenceEquation } from './catalog/resolution_refs.js';
+import {
+  RESOLUTION_REFERENCES, REFERENCE_UNITS, referenceEquation, referenceOf, literatureLegendName,
+} from './catalog/resolution_refs.js';
+import { legendOffNames } from './panels/chart_panel.js';
+import { depositShown, depositForced, eMaxRange, eMaxOf, isDepositWarning, isDepositSeries } from './res_axis.js';
 
 /** Where each panel class lives; fetched on first use. Literal specifiers, so the server stamps them. */
 const PANEL_MODULES = {
@@ -125,7 +129,7 @@ export const MODELS_CARDS = Object.freeze([
     group: 'pred', notes: ['models', 'residualNotes'], exportable: true,
   },
   {
-    id: 'res-scaling', section: 'resolution', title: 'Median Relative Error vs. 1/√E', panel: 'ResolutionScalingPanel',
+    id: 'res-scaling', section: 'resolution', title: 'Median Relative Error vs. E', panel: 'ResolutionScalingPanel',
     group: 'res-scaling', notes: ['models', 'resolutionScalingNotes'], exportable: true, wide: true,
   },
   {
@@ -244,17 +248,26 @@ const XGB_VIEWS = { 'xgb-cv': 'cv', 'xgb-binary': 'binary', 'xgb-surrogate': 'su
 
 /* The cards' own controls that no link carries, like the Physics page's: the
  * E2 statistic, the showers each network card draws (two-shower data reports
- * A and B separately, each with its own N), the resolution card's windows, the
+ * A and B separately, each with its own N), the resolution card's view,
+ * estimator, deposit toggle, E max, literature curves and windows, the
  * feature table's statistic, the correlation card's class and the histogram's
- * feature axis. */
+ * feature axis. The resolution card opens on the focused comparison (Martin's
+ * decisions of 2026-11-17): the E view, the median relative error, the
+ * calibrated deposit hidden, both showers, and E max at the slider's lower
+ * end, the data's top window edge. */
 export const DEFAULT_CONTROLS = Object.freeze({
   perfStat: 'rmse',
   perfShower: 'both',
   predShower: 'both',
   resShower: 'both',
-  resView: 'linear',
+  // The resolution card's view: 'linear' (1/√E) | 'energy' (E in GeV + ratio), the E view by default (2026-11-17).
+  resView: 'energy',
   // The resolution card's estimator, its own response: 'median' | 'robust' | 'sample' (Martin, 2026-11-12).
   resEstimator: 'median',
+  // The calibrated deposit: 'on' | 'off', hidden by default on both views (Martin, 2026-11-17). Repaints only.
+  resDeposit: 'off',
+  // The E view's axis end in GeV; null is the slider's lower end, the data's top window edge (Martin, 2026-11-17).
+  resEMax: null,
   // The literature curves drawn, both by default: '' | 'pi' | 'e' | 'pi,e' (the catalogue's order).
   resLiterature: 'pi,e',
   resWindows: 'anchors',
@@ -375,7 +388,9 @@ const SCALE_CHOICES = [
  * own (`DEFAULT_CONTROLS`). `request: true` changes the card's request (a
  * reload); otherwise the control repaints the payload in hand. `write`
  * overrides the patch a choice makes; `choiceDisabled` gives the reason one
- * choice is off. Each function takes `{plan, view, controls, payload}`. */
+ * choice is off. A `range` control is a slider over `range(ctx)` (`{min, max,
+ * step}`, null to hide it), its value a number. Each function takes `{plan,
+ * view, controls, payload}`. */
 const TASK_CONTROL = {
   name: 'perfTask', kind: 'seg', attr: 'modelsTask', label: 'Task', request: true,
   // An aggregate's XGBoost regressor predicts momentum, and its button says so.
@@ -533,6 +548,40 @@ const RES_LITERATURE_CONTROL = {
   visible: ({ controls }) => controls?.resView === 'energy',
 };
 
+/* The resolution card's calibrated deposit, one toggle, off by default on both
+ * views (Martin's decisions of 2026-11-17): hidden, its windows, curve and
+ * fit-table rows leave the card and the error-scale range follows the model
+ * series alone (the server's `y_model`). A response whose only series is the
+ * deposit draws it whatever the toggle says, and the button is shut with its
+ * reason (res_axis.js `depositForced`). Render-only, never in a link. */
+const RES_DEPOSIT_CONTROL = {
+  name: 'resDeposit', kind: 'toggles', attr: 'resDeposit', label: 'Benchmark',
+  choices: () => MODELS_LABELS.res_deposit,
+  // Before the card's first response the button reads the toggle alone: with no payload there is no "only
+  // series" to force it on, and the default (hidden) must not read as pressed.
+  pressed: ({ payload, controls }) => (payload
+    ? depositShown(payload, controls?.resDeposit === 'on') : controls?.resDeposit === 'on'),
+  toggle: ({ controls }) => (controls?.resDeposit === 'on' ? 'off' : 'on'),
+  choiceDisabled: ({ payload }) => (depositForced(payload) ? MODELS_LABELS.res_deposit_forced : null),
+};
+
+/* The E view's axis end, a slider (Martin's decisions of 2026-11-17): from the
+ * data's top window edge, so every window stays on the axis, to the server's
+ * axis end, in 5 GeV steps (res_axis.js `eMaxRange`). It opens on its lower
+ * end (`resEMax` null) and is hidden on the 1/√E view, whose right border
+ * stays the origin. Render-only: the card repaints, no fit is refitted, and
+ * the value is never in a link. */
+const RES_EMAX_CONTROL = {
+  name: 'resEMax', kind: 'range', attr: 'resEmax', label: MODELS_LABELS.res_emax.label,
+  title: MODELS_LABELS.res_emax.title,
+  fixedTitle: MODELS_LABELS.res_emax_fixed,
+  ariaLabel: MODELS_LABELS.res_emax.aria,
+  unit: 'GeV',
+  range: (ctx) => eMaxRange(ctx.payload),
+  get: (ctx) => eMaxOf(ctx.payload, ctx.controls.resEMax),
+  visible: ({ controls }) => controls?.resView === 'energy',
+};
+
 /* The resolution card's estimator of each window (Martin's decisions of
  * 2026-11-12): the Model Error card's median relative error (the default), a
  * robust σ/E from the IQR, or today's sample σ/μ. Each is its own response
@@ -586,7 +635,8 @@ const CARD_CONTROLS = {
   'perf-bins': [TASK_CONTROL, STAT_CONTROL, showerControl('perfShower')],
   'pred-truth': [TASK_CONTROL, PRED_LABEL_CONTROL, showerControl('predShower')],
   'pred-residuals': [showerControl('resShower')],
-  'res-scaling': [RES_VIEW_CONTROL, RES_ESTIMATOR_CONTROL, RES_WINDOWS_CONTROL, showerControl('resScalingShower'), RES_LITERATURE_CONTROL],
+  'res-scaling': [RES_VIEW_CONTROL, RES_ESTIMATOR_CONTROL, RES_WINDOWS_CONTROL, showerControl('resScalingShower'),
+    RES_DEPOSIT_CONTROL, RES_LITERATURE_CONTROL, RES_EMAX_CONTROL],
   'xgb-cv': [XGB_TASK_CONTROL],
   'xgb-surrogate': [XGB_TASK_CONTROL, TREE_LABEL_CONTROL],
   'xgb-importance': [XGB_TASK_CONTROL],
@@ -743,6 +793,10 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
     opts.literature = literatureKeys(c.resLiterature);
     opts.windows = c.resWindows;
     opts.shower = two ? c.resScalingShower : 'both';
+    // The deposit toggle (the panel draws the deposit anyway where it is the only series) and the E view's
+    // axis end (null: the slider's lower end), Martin's decisions of 2026-11-17.
+    opts.deposit = c.resDeposit === 'on';
+    opts.eMax = c.resEMax;
   } else if (spec.section === 'features') {
     opts.classes = v.fclass;
     opts.frame = featureFrame(plan, v).frame;
@@ -757,8 +811,14 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
   return opts;
 }
 
-/** What an exported figure is named by: its response's meta and frame, and the resolution card's estimator and view. */
-export function exportMeta(payload, opts = null) {
+/**
+ * What an exported figure is named by: its response's meta and frame, and the
+ * resolution card's estimator, view, deposit, E max and ratio reference.
+ */
+export function exportMeta(payload, opts = null, legendOff = [], referenceKey = null) {
+  // The names the legend on show has switched off (chart_panel.js `legendOffNames`): the figure leaves them out,
+  // so its name does not say they are drawn (review R2-5).
+  const off = new Set((legendOff ?? []).map(String));
   const meta = { ...(payload?.meta ?? {}) };
   const coord = meta.coord_system ?? payload?.coord_system;
   if (coord) meta.coord_system = coord;
@@ -768,14 +828,32 @@ export function exportMeta(payload, opts = null) {
   const resolution = opts?.card === 'res-scaling' || (RES_ESTIMATORS.includes(served) && Array.isArray(payload?.estimator?.choices));
   if (resolution && RES_ESTIMATORS.includes(served)) meta.estimator = served;
   else if (resolution && RES_ESTIMATORS.includes(opts?.estimator)) meta.estimator = opts.estimator;
+  // Whether the figure draws the calibrated deposit (export/filename.js `deposit-off` when it does not).
+  if (opts?.card === 'res-scaling') {
+    // Hidden by the toggle, or every deposit entry on show switched off on the legend: the figure draws no deposit.
+    const nShowers = new Set((payload?.series ?? []).map((s) => s.shower).filter(Boolean)).size;
+    const onShow = (payload?.series ?? []).filter((s) => isDepositSeries(s)
+      && (!opts?.shower || opts.shower === 'both' || nShowers < 2 || s.shower === opts.shower));
+    const legendHides = onShow.length > 0 && onShow.every((s) => off.has(String(s.label)));
+    meta.deposit = depositShown(payload, opts?.deposit) && !legendHides;
+  }
   // The resolution card's E view is another figure of the same response, so its file names the
-  // view and what its ratio divides by (export/filename.js).
+  // view, its axis end and what its ratio divides by (export/filename.js).
   if (opts?.view === 'energy') {
     meta.view = 'energy';
+    if (opts.eMax !== undefined) meta.eMax = eMaxOf(payload, opts.eMax);
     // The curves drawn name the figure: the deposit fit is the ratio's reference with none, the curve with one;
-    // with both, the reference follows from the windows and is named on the ratio axis.
+    // with both, the reference follows from the windows and is named on the ratio axis. With no curve and the
+    // deposit hidden there is nothing to divide by, and the ratio panel draws no mark.
     const drawn = Array.isArray(opts.literature) ? opts.literature : [];
-    if (drawn.length > 1) meta.literature = drawn;
+    // With both on, the name lists the curves the figure draws: a curve switched off on the legend is not one.
+    const kept = drawn.filter((key) => { const e = referenceOf(key); return !e || !off.has(literatureLegendName(e)); });
+    if (drawn.length > 1) {
+      if (kept.length) meta.literature = kept;
+      // A curve left out by the legend may still be what the ratio divides by: the name says so (review R3-10).
+      if (kept.length < drawn.length && typeof referenceKey === 'string' && referenceKey) meta.reference = referenceKey;
+    }
+    else if (!drawn.length && !depositShown(payload, opts.deposit)) meta.reference = 'none';
     else meta.reference = drawn[0] ?? 'deposit';
   }
   return meta;
@@ -948,8 +1026,12 @@ export class ModelsSection {
     return record;
   }
 
-  /** One toolbar control: a segmented group of buttons (one pressed, or any number for `toggles`), or a select. */
+  /**
+   * One toolbar control: a segmented group of buttons (one pressed, or any
+   * number for `toggles`), a select, or a labelled slider (`range`).
+   */
   buildControl(id, control) {
+    if (control.kind === 'range') return this.buildRange(id, control);
     if (control.kind === 'select') {
       const select = document.createElement('select');
       select.className = 'mini-select';
@@ -980,6 +1062,86 @@ export class ModelsSection {
     return { element: group, buttons, control };
   }
 
+  /**
+   * A `range` control: `<label class="mini-range" data-<attr>="<card id>">`
+   * holding its name, the slider and its value as text. Hidden until
+   * `syncControls` has a range from the card's payload. While it is dragged,
+   * `input` sets the control at most once per animation frame (each set
+   * repaints the card); `change`, at the release or a key, sets it at once.
+   * The value stored is a number.
+   */
+  buildRange(id, control) {
+    const label = document.createElement('label');
+    label.className = 'mini-range';
+    label.dataset[control.attr] = id;
+    if (control.title) label.title = control.title;
+    label.hidden = true;
+    const name = document.createElement('span');
+    name.className = 'mini-range-name';
+    name.textContent = control.label;
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.className = 'mini-range-input';
+    input.setAttribute('aria-label', control.ariaLabel ?? control.label);
+    const output = document.createElement('output');
+    output.className = 'mini-range-value';
+    label.append(name, input, output);
+
+    // `pending` is the value of the last input event, committed at its frame: a response that lands in between
+    // re-syncs the controls, and must neither move the thumb back nor have its value committed (review R3-2).
+    const built = { element: label, input, output, control, frame: null, pending: null };
+    const commit = (raw = input.value) => {
+      const value = Number(raw);
+      if (Number.isFinite(value)) this.setControl(control, value);
+    };
+    const raf = typeof globalThis.requestAnimationFrame === 'function' ? globalThis.requestAnimationFrame : null;
+    const cancel = typeof globalThis.cancelAnimationFrame === 'function' ? globalThis.cancelAnimationFrame : null;
+    input.addEventListener('input', () => {
+      if (!raf) {
+        commit();
+        return;
+      }
+      built.pending = input.value;
+      if (built.frame !== null) return;
+      built.frame = raf(() => {
+        built.frame = null;
+        const value = built.pending;
+        built.pending = null;
+        commit(value);
+      });
+    });
+    input.addEventListener('change', () => {
+      if (built.frame !== null) {
+        cancel?.(built.frame);
+        built.frame = null;
+      }
+      built.pending = null;
+      commit();
+    });
+    return built;
+  }
+
+  /** Reflect a `range` control: its bounds, value and text from the card's payload, or hidden without them. */
+  syncRange(built, ctx, value, shut) {
+    const { control, element, input, output } = built;
+    const range = ctx.payload ? control.range(ctx) : null;
+    element.hidden = shut || !range || (control.visible ? !control.visible(ctx) : false);
+    if (!range) return;
+    const unit = control.unit ? ` ${control.unit}` : '';
+    // While a dragged value waits for its frame, the thumb and the text stay with the reader (review R3-2).
+    const dragging = built.frame !== null && built.pending !== null;
+    const shown = dragging ? Number(built.pending) : (Number.isFinite(value) ? value : range.min);
+    input.min = String(range.min);
+    input.max = String(range.max);
+    input.step = String(range.step);
+    if (!dragging) input.value = String(shown);
+    const text = `${shown}${unit}`;
+    if (output.textContent !== text) output.textContent = text;
+    const fixed = range.min === range.max;
+    input.disabled = fixed;
+    element.title = fixed ? (control.fixedTitle ?? control.title ?? '') : (control.title ?? '');
+  }
+
   /** What the control functions read, for one card's payload. */
   ctx(record) {
     return {
@@ -997,6 +1159,10 @@ export class ModelsSection {
       for (const built of Object.values(record.controls)) {
         const { control, element } = built;
         const value = controlValue(control, ctx);
+        if (control.kind === 'range') {
+          this.syncRange(built, ctx, value, Boolean(record.disabled));
+          continue;
+        }
         // A shut card has nothing to steer: its controls go with its picture.
         element.hidden = Boolean(record.disabled) || (control.visible ? !control.visible(ctx) : false);
         if (built.select) {
@@ -1121,7 +1287,8 @@ export class ModelsSection {
    */
   setControl(control, value) {
     const ctx = this.ctx(null);
-    if (controlValue(control, ctx) === value) return;
+    // A slider's value in force reads the card's payload; the number it stores is what a repeat would set again.
+    if (control.kind === 'range' ? this.controls[control.name] === value : controlValue(control, ctx) === value) return;
     // A toggle's value is a set, not a choice: its shut buttons cannot be clicked.
     if (control.kind !== 'toggles' && control.choiceDisabled && control.choiceDisabled(ctx, value)) return;
     if (control.write || control.stateKey) {
@@ -1191,8 +1358,9 @@ export class ModelsSection {
       record.panelPromise = (async () => {
         const Class = await loadPanelClass(record.spec.panel, this.panelClasses, this.panelModules);
         const panel = new Class(record.plot, { card: record.spec.id });
-        // A legend click redraws nothing of the page, but the drawer names
-        // what the legend hides (`notes`): the page rebuilds it.
+        // A legend click repaints its own chart alone (chart_panel.js
+        // `repaintForLegend`), and the drawer names what the legend hides
+        // (`notes`): the page rebuilds it.
         panel.onLegendChange = () => {
           if (record.payload) this.onRendered(record.spec.id, record.payload);
         };
@@ -1459,7 +1627,10 @@ export class ModelsSection {
     if (!record) return undefined;
     if (!record.spec.exportable || record.element.hidden || record.disabled || record.notice) return null;
     if (!record.panel || !record.payload) return null;
-    return { panel: record.panel, meta: exportMeta(record.payload, record.opts) };
+    return {
+      panel: record.panel,
+      meta: exportMeta(record.payload, record.opts, legendOffNames(record.panel), record.panel?.ratioReferenceKey?.() ?? null),
+    };
   }
 
   /**
@@ -1476,7 +1647,10 @@ export class ModelsSection {
       if (record.element.hidden || !record.payload) continue;
       if (typeof include === 'function' && !include(record.spec.id)) continue;
       const said = notesText(this.notes(record.spec.id));
-      out.push(...warningsNotShown(record.payload.meta?.warnings ?? [], said));
+      // The resolution card's warnings on its hidden deposit leave with it, here as in its drawer (review R1-5).
+      const hiddenDeposit = record.spec.id === 'res-scaling' && !depositShown(record.payload, record.opts?.deposit);
+      const warnings = (record.payload.meta?.warnings ?? []).filter((w) => !(hiddenDeposit && isDepositWarning(w)));
+      out.push(...warningsNotShown(warnings, said));
     }
     return out;
   }

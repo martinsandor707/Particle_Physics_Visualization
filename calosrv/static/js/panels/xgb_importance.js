@@ -56,7 +56,7 @@ import { customWhiskers } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs,
+  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs, hiddenEntries, legendAlias,
 } from './chart_panel.js';
 
 /** Most feature rows the card draws. */
@@ -174,7 +174,11 @@ export function importanceLegendNames(model, width = Infinity) {
 /** The envelope's legend name at `width`: the full label where it fits a legend row, else the generic one. */
 export function envelopeLegend(model, width = Infinity) {
   const short = model.interval?.method === 'corrected_resampled_t' ? ['Fold mean · 95% NB-corrected t CI'] : [];
-  return fitName([model.envelope, ...short, 'Fold mean · 95% interval of the mean'], width - 2 * axisPadding().right - 26);
+  const candidates = [model.envelope, ...short, 'Fold mean · 95% interval of the mean'];
+  const name = fitName(candidates, width - 2 * axisPadding().right - 26);
+  // Switched off on the screen's legend under another of its names, it is left out of an export under this one.
+  legendAlias(candidates, name);
+  return name;
 }
 
 /** The grid at `width` × `height`; `height` null sizes the rows for print. */
@@ -219,6 +223,9 @@ export function xgbImportanceOption(payload, opts = {}, metrics = {}) {
   const xMax = Math.min(100, niceCeil(Math.max(...values, 0.01) * 100, FINE_STEPS));
   const ink = THEME.text;
   const series = [];
+  // Every mark of an entry switched off on the legend is left out, on screen and in an export (chart_panel.js
+  // `hiddenEntries`).
+  const hidden = hiddenEntries();
 
   series.push({
     type: 'custom',
@@ -354,7 +361,8 @@ export function xgbImportanceOption(payload, opts = {}, metrics = {}) {
       splitLine: { show: false },
     },
     graphic,
-    series,
+    // The row hover targets belong to no entry and stay; bars, dots and fold means go with their entry.
+    series: hidden ? series.filter((s) => !hidden.has(s.name)) : series,
   };
 }
 

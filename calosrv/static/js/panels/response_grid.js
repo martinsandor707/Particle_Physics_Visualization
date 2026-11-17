@@ -57,6 +57,19 @@
  *
  * Shower identity is colour (A pink, B blue; one shower takes the accent) and
  * a network's prediction is dashed, its truth or deposit solid.
+ *
+ * ## A switched-off entry leaves with every mark of it
+ *
+ * On screen after a legend click, as in an export (chart_panel.js
+ * `hiddenEntries`, set by a paint's `screenBuild` and by export/figure.js), a
+ * series key whose legend entry is off is drawn nowhere: no histogram, curve
+ * or "fit (clipped)" caret, no band row (its events, SD band, mean with its
+ * interval, summary and events-beyond carets), and a sub-plot's reserved band
+ * or a shower's momentum rule drawn only for it goes with it, and a bin's
+ * readout names the series still drawn. Each sub-plot keeps its density range.
+ * On screen the legend keeps the entry, greyed, so a click brings it back; an
+ * export leaves it out and counts the legend rows without it (`legendShown`).
+ * With nothing switched off nothing changes.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, formatPercent } from '../scale.js';
@@ -66,7 +79,7 @@ import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, mutedLine, escapeHtml, caretSeries, clampInterval,
   showerColour, niceCeil, coarseInterval, FINE_STEPS, legibleOpacity, sigmaText, referenceRule, dispersionBar,
-  chartLegend,
+  chartLegend, hiddenEntries, legendShown,
 } from './chart_panel.js';
 import { curveAreaLine } from './distribution.js';
 
@@ -176,8 +189,10 @@ export function responseGridLayout(n, width, height = null, { legend = [] } = {}
   const outerLeft = 2.2 * THEME.fontName;
   const outerRight = 0.8 * THEME.fontLabel;
   const avail = Math.max(60, width - outerLeft - outerRight);
-  const legendPx = legend.length
-    ? (THEME.legendWrap ? Math.max(1, legendRows(legend, avail, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1)
+  // An export counts the rows of the entries it keeps (`legendShown`; the same array on screen).
+  const kept = legendShown(legend);
+  const legendPx = kept.length
+    ? (THEME.legendWrap ? Math.max(1, legendRows(kept, avail, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1)
       * 1.6 * THEME.fontLabel
     : 0;
   const top = pad.top + legendPx;
@@ -436,6 +451,8 @@ export function responseGridOption(payload, opts = {}, metrics = {}) {
   const graphic = [];
   // Whether any sub-plot draws a density: the shared axis name is only given then.
   let anyDensity = false;
+  // The series keys left out with every mark of theirs (see the header): switched off, or left out of an export.
+  const hidden = hiddenEntries();
 
   slices.forEach(({ slice, axis }, k) => {
     const cell = layout.cells[k];
@@ -481,13 +498,15 @@ export function responseGridOption(payload, opts = {}, metrics = {}) {
       });
     }
 
+    // The series drawn: those whose entry is on (the scale above keeps them all).
+    const drawn = hidden ? entries.filter((e) => !hidden.has(e.label)) : entries;
     const cellSeries = [];
-    addDensityMarks(cellSeries, payload, entries, { slice, lo, hi, scale, nShowers });
-    const bandTop = addBandMarks(cellSeries, payload, entries, { slice, axis, lo, hi, nShowers, plotH: cell.height, plotW: cell.width });
-    addMomentumRules(cellSeries, payload, entries, { slice, axis, lo, hi, nShowers, yMax: scale.yMax, liftPx: bandTop });
+    addDensityMarks(cellSeries, payload, drawn, { slice, lo, hi, scale, nShowers });
+    const bandTop = addBandMarks(cellSeries, payload, drawn, { slice, axis, lo, hi, nShowers, plotH: cell.height, plotW: cell.width });
+    addMomentumRules(cellSeries, payload, entries, { slice, axis, lo, hi, nShowers, yMax: scale.yMax, liftPx: bandTop, drawn });
 
     const histEdges = (() => {
-      const h = entries.find((e) => e.draw === 'histogram' && e.histogram);
+      const h = drawn.find((e) => e.draw === 'histogram' && e.histogram);
       return h ? linspace(lo, hi, h.histogram.counts.length + 1) : null;
     })();
     if (histEdges) {
@@ -495,7 +514,7 @@ export function responseGridOption(payload, opts = {}, metrics = {}) {
         name: 'bin readout',
         edges: histEdges,
         position: opts.readoutPosition ?? null,
-        tooltip: (i) => gridReadout(payload, entries, slice, histEdges, i),
+        tooltip: (i) => gridReadout(payload, drawn, slice, histEdges, i),
       }));
     }
     for (const s of cellSeries) series.push(onGrid(s, k));
@@ -804,11 +823,12 @@ function addLowNRow(out, payload, row, { slice, lo, hi }) {
  * Student-t 95% interval a thin envelope; clipped with a caret when it lies
  * beyond the slice's energy axis.
  */
-function addMomentumRules(out, payload, entries, { slice, axis, lo, hi, nShowers, yMax, liftPx }) {
+function addMomentumRules(out, payload, entries, { slice, axis, lo, hi, nShowers, yMax, liftPx, drawn = entries }) {
+  // A shower's rule belongs to its series: when every one of them is left out, it goes too.
   const momenta = ['a', 'b']
     .map((key) => ({ key, marker: axis.momentum?.[key] }))
     .filter(({ key, marker }) => marker && Number.isFinite(marker.mean)
-      && (entries.some((e) => e.shower === key) || !entries.length));
+      && (drawn.some((e) => e.shower === key) || !entries.length));
   for (const { key, marker } of momenta) {
     const colour = showerColour(key, nShowers);
     const showerLabel = nShowers > 1 ? `Shower ${key.toUpperCase()}` : 'Shower';

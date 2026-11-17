@@ -29,7 +29,7 @@ import { printed, printedQualified } from '../catalog/select.js';
 import { tooltipOption } from './tooltip.js';
 import {
   baseOption, wrapTooltip, valueAxis, mutedLine, escapeHtml, emptyChartOption, withColour, wrappedLegend,
-  legendTop, legibleOpacity, tickLabel, fitName,
+  legendTop, legibleOpacity, tickLabel, fitName, hiddenEntries,
 } from './chart_panel.js';
 import {
   AXIS_LABEL_MARGIN, CATALOG_FRAMES, DEFAULT_WIDTH, N_NOT_REPORTED, CatalogChartPanel, buildTable, categoryAxis,
@@ -175,6 +175,10 @@ export function benchDiagnosticsOption(payload, opts = {}, metrics = {}) {
   const graphic = [textGraphic(fitName([`Proton segmentation indecision — ${PROTON_ONLY.toLowerCase()}`, `Proton segmentation — ${PROTON_ONLY.toLowerCase()}`, PROTON_ONLY], width - 1.2 * f),
     0.6 * f, layout.headingY, { colour: THEME.text })];
   const frameLabels = CATALOG_FRAMES.map((fr) => labelOf(payload, 'frame', fr));
+  // The marks of an entry switched off on the legend are left out, on screen and in an export (chart_panel.js
+  // `hiddenEntries`). The dumbbell's bar joins the two ends, so it is drawn only while both are.
+  const hidden = hiddenEntries();
+  const joined = !hidden?.has(TRUTH_NAME);
 
   layout.panels.forEach(({ panel, grid, titleX, titleY, titleW }, index) => {
     grids.push(grid);
@@ -186,7 +190,7 @@ export function benchDiagnosticsOption(payload, opts = {}, metrics = {}) {
       const r = rows[params.dataIndex];
       const colour = hues[r.frame];
       const children = [];
-      if (!hollow && Number.isFinite(r.predicted) && Number.isFinite(r.truth)) {
+      if (!hollow && joined && Number.isFinite(r.predicted) && Number.isFinite(r.truth)) {
         const a = api.coord([r.predicted, r.i]);
         const b = api.coord([r.truth, r.i]);
         children.push({ type: 'line', shape: { x1: a[0], y1: a[1], x2: b[0], y2: b[1] }, style: { stroke: colour, lineWidth: 1.2 * THEME.lineAxis, opacity: legibleOpacity(colour, 1) } });
@@ -226,7 +230,7 @@ export function benchDiagnosticsOption(payload, opts = {}, metrics = {}) {
       xAxis: xAxes,
       yAxis: yAxes,
       graphic,
-      series,
+      series: hidden ? series.filter((s) => !hidden.has(s.name)) : series,
     },
     plotGrid: grids,
   };

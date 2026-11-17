@@ -290,6 +290,21 @@ export const MODELS_LABELS = Object.freeze({
     { value: 'anchors', label: '3 anchors', title: 'Draw and fit the three anchor windows: the lowest from 5 GeV, the highest, and the one nearest their geometric-mean energy; a/√E ⊕ b ⊕ c/E also runs through the lowest fittable window from 1 GeV, the low anchor' },
     { value: 'all', label: 'All windows', title: 'Draw every window; fit a₀/√E through every window from 4 GeV and a/√E ⊕ b ⊕ c/E through every window from 1 GeV, each with N ≥ 20; a window below 1 GeV is a point only' },
   ],
+  // The resolution card's Deposit toggle (Martin's decisions of 2026-11-17): the calibrated
+  // deposit is hidden by default on both views; the toggle draws it, and a response whose
+  // only series it is forces it on.
+  res_deposit: [
+    { value: 'on', label: 'Deposit', title: 'Draw or hide the calibrated deposit c·E_dep, the linear-sum benchmark, on both views: its windows, its fitted curve and its fit-table rows. Hidden, the error-scale range follows the model series alone, and the ratio panel divides by the literature curve on show (with both on, the one the model series\' windows lie farther from), or draws nothing with none on.' },
+  ],
+  res_deposit_forced: 'The calibrated deposit is this response\'s only series, so it is always drawn.',
+  // The E view's axis-end slider (Martin's decisions of 2026-11-17): the axis end runs from
+  // the data's top window edge to the server's end; it repaints without a request.
+  res_emax: {
+    label: 'E max',
+    title: 'The upper end of the E view\'s energy axis, in 5 GeV steps: from the data\'s highest window edge rounded up to 5 GeV, so every window stays on the axis, to the axis end the server sets. Nothing beyond it is drawn on either panel, and no fit is refitted; the card repaints without a request.',
+    aria: 'E max, the upper end of the energy axis in GeV',
+  },
+  res_emax_fixed: 'The data\'s highest window edge is within one 5 GeV step of the axis end, so the slider has nothing to cut.',
   // The resolution card's windows: the three anchors its fits are defined on, or every
   // 1 GeV window from 4 GeV. Both are fitted in one response, so the choice repaints.
   res_windows: [

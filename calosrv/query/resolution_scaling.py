@@ -147,6 +147,14 @@ experiments (2026-11-10), the windows of N ≥ 20 top out at 23–101% from 1 Ge
 and at 20–66% from 2 GeV, so a 1–2 GeV window would spend the axis on itself.
 It is counted in ``n_clipped`` when it leaves the top.
 
+**The model series' own range** (``axis.y_model``, ``axis.energy.y_model``;
+Martin's decision, 2026-11-17). The card hides the calibrated deposit by
+default, and its range then follows the series on show. Each view therefore
+also carries the same range taken over the model series alone (every series
+whose source is not the detector), by the same rule, with the model series'
+keys and one fixed sentence saying what set it; ``null`` where the response has
+no model series. The full ranges are unchanged.
+
 **The windows alone set either view's σ/E range** (``linear_y_axis``,
 ``energy_y_axis``; Martin's decision, 2026-11-11). A fit summarises its
 windows; it is not more evidence (CLAUDE.md §2, display ranges follow robust
@@ -1584,6 +1592,11 @@ class ResolutionScaling:
         # Both views' ranges follow the windows alone (the module docstring).
         self.y = linear_y_axis(self.series)
         self.energy_y = energy_y_axis(self.series)
+        # The same two ranges over the model series alone, for the card with the deposit hidden
+        # (Martin's decision, 2026-11-17): null where there is no model series.
+        self.model_series = [s for s in self.series if s.source != SOURCE_DETECTOR]
+        self.y_model = linear_y_axis(self.model_series) if self.model_series else None
+        self.energy_y_model = energy_y_axis(self.model_series) if self.model_series else None
 
     # ------------------------------------------------------------- notes --
 
@@ -1866,8 +1879,52 @@ class ResolutionScaling:
                     "rule": "E = 1/x², an exact relabelling of the bottom axis; no data are "
                             "plotted against it."},
             "y": {**self.y, "unit": UNIT, "name": AXIS_NAMES[self.estimator]},
+            "y_model": self._model_axis(self.y_model, self._linear_model_note()),
             "energy": self._energy_axis(),
         }
+
+    def _model_axis(self, y: dict[str, Any] | None, note: str | None) -> dict[str, Any] | None:
+        """A view's range over the model series alone, with their keys and its sentence; null without one."""
+        if y is None:
+            return None
+        return {**y, "unit": UNIT, "name": AXIS_NAMES[self.estimator],
+                "series": [s.key for s in self.model_series], "note": typographic(note)}
+
+    def _linear_model_note(self) -> str | None:
+        """What set the 1/√E view's model-series range, in the brief's fixed words (§4)."""
+        y = self.y_model
+        if y is None:
+            return None
+        fit_n = ESTIMATOR_GATES[self.estimator]["fit_n"]
+        if not y["provisional"]:
+            return (f"With the calibrated deposit hidden, the y range follows the model series' "
+                    f"windows with N ≥ {fit_n} (whiskers included) alone, from zero.")
+        on_axis = [w for s in self.model_series for w in s.windows if not w.off_axis]
+        cause, _ = self._provisional_cause(on_axis, E_MIN_GEV)
+        follows = ("so it follows the model series' markers" if linear_extents(self.model_series)
+                   else self._empty_default(y))
+        return f"With the calibrated deposit hidden, the y range is provisional: {cause}, {follows}."
+
+    def _energy_model_note(self) -> str | None:
+        """What set the E view's model-series range, in the brief's fixed words (§4)."""
+        y = self.energy_y_model
+        if y is None:
+            return None
+        fit_n = ESTIMATOR_GATES[self.estimator]["fit_n"]
+        floor = f"{E_VIEW_Y_MIN_GEV:g} GeV"
+        if not y["provisional"]:
+            return (f"With the calibrated deposit hidden, the E view's y range follows the model "
+                    f"series' windows alone, from zero: those with N ≥ {fit_n} from {floor}, "
+                    f"whiskers included; a window below {floor} never sets it.")
+        from_floor = [w for s in self.model_series for w in s.windows
+                      if w.p_lo >= E_VIEW_Y_MIN_GEV]
+        cause, _ = self._provisional_cause(from_floor, E_VIEW_Y_MIN_GEV)
+        marked = any(w.r is not None and w.n >= REPORT_MIN_N
+                     for s in self.model_series for w in s.windows)
+        follows = (f"so it follows the model series' markers, those below {floor} included"
+                   if marked else self._empty_default(y))
+        return (f"With the calibrated deposit hidden, the E view's y range is provisional: "
+                f"{cause}, {follows}.")
 
     def _energy_axis(self) -> dict[str, Any]:
         """The E view's axes: E in GeV from zero, its own value range, and the sentences that say why."""
@@ -1910,6 +1967,7 @@ class ResolutionScaling:
             "x": {"min": 0.0, "max": float(x_max), "interval": E_VIEW_INTERVAL_GEV,
                   "unit": "GeV", "name": "Energy E [GeV]"},
             "y": {**y, "unit": UNIT, "name": AXIS_NAMES[self.estimator]},
+            "y_model": self._model_axis(self.energy_y_model, self._energy_model_note()),
             "curve_min_gev": E_MIN_GEV,
             "noise_min_gev": NOISE_MIN_GEV,
             "y_min_gev": E_VIEW_Y_MIN_GEV,

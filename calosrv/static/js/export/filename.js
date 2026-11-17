@@ -141,13 +141,19 @@ function describeSlice(state, extra, display = null, spatial = true, meta = null
     // A profile under the notebook's convention (hits behind the entry plane
     // dropped) is a different figure from the default one.
     if (meta?.notebook === true) tokens.push('notebook');
-    // The resolution card's E view (sigma/E against E with a ratio panel), and what its ratio divides by:
-    // ratio-deposit with no literature curve, ratio-<curve> with one, lit-pi-e with both.
+    // The resolution card's E view (sigma/E against E with a ratio panel), where its energy axis ends and what
+    // its ratio divides by: emax-<n> from the card's E max slider (res-emax, Martin's decision of 2026-11-17),
+    // then ratio-deposit with no literature curve, ratio-<curve> with one, ratio-none with neither the deposit nor
+    // a curve on, lit-pi-e with both.
     if (meta?.view === 'energy') {
       tokens.push('energy');
+      if (Number.isFinite(meta.eMax)) tokens.push(`emax-${Math.round(meta.eMax)}`);
       if (typeof meta.reference === 'string') tokens.push(`ratio-${meta.reference}`);
       if (Array.isArray(meta.literature) && meta.literature.length) tokens.push(`lit-${meta.literature.join('-')}`);
     }
+    // The resolution card's Deposit toggle, in both views: a figure without the calibrated deposit is another
+    // figure of the same selection.
+    if (meta?.deposit === false) tokens.push('deposit-off');
     // The resolution card's estimator, in both views: est-median, est-robust or est-sample (Martin, 2026-11-12).
     // A median relative error and a σ/E of one selection are different figures.
     if (typeof meta?.estimator === 'string' && meta.estimator) tokens.push(`est-${meta.estimator}`);

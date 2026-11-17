@@ -46,8 +46,9 @@ DEPTH_MM = (N_LAYERS - 1) * Z_PITCH_MM  # 1209.5 mm
 BIN_XY_MM = 50.5
 
 #: Half-width of the transverse window, in bins. 16 * 50.5 = 808 mm, which is
-#: the ``graphs.png`` window to within a bin. Measured: 99.3% of hits fall
-#: inside +/-800 mm of the shower-local origin.
+#: the window of the reference figure ``graphs.png`` to within a bin (the image
+#: left the tree on 2026-11-17; it is in the history at 5265c7c). Measured:
+#: 99.3% of hits fall inside +/-800 mm of the shower-local origin.
 N_XY_HALF = 16
 N_XY = 2 * N_XY_HALF  # 32 bins per transverse axis
 XY_EXTENT_MM = N_XY_HALF * BIN_XY_MM  # 808.0 mm

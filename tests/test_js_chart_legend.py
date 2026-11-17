@@ -33,17 +33,27 @@ Pinned here:
   ``legendHiddenLine`` says so, and panel_notes.js ``withHiddenLegend`` puts the
   line first in Marks and legend (making the section, before Reading the
   density axis, where a drawer has none), with no hazard;
-* the export (``export/figure.js``): the print option carries the memory; a
-  legend that hides an entry greys it in the lightest tint of the print muted
-  ink that clears 4.5:1 on white (#6f7681), where ECharts would have drawn it
-  in the print border, the near-black #111827, darker than the entries on show;
-  a panel without a memory, or with one that hides nothing, keeps the legend's
-  own inks; the screen theme is back after;
+* the export (``export/figure.js``; Martin's decision of 2026-11-17, replacing
+  the greyed entry of 2026-11-11): what the legend on show switches off, the
+  reader's memory or a builder's own default, is left out of the figure with
+  its legend entry: the printed legend lists none of it, marks it false and
+  greys nothing (no inactive ink is laid); a panel without a memory, or with
+  one that hides nothing, exports the legend as built, in its own inks; the
+  export's legend context is cleared and the screen theme is back after;
 * Page 1's energy panel (``panels/energy.js``), on the recorded two-shower
   response: the same listeners, memory, clear and ink through the shared
   helpers, on its two legends (the series and the references) each taking the
   names it lists; across shower A alone (fewer series) and back; its drawer
-  line; its export.
+  line; its export, which lists neither left-out entry, marks both off and
+  greys neither;
+* the export's legend context (res-emax, Martin's decision of 2026-11-17):
+  with none set, ``chartLegend``, ``wrappedLegend`` and ``legendTop`` return
+  what they returned before ``setExportHidden`` was ever called; with one set,
+  a legend lists none of its names (string and {name} entries), marks each it
+  dropped false over the builder's ``selected``, hides itself when nothing is
+  left, and ``legendTop`` counts the kept names' rows only; ``legendShown``
+  returns the same array when nothing is left out; ``legendOffNames`` reads
+  what each legend on show marks off.
 
 Skipped when ``node`` is not on the PATH.
 """
@@ -309,9 +319,11 @@ const exportOf = (p) => {
   const made = charts.slice(n).filter((c) => c.renderer === 'svg');
   const set = made.flatMap((c) => c.calls.filter(([kind]) => kind === 'setOption'));
   return { charts: made.length, selected: set.map(([, option]) => option.legend?.selected ?? null),
+    data: set.map(([, option]) => (option.legend?.data ?? null)?.map((d) => d?.name ?? d) ?? null),
+    show: set.map(([, option]) => option.legend?.show ?? null),
     inks: set.map(([, option]) => [option.legend?.inactiveColor ?? null, option.legend?.inactiveBorderColor ?? null]),
     lines: set.map(([, option]) => option.legend?.lineStyle?.inactiveColor ?? null),
-    screenBack: THEME.medium !== 'print' };
+    screenBack: THEME.medium !== 'print', contextCleared: cp.hiddenEntries() === null };
 };
 out.export = { hidden: exportOf(panel) };
 const plain = {
@@ -329,18 +341,30 @@ const exportWith = (memory) => {
 };
 out.export.nothingHidden = exportWith({});
 out.export.allShown = exportWith({ A: true });
-// The print inks, measured under the print tokens: the grey the export gives a hidden entry, against the ink of
-// the entries on show and the border ECharts would otherwise use.
+// One entry off of two, painted first so the legend on show carries it: the figure keeps the other.
+{
+  const p = new TinyPanel(element);
+  p.render({ n: 1 }, {});
+  p.legendSelected.B = false;
+  p.render({ n: 1 }, {});
+  out.export.oneOff = exportOf(p);
+}
+// A builder's own default off (no memory): the legend on show marks it off, so the figure leaves it out too.
+{
+  class DefaultOff extends cp.ChartPanel {
+    buildOption() {
+      return { option: { ...cp.baseOption(), legend: cp.chartLegend(['A', 'B'], { selected: { B: false } }), series } };
+    }
+  }
+  const p = new DefaultOff(element);
+  p.render({ n: 1 }, {});
+  out.export.builderDefault = exportOf(p);
+}
+// The print border: the legend's own inactiveColor (chartLegend's THEME.border), which the export no longer replaces.
 {
   const { PRINT_TOKENS } = await imp('export/tokens.js');
-  const { contrast } = await imp('palette.js');
-  const saved = { ...THEME };
-  Object.assign(THEME, PRINT_TOKENS);
-  const white = cp.rgbOf(THEME.card);
-  const ink = fig.printInactiveInk();
-  out.printInk = { ink, inkOnCard: contrast(cp.rgbOf(ink), white), mutedOnCard: contrast(cp.rgbOf(THEME.muted), white),
-    border: THEME.border, screenRule: cp.legendInactiveInk() };
-  Object.assign(THEME, saved);
+  out.printBorder = PRINT_TOKENS.border;
+  out.figureExports = Object.keys(fig).sort();
 }
 
 /* ---- Page 1's energy panel: the same memory, events, clear, ink, drawer and export ---- */
@@ -394,7 +418,7 @@ out.export.allShown = exportWith({ A: true });
   const notes = pn.withHiddenLegend(pn.energyNotes({ payload, notices: ep.lastNotices }), ep);
   record.notes = notes.sections.map((s) => [s.heading, s.lines]);
   record.builderNotes = pn.energyNotes({ payload, notices: ep.lastNotices }).sections.map((s) => s.heading);
-  // The export: the figure leaves both out, its legends grey them in the print's ink.
+  // The export: the figure leaves both out with their entries, and greys nothing.
   const n = charts.length;
   fig.exportPanel(ep, { panelId: 'energy', format: 'svg', widthMm: 85, state: null });
   const printed = charts.slice(n).filter((c) => c.renderer === 'svg')
@@ -411,6 +435,97 @@ out.export.allShown = exportWith({ A: true });
   ep.clear();
   record.cleared = { memory: { ...ep.legendSelected }, live: ep.liveLegend, names: cp.legendHiddenNames(ep) };
   out.energy = record;
+}
+
+/* ---- the export's legend context: setExportHidden, legendShown, legendOffNames ---- */
+{
+  // Long names, so a wrapped legend over a narrow plot takes several rows and leaving entries out drops rows.
+  const long = [1, 2, 3, 4, 5, 6].map((i) => `Shower ${i} · Calibrated deposit c·E_dep — linear-sum benchmark`);
+  const entries = ['A', { name: 'B', icon: 'circle' }, 'C'];
+  const extra = { selected: { A: true, B: true, C: false }, left: 5 };
+  const snapshot = () => json({
+    plain: cp.chartLegend(entries), extra: cp.chartLegend(entries, extra), empty: cp.chartLegend([]),
+    wrapped: cp.wrappedLegend(long, { left: 10, right: 10 }),
+    topWrap: cp.legendTop(long, 300, { wrap: true }), topScreen: cp.legendTop(long, 300),
+    topObjects: cp.legendTop(long.map((name) => ({ name })), 300, { wrap: true }), topNone: cp.legendTop([], 300),
+  });
+  const ctx = { neverSet: cp.hiddenEntries(), before: snapshot() };
+  ctx.sameData = cp.chartLegend(entries).data === entries;
+  ctx.shownSame = cp.legendShown(entries) === entries;
+  cp.setExportHidden(null);
+  ctx.afterNull = { hidden: cp.hiddenEntries(), same: snapshot() === ctx.before };
+  cp.setExportHidden([]);
+  ctx.afterEmpty = { hidden: cp.hiddenEntries(), same: snapshot() === ctx.before };
+
+  const hide = ['B', long[1], long[2], long[3], long[4]];
+  cp.setExportHidden(hide);
+  const set = cp.hiddenEntries();
+  const plainOff = cp.chartLegend(entries);
+  const extraOff = cp.chartLegend(entries, extra);
+  const allOff = cp.chartLegend(['B', { name: long[1] }]);
+  const keptOnly = ['A', 'C'];
+  ctx.set = { isSet: set instanceof Set, names: set ? [...set] : null };
+  ctx.plain = { data: plainOff.data, show: plainOff.show, selected: plainOff.selected ?? null,
+    rest: json({ ...plainOff, data: null, selected: null }) === json({ ...cp.chartLegend(['A']), data: null, selected: null }) };
+  ctx.extra = { data: extraOff.data, show: extraOff.show, selected: extraOff.selected, left: extraOff.left };
+  ctx.allOff = { data: allOff.data, show: allOff.show, selected: allOff.selected };
+  ctx.explicitHidden = cp.chartLegend(entries, { show: false }).show;
+  // Nothing of it left out: today's legend, the same data array.
+  ctx.untouched = { same: (() => { const d = keptOnly; const l = cp.chartLegend(d); return l.data === d && !('selected' in l); })(),
+    json: json(cp.chartLegend(keptOnly)) };
+  ctx.shown = {
+    strings: cp.legendShown(['A', 'B', 'C']),
+    objects: cp.legendShown([{ name: 'A' }, { name: 'B', icon: 'line' }]),
+    same: (() => { const a = ['A', { name: 'C' }]; return cp.legendShown(a) === a; })(),
+    notArray: [cp.legendShown(null), cp.legendShown(undefined) ?? 'undefined'],
+  };
+  ctx.top = {
+    kept: cp.legendTop(long, 300, { wrap: true }),
+    objects: cp.legendTop(long.map((name) => ({ name })), 300, { wrap: true }),
+    wrapped: cp.wrappedLegend(long, { left: 10, right: 10 }).data,
+  };
+  ctx.untouchedJson = json(cp.chartLegend(keptOnly));
+  cp.setExportHidden(null);
+  ctx.top.full = cp.legendTop(long, 300, { wrap: true });
+  ctx.top.keptNoContext = cp.legendTop([long[0], long[5]], 300, { wrap: true });
+  ctx.untouchedNoContext = json(cp.chartLegend(keptOnly));
+  ctx.cleared = { hidden: cp.hiddenEntries(), same: snapshot() === ctx.before };
+
+  // legendOffNames on fake panels.
+  ctx.off = {
+    memory: cp.legendOffNames({ liveLegend: { data: ['A', { name: 'B' }, 'C'], selected: { C: false, A: false, Z: false } } }),
+    builderDefault: cp.legendOffNames({ liveLegend: { data: ['A', 'B'], selected: { B: false } } }),
+    showFalse: cp.legendOffNames({ liveLegend: { show: false, data: ['A'], selected: { A: false } } }),
+    dataless: cp.legendOffNames({ liveLegend: { selected: { Q: false, R: true, S: false } } }),
+    array: cp.legendOffNames({ liveLegend: [{ data: ['A', 'B'], selected: { B: false } },
+      { data: ['R', 'B'], selected: { R: false, B: false } }, { data: ['Q'], show: false, selected: { Q: false } }, null] }),
+    none: [cp.legendOffNames(null), cp.legendOffNames({}), cp.legendOffNames({ liveLegend: null }),
+      cp.legendOffNames({ liveLegend: { data: ['A'] } })],
+  };
+  // Clicks with no repaint between (review R2-1, R2-2): a legend click repaints only at the next frame, so what an
+  // export leaves out is read from the reader's memory, not from the legend of the last paint.
+  const handlers = {};
+  const quiet = { on: (type, fn) => { (handlers[type] ??= []).push(fn); }, setOption: () => {} };
+  const p2 = { chart: quiet, legendSelected: {}, liveLegend: { data: ['A', 'B', 'C'], selected: {} }, onLegendChange: null };
+  cp.listenToLegend(p2);
+  const click = (name, selected) => (handlers.legendselectchanged ?? [])
+    .forEach((fn) => fn({ type: 'legendselectchanged', name, selected }));
+  const seq = [];
+  click('A', { A: false, B: true, C: true }); seq.push(cp.legendOffNames(p2));
+  click('B', { A: false, B: false, C: true }); seq.push(cp.legendOffNames(p2));
+  click('A', { A: true, B: false, C: true }); seq.push(cp.legendOffNames(p2));
+  click('B', { A: true, B: true, C: true }); seq.push(cp.legendOffNames(p2));
+  // A stale live legend (an older paint's false) with the memory turning the entry back on.
+  const stale = cp.legendOffNames({ liveLegend: { data: ['A', 'B'], selected: { A: false } }, legendSelected: { A: true } });
+  ctx.clicks = { seq, live: p2.liveLegend.selected, stale };
+  // Every entry left out: no legend row is laid out; with nothing given, the one row stays (review R2-6).
+  cp.setExportHidden(['A', 'B']);
+  const allOut = cp.legendTop(['A', 'B'], 400, { wrap: true });
+  const noneGiven = cp.legendTop([], 400, { wrap: true });
+  cp.setExportHidden(null);
+  ctx.rows = { allOut, noneGiven, screenNone: cp.legendTop([], 400, { wrap: true }),
+    padTop: cp.legendTop([], 400) - 1.6 * scale.THEME.fontLabel };
+  out.exportContext = ctx;
 }
 
 console.log(JSON.stringify(out));
@@ -434,13 +549,16 @@ def test_an_object_legend_takes_the_memory_and_nothing_else_moves(result):
     assert '"selected"' not in got["untouched"], got
 
 
-def test_each_legend_of_an_array_takes_the_names_it_lists(result):
+def test_every_legend_of_an_array_takes_the_names_any_of_them_lists(result):
+    """ECharts' toggle acts on every legend and forces each to the first one's new state, and a legend reports a name
+    it does not list as on unless its `selected` says otherwise: so a remembered name one legend lists is laid onto
+    every legend of the array, or after a repaint a second click on an entry of a later legend could not turn it back
+    on (review B, legend-sliders: the energy card's references). A name no legend lists is laid onto none."""
     got = result["array"]
     assert got["isArray"]
-    assert got["selected"] == [{"A": False}, {"B": False}, None], got
-    # A legend the memory says nothing about is the same object, and an array none of whose legends moves is the
-    # option itself.
-    assert got["third"] and got["none"], got
+    assert got["selected"] == [{"A": False, "B": False}, {"A": False, "B": False}, {"A": False, "B": False}], got
+    # Every legend moves now; an array none of whose legends moves is still the option itself.
+    assert got["third"] is False and got["none"], got
     assert '"selected":{"B":true}' in got["untouched"], "the builder's array was mutated"
 
 
@@ -509,7 +627,11 @@ def test_the_panel_listens_to_every_legend_event_once(result):
     assert result["handlers"] == {event: 1 for event in result["events"]}, result["handlers"]
 
 
-def test_the_chart_is_cleared_before_the_option_only_while_the_legend_hides_a_series(result):
+def test_the_chart_is_cleared_before_the_option_while_the_legend_hides_a_series_and_on_a_legend_repaint(result):
+    """A legend event repaints the panel (at the next frame; at once in Node, which has none), so the marks an
+    entry takes with it follow the click (legend-sliders, 2026-11-17). That repaint always clears first, so no
+    series view is reused across the legend's filter; any other paint clears only while the memory hides a
+    series."""
     steps = _steps(result)
     set_only = lambda selected: [["setOption", selected, True]]  # noqa: E731
     cleared = lambda selected: [["clear"], ["setOption", selected, True]]  # noqa: E731
@@ -517,26 +639,26 @@ def test_the_chart_is_cleared_before_the_option_only_while_the_legend_hides_a_se
     merged = [["setOption", None, False]]
     assert steps["first render"]["calls"] == set_only(None)
     assert steps["a click switches A off"]["memory"] == {"A": False}
-    assert steps["a click switches A off"]["calls"] == merged
+    assert steps["a click switches A off"]["calls"] == merged + cleared({"A": False})
     assert steps["a repaint (theme, control)"]["calls"] == cleared({"A": False})
     assert steps["a relayout at a new width"]["calls"] == cleared({"A": False})
     assert steps["a new payload"]["calls"] == cleared({"A": False})
     # A card held at zero size paints nothing; shown again it paints with the memory.
     assert steps["held at zero size"]["calls"] == []
     assert steps["shown again"]["calls"] == cleared({"A": False})
-    # Switched back on: nothing hidden, no clear; the remembered `true` is laid over the option.
+    # Switched back on: no ink to merge; the click's own repaint clears and lays the remembered `true`, and any
+    # later paint, with nothing hidden, does not clear.
     assert steps["a click switches A on"]["memory"] == {"A": True}
-    # Nothing is drawn as off any more: no merge (the legend keeps the ink until the next paint, which lays none).
-    assert steps["a click switches A on"]["calls"] == []
+    assert steps["a click switches A on"]["calls"] == cleared({"A": True})
     assert steps["a repaint with nothing hidden"]["calls"] == set_only({"A": True})
     assert steps["a scripted unselect of B"]["memory"] == {"A": True, "B": False}
-    assert steps["a scripted unselect of B"]["calls"] == merged
+    assert steps["a scripted unselect of B"]["calls"] == merged + cleared({"A": True, "B": False})
     assert steps["a repaint with B hidden"]["calls"] == cleared({"A": True, "B": False})
     assert steps["select all"]["memory"] == {"A": True, "B": True}
-    assert steps["select all"]["calls"] == []
+    assert steps["select all"]["calls"] == cleared({"A": True, "B": True})
     assert steps["a repaint after select all"]["calls"] == set_only({"A": True, "B": True})
     assert steps["inverse"]["memory"] == {"A": False, "B": False}
-    assert steps["inverse"]["calls"] == merged
+    assert steps["inverse"]["calls"] == merged + cleared({"A": False, "B": False})
     assert steps["a repaint after inverse"]["calls"] == cleared({"A": False, "B": False})
 
 
@@ -549,7 +671,7 @@ def test_the_memory_survives_the_panels_clear(result):
 
 
 def test_every_legend_event_tells_the_page_once_with_the_panel(result):
-    """A legend click redraws nothing of the page, but the drawer names what is hidden: `onLegendChange` is told."""
+    """A legend click repaints its own chart alone; the drawer names what is hidden: `onLegendChange` is told."""
     for step in result["steps"]:
         expected = [True] if step["what"].startswith(("a click", "a scripted", "select all", "inverse")) else []
         assert step["told"] == expected, step
@@ -557,8 +679,9 @@ def test_every_legend_event_tells_the_page_once_with_the_panel(result):
 
 # --------------------------------------------------- the ink of a hidden entry --
 
-#: The inactive inks: the faintest tint of each card's muted ink at 4.5:1 (chart_panel.js `legendInactiveInk`).
-DARK_INACTIVE, LIGHT_INACTIVE, PRINT_INACTIVE = "#808993", "#6e7780", "#6f7681"
+#: The inactive inks: the faintest tint of each screen card's muted ink at 4.5:1 (chart_panel.js
+#: `legendInactiveInk`). An export lays none: it leaves a hidden entry out (res-emax, 2026-11-17).
+DARK_INACTIVE, LIGHT_INACTIVE = "#808993", "#6e7780"
 
 
 @pytest.mark.parametrize(("theme", "ink", "card"), [("dark", DARK_INACTIVE, "#1c2128"),
@@ -590,11 +713,16 @@ def test_the_ink_is_laid_only_while_the_legend_hides_an_entry(result):
     for what in ("a repaint (theme, control)", "a relayout at a new width", "a new payload", "shown again",
                  "a repaint with B hidden", "a repaint after inverse"):
         assert [pick(i) for i in steps[what]["inks"]] == [hidden], (what, steps[what]["inks"])
-    # A click that hides an entry merges the inks alone into the legend on show: it keeps its state and its page.
+    # A click that hides an entry merges the inks alone into the legend on show at once (it keeps its state and its
+    # page until the repaint), and the repaint the click asks for lays them over the whole legend.
     for what in ("a click switches A off", "a scripted unselect of B", "inverse"):
         ink = steps[what]["inks"]
-        assert ink == [{**hidden, "keys": ["inactiveBorderColor", "inactiveColor", "lineStyle"]}], (what, ink)
+        assert ink[0] == {**hidden, "keys": ["inactiveBorderColor", "inactiveColor", "lineStyle"]}, (what, ink)
+        assert [pick(i) for i in ink[1:]] == [hidden], (what, ink)
         assert steps[what]["liveLegend"]["inactive"] == DARK_INACTIVE, steps[what]
+    # A click that leaves nothing hidden merges nothing, and its repaint lays the builder's own ink.
+    for what in ("a click switches A on", "select all"):
+        assert [pick(i) for i in steps[what]["inks"]] == [builders], (what, steps[what]["inks"])
     # On the light card, the light card's ink.
     assert [pick(i) for i in result["lightPaint"]] == [{k: LIGHT_INACTIVE for k in ("inactive", "border", "line")}]
 
@@ -611,7 +739,7 @@ def test_with_inactive_ink_is_pure_and_inks_only_a_legend_that_hides(result):
     # An array legend: the one that hides is inked, the others are the same objects (a hidden legend included).
     assert [a["inactive"] for a in got["array"]] == [DARK_INACTIVE, None, None], got["array"]
     assert got["arraySame"] == [True, True], got
-    # An ink handed in (the export's print ink) is the one laid.
+    # An ink handed in is the one laid.
     assert {k: got["given"][k] for k in ("inactive", "border", "line")} == {
         "inactive": "#123456", "border": "#123456", "line": "#123456"}
 
@@ -658,35 +786,49 @@ def test_with_hidden_legend_puts_the_line_first_in_marks_and_legend_and_adds_no_
 # ------------------------------------------------------------------ the export --
 
 
-def test_the_export_leaves_out_what_the_legend_hides(result):
+def test_the_export_leaves_out_what_the_legend_hides_with_its_entry(result):
+    """Martin's decision of 2026-11-17: an exported figure describes only what is on show. A series switched off on
+    the legend is left out together with its entry (the greyed entry of 2026-11-11 is retired)."""
     got = result["export"]
-    ink = result["printInk"]
-    # The panel's memory at the end of the paint steps: A and B both switched off by the inverse.
-    assert got["hidden"]["charts"] == 1 and got["hidden"]["selected"] == [{"A": False, "B": False}], got
-    assert got["hidden"]["screenBack"], got
-    # Its legend greys the hidden entries, text, swatch and swatch line, in the print's inactive ink.
-    assert got["hidden"]["inks"] == [[ink["ink"], ink["ink"]]], (got["hidden"], ink)
-    assert got["hidden"]["lines"] == [ink["ink"]], got["hidden"]
+    # The panel's memory at the end of the paint steps: A and B both switched off by the inverse. Neither is listed,
+    # both are marked off, and a legend left with no entry is not shown.
+    hidden = got["hidden"]
+    assert hidden["charts"] == 1 and hidden["selected"] == [{"A": False, "B": False}], hidden
+    assert hidden["data"] == [[]] and hidden["show"] == [False], hidden
+    # One of two off: the other entry alone is listed.
+    one = got["oneOff"]
+    assert one["data"] == [["A"]] and one["selected"] == [{"B": False}] and one["show"] == [True], one
+    # A builder's own default off is left out as the reader's choice is.
+    default = got["builderDefault"]
+    assert default["data"] == [["A"]] and default["selected"] == [{"B": False}], default
+    # The context is cleared and the screen theme is back after every export.
+    for case in got.values():
+        assert case["screenBack"] and case["contextCleared"], case
+
+
+def test_no_exported_legend_entry_is_greyed(result):
+    """No inactive ink is laid on an export: the legend keeps the builder's own `inactiveColor` (the print border)
+    and gains no swatch or swatch-line ink, whatever the memory hides. figure.js no longer exports a print ink."""
+    got = result["export"]
+    border = result["printBorder"]
+    for key, case in got.items():
+        assert case["lines"] == [None], (key, case)
+        for inactive, swatch in case["inks"]:
+            assert swatch is None, (key, case)
+            assert inactive in (None, border), (key, case)
+    assert "printInactiveInk" not in result["figureExports"], result["figureExports"]
+    assert "printLegendOption" in result["figureExports"], result["figureExports"]
+
+
+def test_a_panel_that_hides_nothing_exports_its_legend_as_built(result):
+    got = result["export"]
     # A panel without a memory, and one whose memory is empty, export the option as built; one whose memory hides
-    # nothing keeps the legend's own inks.
+    # nothing keeps the legend's own entries and inks.
     assert got["noMemory"]["selected"] == [None] and got["noMemory"]["inks"] == [[None, None]], got
-    assert got["nothingHidden"]["selected"] == [None], got
-    assert got["allShown"]["selected"] == [{"A": True}], got
-    assert got["allShown"]["inks"] == [[ink["border"], None]], (got["allShown"], ink)
-    assert got["allShown"]["lines"] == [None], got["allShown"]
-
-
-def test_a_hidden_entry_is_printed_lighter_than_the_entries_on_show_and_still_legible(result):
-    """ECharts draws a hidden entry in `inactiveColor`, which `chartLegend` takes from THEME.border, and the print
-    border (#111827) is darker than the print muted ink of the entries on show (#374151): the hidden entry would
-    read as the emphasised one. The export's grey is the lightest tint of the muted ink at the 4.5:1 text floor."""
-    ink = result["printInk"]
-    assert ink["inkOnCard"] >= 4.5, ink
-    assert ink["inkOnCard"] < 5, "the faintest legible tint, so it reads as off"
-    assert ink["inkOnCard"] < ink["mutedOnCard"], ink
-    assert ink["ink"].lower() == PRINT_INACTIVE, ink
-    # The screen's rule, taken under the print tokens: one derivation for the three cards.
-    assert ink["screenRule"] == ink["ink"], ink
+    assert got["noMemory"]["data"] == [["A", "B"]], got
+    assert got["nothingHidden"]["selected"] == [None] and got["nothingHidden"]["data"] == [["A", "B"]], got
+    assert got["allShown"]["selected"] == [{"A": True}] and got["allShown"]["data"] == [["A", "B"]], got
+    assert got["allShown"]["inks"] == [[result["printBorder"], None]], got["allShown"]
 
 
 # ------------------------------------------------------- Page 1's energy panel --
@@ -724,17 +866,23 @@ def test_the_energy_panel_keeps_the_legend_clears_while_hiding_and_inks_the_hidd
     border = "#30363d"
     # The first paint: nothing hidden, no clear, the builder's inks on both legends.
     assert _sets(got, "fresh") == [(True, 29, [(14, None, border, None, None), (2, None, border, None, None)])]
-    # The click merges the ink into the series legend alone (index 0), not a repaint.
-    assert _sets(got, "click") == [(False, 0, [(0, None, DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE),
-                                              (0, None, None, None, None)])]
     hidden = (DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE)
-    # Every repaint after it clears first and lays the memory and the ink over the series legend.
-    assert _sets(got, "repaint") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, None, border, None, None)])]
+    # The click merges the ink at once into both legends, which both carry the name now (ECharts' toggle forces every
+    # legend to one state), then repaints: the entry's fit leaves the option and one series of its name stays as its
+    # legend carrier, so the count is the same.
+    assert _sets(got, "click") == [(False, 0, [(0, None, DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE),
+                                              (0, None, DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE)]),
+                                   "clear", (True, 29, [(14, {entry: False}, *hidden), (2, {entry: False}, *hidden)])]
+    # Every repaint after it clears first and lays the memory and the ink over both legends.
+    assert _sets(got, "repaint") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, {entry: False}, *hidden)])]
     # Shower A alone draws fewer series and fewer entries; the entry is still listed, and still off.
-    assert _sets(got, "showerA") == ["clear", (True, 15, [(7, {entry: False}, *hidden), (1, None, border, None, None)])]
-    assert _sets(got, "both") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, None, border, None, None)])]
-    # A reference switched off: its own legend (index 1) takes the ink; the series legend has it already.
-    assert _sets(got, "referenceClick") == [(False, 0, [(0, None, None, None, None), (0, None, *hidden)])]
+    assert _sets(got, "showerA") == ["clear", (True, 15, [(7, {entry: False}, *hidden), (1, {entry: False}, *hidden)])]
+    assert _sets(got, "both") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, {entry: False}, *hidden)])]
+    # A reference switched off: both legends carry the ink already, so nothing is merged; the repaint lays both
+    # names over both legends.
+    reference = got["reference"]
+    both_off = {entry: False, reference: False}
+    assert _sets(got, "referenceClick") == ["clear", (True, 29, [(14, both_off, *hidden), (2, both_off, *hidden)])]
     # Everything back on: the next paint lays no ink and no clear.
     after = _sets(got, "afterAll")
     assert len(after) == 1 and after[0][0] is True and after[0][1] == 29, after
@@ -761,13 +909,115 @@ def test_the_energy_drawer_names_the_hidden_series_in_a_marks_and_legend_section
 
 
 def test_the_energy_export_leaves_out_what_the_legend_hides(result):
-    """figure.js's energy branch reads `legendSelected` too: each printed legend marks its own hidden entry off, in
-    the print's inactive ink (text, swatch, swatch line), and the screen theme is back after."""
+    """figure.js's energy branch reads the legend on show too: each printed legend lists none of its own left-out
+    entries, marks them off and greys nothing; the rest of each legend is kept, and the screen theme is back after."""
     got = result["energy"]["export"]
     entry, reference = result["energy"]["entry"], result["energy"]["reference"]
     assert got["screenBack"], got
     assert len(got["printed"]) == 1, got
     series, references = got["printed"][0]
-    assert series["selected"] == {entry: False} and references["selected"] == {reference: False}, got
+    assert entry not in series["data"] and reference not in references["data"], got
+    # The on-screen legends held 14 and 2 entries; one of each is left out.
+    assert len(series["data"]) == 13 and len(references["data"]) == 1, got
+    # Exactly the left-out names are marked off, in each legend: printLegendOption marks every left-out name false on
+    # every legend, so its series is filtered whichever legend listed it; no companion or other entry with them
+    # (review R3-4).
+    left_out = {entry, reference}
+    assert {k for k, v in series["selected"].items() if v is False} == left_out, got
+    assert {k for k, v in references["selected"].items() if v is False} == left_out, got
     for legend in (series, references):
-        assert (legend["inactive"], legend["border"], legend["line"]) == (PRINT_INACTIVE,) * 3, legend
+        assert legend["border"] is None and legend["line"] is None, legend
+        assert legend["inactive"] == result["printBorder"], legend
+
+
+# ------------------------------------------- the export's legend context (res-emax) --
+#
+# An export leaves out every series the legend on show switched off, with its entry, and lays the legend rows out
+# without it (Martin's decision, 2026-11-17). export/figure.js sets the context inside its synchronous window; on
+# screen it is null and every helper is the identity, so the builders' outputs and the dark golden do not move.
+
+#: What the context leaves out in the script: one short entry and four of the six long names.
+LONG = [f"Shower {i} · Calibrated deposit c·E_dep — linear-sum benchmark" for i in range(1, 7)]
+
+
+def test_without_a_context_the_legend_helpers_are_unchanged(result):
+    ctx = result["exportContext"]
+    assert ctx["neverSet"] is None
+    # chartLegend keeps the very data array it was given, and legendShown is the identity.
+    assert ctx["sameData"] and ctx["shownSame"], ctx
+    # chartLegend, wrappedLegend and legendTop deep-equal their output before setExportHidden was ever called: after
+    # setExportHidden(null), after setExportHidden([]) and after a context is cleared.
+    for key in ("afterNull", "afterEmpty", "cleared"):
+        assert ctx[key] == {"hidden": None, "same": True}, (key, ctx[key])
+
+
+def test_the_context_is_a_set_of_the_names_left_out(result):
+    assert result["exportContext"]["set"] == {"isSet": True, "names": ["B", *LONG[1:5]]}
+
+
+def test_an_export_legend_lists_none_of_the_names_left_out_and_marks_them_off(result):
+    ctx = result["exportContext"]
+    # A string entry and a {name} entry are both dropped; the dropped name is marked false, so its series is
+    # filtered although no entry lists it; every other key is today's.
+    assert ctx["plain"] == {"data": ["A", "C"], "show": True, "selected": {"B": False}, "rest": True}, ctx["plain"]
+    # The builder's own `selected` is kept, the dropped name's false laid over it.
+    assert ctx["extra"] == {"data": ["A", "C"], "show": True, "selected": {"A": True, "B": False, "C": False},
+                            "left": 5}, ctx["extra"]
+    # Every entry dropped: the legend is hidden, its names still off.
+    assert ctx["allOff"] == {"data": [], "show": False, "selected": {"B": False, LONG[1]: False}}, ctx["allOff"]
+    # A legend the builder hides stays hidden.
+    assert ctx["explicitHidden"] is False
+
+
+def test_a_legend_with_nothing_left_out_is_todays_legend(result):
+    ctx = result["exportContext"]
+    assert ctx["untouched"]["same"], "the same data array and no `selected`"
+    assert ctx["untouched"]["json"] == ctx["untouchedJson"] == ctx["untouchedNoContext"]
+
+
+def test_legend_shown_filters_and_returns_the_same_array_when_nothing_is_left_out(result):
+    got = result["exportContext"]["shown"]
+    assert got["strings"] == ["A", "C"]
+    assert got["objects"] == [{"name": "A"}]
+    assert got["same"] is True
+    # Anything that is no array passes through.
+    assert got["notArray"] == [None, "undefined"]
+
+
+def test_legend_top_counts_the_rows_of_the_kept_names_only(result):
+    got = result["exportContext"]["top"]
+    # The six long names wrap to several rows over a 300 px plot; leaving four out drops rows, exactly as many as a
+    # legend of the two kept names takes without a context.
+    assert got["kept"] < got["full"], got
+    assert got["kept"] == got["keptNoContext"] == got["objects"], got
+    assert got["wrapped"] == [LONG[0], LONG[5]], got
+
+
+def test_an_export_that_leaves_every_entry_out_lays_out_no_legend_row(result):
+    r = result["exportContext"]["rows"]
+    assert r["allOut"] == pytest.approx(r["padTop"]), r
+    assert r["noneGiven"] == r["screenNone"] > r["allOut"], r
+
+
+def test_legend_off_names_follow_every_click_with_no_repaint_between(result):
+    # Review R2-1, R2-2: the second click and a click turning an entry back on reach the export; the live legend keeps
+    # the memory after every click, ink change or not, and a memory true clears a stale false.
+    got = result["exportContext"]["clicks"]
+    assert got["seq"] == [["A"], ["A", "B"], ["B"], []], got
+    assert got["live"] == {"A": True, "B": True}, got
+    assert got["stale"] == [], got
+
+
+def test_legend_off_names_reads_what_each_legend_on_show_marks_off(result):
+    got = result["exportContext"]["off"]
+    # In legend order; the reader's memory and a builder's default alike; a name the legend does not list (Z) is not
+    # named, since nothing of it is drawn.
+    assert got["memory"] == ["A", "C"], got
+    assert got["builderDefault"] == ["B"], got
+    # A hidden legend is skipped; a legend without data lists the keys of its `selected`.
+    assert got["showFalse"] == [], got
+    assert got["dataless"] == ["Q", "S"], got
+    # Across an array of legends, once each, a hidden legend and a null skipped.
+    assert got["array"] == ["B", "R"], got
+    # No panel, no live legend, a legend that hides nothing.
+    assert got["none"] == [[], [], [], []], got

@@ -57,7 +57,7 @@ import { tooltipOption } from './tooltip.js';
 import { wrappedLegend } from './xgb_cv.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  isPrintTheme,
+  isPrintTheme, hiddenEntries, legendAlias,
 } from './chart_panel.js';
 
 /** Below this width the matrix stands above the rates. */
@@ -240,8 +240,11 @@ export function otherIntervalLegend(model, width = Infinity) {
   const r = model.rates.find((x) => x.method && x.method !== 'wilson');
   if (!r) return OTHER_INTERVAL_NAME;
   const word = METHOD_WORDS[r.method] ?? String(r.method).replace(/_/g, ' ');
-  return fitName([SHORT_NAMES[r.method] ?? `95% ${word} CI`, `95% ${word} CI`],
-    width - 2 * axisPadding().right - 26);
+  const candidates = [SHORT_NAMES[r.method] ?? `95% ${word} CI`, `95% ${word} CI`];
+  const name = fitName(candidates, width - 2 * axisPadding().right - 26);
+  // Switched off on the screen's legend under another of its names, it is left out of an export under this one.
+  legendAlias(candidates, name);
+  return name;
 }
 
 /**
@@ -374,6 +377,9 @@ function matrixGraphics(model, m) {
 export function xgbBinaryOption(payload, opts = {}, metrics = {}) {
   const model = binaryModel(payload);
   if (!model) return emptyChartOption(opts, metrics, 'This response carries no confusion matrix.');
+  // Every mark of an entry switched off on the legend is left out, on screen and in an export (chart_panel.js
+  // `hiddenEntries`).
+  const off = hiddenEntries();
   const width = metrics.width || 600;
   const height = metrics.height || 330;
   const layout = binaryLayout(model, width, height);
@@ -462,7 +468,8 @@ export function xgbBinaryOption(payload, opts = {}, metrics = {}) {
       splitLine: { show: false },
     },
     graphic: matrixGraphics(model, layout.matrix),
-    series,
+    // The matrix and the undefined-rate notes belong to no entry and stay; points and intervals go with their entry.
+    series: off ? series.filter((s) => !off.has(s.name)) : series,
   };
 }
 

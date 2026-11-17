@@ -46,7 +46,8 @@ import { printed, printedQualified } from '../catalog/select.js';
 import { sourceColours } from './perf_bins.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, emptyChartOption, withColour,
-  wrappedLegend, legendTop, legibleOpacity, rgbOf, niceCeil, niceInterval, FINE_STEPS, tickLabel,
+  wrappedLegend, legendTop, legibleOpacity, rgbOf, niceCeil, niceInterval, FINE_STEPS, tickLabel, hiddenEntries,
+  screenHiddenNames, withScreenHidden,
 } from './chart_panel.js';
 
 /* ================================================================ shared == */
@@ -267,13 +268,25 @@ export class CatalogChartPanel extends ChartPanel {
   paint() {
     if (this.chart && this.lastPayload) {
       const { width } = this.size();
-      if (width && this.fitHeight(width)) this.chart.resize();
+      // Sized under the legend context the paint draws with (chart_panel.js `screenBuild`): what an entry
+      // switched off on the legend on show takes with it (a frame's rows, the TTA note) is not laid out.
+      const off = screenHiddenNames(this, { legend: this.liveLegend });
+      if (width && withScreenHidden(off, () => this.fitHeight(width))) this.chart.resize();
     }
-    const option = super.paint();
+    let option = super.paint();
     // Held while the card has no size (its subpage hidden): forget when it was laid out, so the relayout
     // that shows it builds the option afresh. Without this, a theme switch made on another subpage left
     // the dark picture on the light card (ChartPanel.relayout returns early when the size is unchanged).
     if (option === null && this.lastPayload) this.laidOut = null;
+    // The paint's own legend can list names the legend on show did not (a new payload): when what it left
+    // out sizes the card otherwise, size it again and paint once more.
+    if (option !== null && this.chart) {
+      const { width } = this.size();
+      if (width && withScreenHidden(this.screenHidden, () => this.fitHeight(width))) {
+        this.chart.resize();
+        option = super.paint();
+      }
+    }
     return option;
   }
 
@@ -387,11 +400,15 @@ export function benchCatalogModel(payload, opts = {}) {
   const species = payload.species ?? [];
   const scale = angleScaleOf(opts);
   const all = species.length > 1;
-  // The rows of every facet, in order: species groups (a spacer between them), frames within.
+  // The rows of every facet, in order: species groups (a spacer between them), frames within. A frame whose
+  // legend entry is switched off takes no row (review R2-7): on screen after the click, as in an export, the
+  // facets are laid out without it, so no empty, unlabelled slot is left where it was. Its rows still enter
+  // the axis below, which never moves with the legend.
+  const frames = CATALOG_FRAMES.filter((f) => !frameLeftOut(payload, f));
   const keys = [];
   species.forEach((s, i) => {
-    if (i > 0) keys.push(`gap:${i}`);
-    for (const f of CATALOG_FRAMES) keys.push(`${s}:${f}`);
+    if (i > 0 && frames.length) keys.push(`gap:${i}`);
+    for (const f of frames) keys.push(`${s}:${f}`);
   });
   let clamped = 0;
   const leaksDrawn = new Set();
@@ -440,6 +457,7 @@ export function benchCatalogModel(payload, opts = {}) {
     all,
     scale,
     keys,
+    frames,
     facets,
     notReported: payload.notReported ?? { tta: [], rmse: [], bias: [] },
     ttaSpecies: has('tta'),
@@ -462,13 +480,33 @@ export function facetColumns(width, insetPx) {
   return 1;
 }
 
-/** The y labels of the facets' rows: the frame (one species) or the species on its group's middle row. */
+/**
+ * Whether frame `f` is left out: its legend entry switched off, on screen after the click or in an export
+ * (chart_panel.js `hiddenEntries`). Its rows go with it (`benchCatalogModel`'s keys, review R2-7), and with
+ * them every mark printed for them: its bar, the TTA tick across it, its RMSE marker, its "R² < 0" / "leak"
+ * text and its row label.
+ */
+function frameLeftOut(payload, f) {
+  const hidden = hiddenEntries();
+  return Boolean(hidden && hidden.has(labelOf(payload, 'frame', f)));
+}
+
+/** Whether the legend entry `name` is left out: switched off, on screen or in an export. */
+function entryLeftOut(name) {
+  return Boolean(hiddenEntries()?.has(name));
+}
+
+/**
+ * The y labels of the facets' rows: the frame (one species), or the species on its group's middle row (the
+ * second of three frames; the first of two, or of one, where frames are left out).
+ */
 function rowLabels(model, payload) {
+  const middle = model.frames[Math.floor((model.frames.length - 1) / 2)];
   return model.keys.map((key) => {
     if (key.startsWith('gap:')) return '';
     const [s, f] = key.split(':');
     if (!model.all) return labelOf(payload, 'frame', f);
-    return f === 'trans' ? labelOf(payload, 'species', s) : '';
+    return f === middle ? labelOf(payload, 'species', s) : '';
   });
 }
 
@@ -487,7 +525,8 @@ const RMSE_NAME = 'RMSE (hollow marker)';
 function noteText(model, payload) {
   const parts = [];
   const without = model.species.filter((s) => !model.ttaSpecies.includes(s));
-  if (without.length) parts.push(`TTA not reported: ${without.map((s) => labelOf(payload, 'species', s)).join(', ')}`);
+  // The TTA caveat qualifies the TTA ticks: an export that leaves them out leaves it out too.
+  if (without.length && !entryLeftOut(TTA_NAME)) parts.push(`TTA not reported: ${without.map((s) => labelOf(payload, 'species', s)).join(', ')}`);
   if (model.scale === 'log') parts.push('angle on a log₁₀ axis: dots, never bars');
   return parts.join(' · ');
 }
@@ -609,7 +648,13 @@ export function benchCatalogOption(payload, opts = {}, metrics = {}) {
     const at = (api, v, idx) => api.coord([v, idx]);
     const base = facet.axis.type === 'log' ? facet.axis.min : 0;
 
+    // Every mark of a left-out frame (it has no row) and of a left-out TTA or RMSE entry is left out.
+    const kept = facet.rows.filter((r) => !frameLeftOut(payload, r.frame));
+    const ttaOn = !entryLeftOut(TTA_NAME);
+    const rmseOn = !entryLeftOut(RMSE_NAME);
+
     for (const frame of CATALOG_FRAMES) {
+      if (frameLeftOut(payload, frame)) continue;
       const rows = facet.rows.filter((r) => r.frame === frame && r.value !== null);
       const colour = hues[frame];
       const stroke = legibleOpacity(colour, 1);
@@ -646,7 +691,7 @@ export function benchCatalogOption(payload, opts = {}, metrics = {}) {
     }
 
     // The proton's TTA tick: text ink on a canvas casing, so it reads over the bar and over the card.
-    const tta = facet.rows.filter((r) => Number.isFinite(r.tta));
+    const tta = ttaOn ? kept.filter((r) => Number.isFinite(r.tta)) : [];
     if (tta.length) {
       series.push(withColour({
         type: 'custom',
@@ -672,7 +717,7 @@ export function benchCatalogOption(payload, opts = {}, metrics = {}) {
         tooltip: { formatter: (p) => catalogTip(payload, facet, tta[p.dataIndex]) },
       }, ink));
     }
-    const rmse = facet.rows.filter((r) => Number.isFinite(r.rmse));
+    const rmse = rmseOn ? kept.filter((r) => Number.isFinite(r.rmse)) : [];
     if (rmse.length) {
       series.push(withColour({
         type: 'custom',
@@ -696,7 +741,7 @@ export function benchCatalogOption(payload, opts = {}, metrics = {}) {
     }
 
     // Text marks beside the mark's end: "R² < 0" on a clamped R², "leak" on a flagged frame.
-    const labelled = facet.rows.filter((r) => r.clamped || r.leaks.length);
+    const labelled = kept.filter((r) => r.clamped || r.leaks.length);
     if (labelled.length) {
       series.push({
         type: 'custom',
@@ -708,7 +753,7 @@ export function benchCatalogOption(payload, opts = {}, metrics = {}) {
         data: labelled.map((r, i) => [r.value ?? 0, r.index, i]),
         renderItem: (params, api) => {
           const r = labelled[params.dataIndex];
-          const reach = Math.max(...[r.value, r.tta, r.rmse].filter(Number.isFinite), base);
+          const reach = Math.max(...[r.value, ttaOn ? r.tta : null, rmseOn ? r.rmse : null].filter(Number.isFinite), base);
           const c = at(api, reach, r.index);
           const text = [r.clamped ? 'R² < 0' : null, r.leaks.length ? 'leak' : null].filter(Boolean).join(' · ');
           return {

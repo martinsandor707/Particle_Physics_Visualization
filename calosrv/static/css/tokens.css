@@ -32,6 +32,10 @@
 
   --disabled: #484f58;
 
+  /* The unfilled track of every range input. Measured: 3.52:1 on the card,
+     3.77:1 on the sidebar (--canvas-alt), 4.12:1 on the canvas. */
+  --range-track: #6e7681;
+
   /* Colours the controls, washes and shadows used to carry as literals, named
      so the light theme can restate them. Each value is exactly the literal it
      replaced, so the dark rendering is unchanged. */
@@ -99,6 +103,8 @@
     --shower-a: #a3186b;
     --shower-b: #0b5fbe;
     --disabled: #afb8c1;
+    /* Range track: 3.45:1 on white (card and sidebar), 3.24:1 on the canvas. */
+    --range-track: #818b98;
     --control-bg: #f6f8fa;
     --control-text: #24292f;
     --control-hover: #eaeef2;
