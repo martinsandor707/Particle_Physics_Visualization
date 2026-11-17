@@ -175,7 +175,12 @@ input[type="range"]:not(.dual input):disabled::-moz-range-thumb { cursor: not-al
   pointer-events: none;
 }
 .dual .track { left: 0; right: 0; background: var(--range-track); }
-.dual .fill { background: var(--accent); }
+/* The selected interval is 2 px taller than the track and centred on it, so
+   its edges stand against the sidebar's ground (the accent at 6.85:1 dark and
+   6.19:1 light), not against the track alone: the accent and --range-track
+   are only 1.8:1 apart, and no track colour can clear 3:1 on the card and
+   3:1 from the accent at once. */
+.dual .fill { top: 8px; height: 6px; border-radius: 3px; background: var(--accent); }
 
 .dual input[type="range"] {
   position: absolute;

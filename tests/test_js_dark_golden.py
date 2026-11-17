@@ -272,6 +272,15 @@ selection | Event viewer) added 72 case ids and moved none; the theme map did no
   is flagged, the particle filter on or off) moved 2 more, each by the hazard "event outside the candidates"
   alone: `notes/experiment/{event,voxel_projection}/event_raster_base_experiment/unplaceable`.
 
+The legend-sliders review (2026-11-17, review R-M2: a legend click now repaints, and the energy card's line series
+took their legend dot and tooltip marker from ECharts' default palette, which matched nothing drawn and moved with the
+series left out) gave the energy card's step and fit line series their own colour as `itemStyle.color`. It moved 4
+cases, each by those `itemStyle` keys alone (6 series a case, 3 on shower A), and nothing else; the case-id set and
+the theme map did not move (measured against a dump taken before the change,
+`data/dev/design/legend-sliders/golden_before`): `physics/energy/energy_d_two` with `@print`, `__cividis_a` and
+`__narrow`. The legend-sliders change itself (the screen's legend context, the slider style, review R2-7) moved no
+case: with nothing switched off every builder returns what it returned before.
+
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
 behaviour, never code, so a refactor that reorders an object literal or

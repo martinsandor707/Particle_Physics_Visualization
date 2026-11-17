@@ -502,8 +502,8 @@ out.export.allShown = exportWith({ A: true });
     none: [cp.legendOffNames(null), cp.legendOffNames({}), cp.legendOffNames({ liveLegend: null }),
       cp.legendOffNames({ liveLegend: { data: ['A'] } })],
   };
-  // Clicks with no repaint between (review R2-1, R2-2): a legend click repaints nothing, so what an export leaves out
-  // is read from the reader's memory, not from the legend of the last paint.
+  // Clicks with no repaint between (review R2-1, R2-2): a legend click repaints only at the next frame, so what an
+  // export leaves out is read from the reader's memory, not from the legend of the last paint.
   const handlers = {};
   const quiet = { on: (type, fn) => { (handlers[type] ??= []).push(fn); }, setOption: () => {} };
   const p2 = { chart: quiet, legendSelected: {}, liveLegend: { data: ['A', 'B', 'C'], selected: {} }, onLegendChange: null };

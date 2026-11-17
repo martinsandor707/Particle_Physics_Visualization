@@ -3,7 +3,7 @@
 Review R2-3 (res-emax, 2026-11-17): the Gain Feature Importance card names its envelope in full on a wide card
 (about 1100 px) and in short at a single-column figure's 321 px (``xgb_importance.js`` ``envelopeLegend``, a
 ``fitName`` choice). Switched off on the screen's legend under its long name, it came back in the export under its
-short one, with both its series and its legend entry. ``chart_panel.js`` ``exportAlias`` adds the name taken at the
+short one, with both its series and its legend entry. ``chart_panel.js`` ``legendAlias`` adds the name taken at the
 export's width to the export's legend context whenever any other name of the same entry is in it; the three
 name-choosing functions call it (the importance envelope, the cross-validation interval and the binary card's other
 interval). On screen there is no context, so nothing changes.
@@ -90,13 +90,13 @@ for (const name of ['xgb_cv_momentum', 'xgb_cv_angle']) {
 }
 // The helper itself: nothing without a context; the chosen name joins it only when another name is in it.
 cp.setExportHidden(['Long name']);
-cp.exportAlias(['Long name', 'Short'], 'Short');
+cp.legendAlias(['Long name', 'Short'], 'Short');
 const joined = [...cp.hiddenEntries()];
 cp.setExportHidden(['Other']);
-cp.exportAlias(['Long name', 'Short'], 'Short');
+cp.legendAlias(['Long name', 'Short'], 'Short');
 const untouched = [...cp.hiddenEntries()];
 cp.setExportHidden(null);
-cp.exportAlias(['Long name', 'Short'], 'Short');
+cp.legendAlias(['Long name', 'Short'], 'Short');
 out.helper = { joined, untouched, screen: cp.hiddenEntries() };
 process.stdout.write(JSON.stringify(out));
 """

@@ -567,8 +567,9 @@ function r2Series(model, layout) {
 }
 
 /**
- * The MAE dumbbells: the connector, then one custom series per measure. `hidden` (an export's left-out
- * legend entries, or null on screen) also takes out the marks drawn only for them: the connector joins the
+ * The MAE dumbbells: the connector, then one custom series per measure. `hidden` (the legend entries left
+ * out: switched off on screen, or left out of an export; null when none is) also takes out the marks drawn
+ * only for them: the connector joins the
  * network's and the tree's MAE to truth, so it needs both; "tree MAEs not reported" speaks for the tree
  * entries, and "no MAE in the report" for every MAE entry, so each stays while one of its entries is drawn.
  */

@@ -56,7 +56,7 @@ import { customWhiskers } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs, hiddenEntries, exportAlias,
+  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs, hiddenEntries, legendAlias,
 } from './chart_panel.js';
 
 /** Most feature rows the card draws. */
@@ -177,7 +177,7 @@ export function envelopeLegend(model, width = Infinity) {
   const candidates = [model.envelope, ...short, 'Fold mean · 95% interval of the mean'];
   const name = fitName(candidates, width - 2 * axisPadding().right - 26);
   // Switched off on the screen's legend under another of its names, it is left out of an export under this one.
-  exportAlias(candidates, name);
+  legendAlias(candidates, name);
   return name;
 }
 

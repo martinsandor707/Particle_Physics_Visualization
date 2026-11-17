@@ -165,7 +165,7 @@ const compareGrid = new FrameGrid(document.getElementById('compare-grid-rows'), 
   },
 });
 const energyPanel = new EnergyPanel('plot-energy', 'fit-table', 'energy-sparse');
-// A legend click redraws nothing of the page, but the drawer names what the legend hides: rebuild it.
+// A legend click repaints the energy chart alone; the drawer names what the legend hides: rebuild it.
 energyPanel.onLegendChange = () => buildNotes('energy');
 const metricsPanel = new MetricsPanel('metrics', 'model-caption');
 

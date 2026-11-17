@@ -57,7 +57,7 @@ import { tooltipOption } from './tooltip.js';
 import { wrappedLegend } from './xgb_cv.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  isPrintTheme, hiddenEntries, exportAlias,
+  isPrintTheme, hiddenEntries, legendAlias,
 } from './chart_panel.js';
 
 /** Below this width the matrix stands above the rates. */
@@ -243,7 +243,7 @@ export function otherIntervalLegend(model, width = Infinity) {
   const candidates = [SHORT_NAMES[r.method] ?? `95% ${word} CI`, `95% ${word} CI`];
   const name = fitName(candidates, width - 2 * axisPadding().right - 26);
   // Switched off on the screen's legend under another of its names, it is left out of an export under this one.
-  exportAlias(candidates, name);
+  legendAlias(candidates, name);
   return name;
 }
 

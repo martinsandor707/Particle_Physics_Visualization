@@ -1436,7 +1436,9 @@ ink with an accent rim. The browser's own track was 1.44:1 on the dark card and
 3.52:1 on the card, 3.77:1 on the sidebar; light: 3.45:1 on white, 3.24:1 on
 the canvas). A single slider draws no filled part, in either engine: its thumb
 and its readout carry the value. The dual filter sliders keep their own track
-and accent fill, the track in the same token.
+and accent fill, the track in the same token; the fill is 2 px taller than the
+track, so the selected interval's edges stand against the sidebar (the accent
+and the track are only 1.8:1 apart).
 
 Each filter carries **both a numeric pair and a slider, on one shared grid**.
 The slider's integer domain *is* the numeric step — 0.05 GeV for the energies,

@@ -312,6 +312,9 @@ export class EnergyPanel {
             color: colour, width: THEME.lineAxis, opacity: 0.4,
             type: dashed ? 'dashed' : 'solid',
           },
+          // The legend swatch's dot and the tooltip's marker take the item colour: without it they took
+          // ECharts' default palette, which matches nothing drawn and moved when a legend click left a series out.
+          itemStyle: { color: colour },
           areaStyle: { color: colour, opacity: 0.06 },
           z: 2,
           tooltip: {
@@ -338,6 +341,8 @@ export class EnergyPanel {
           symbol: 'none',
           smooth: true,
           data: curveX.map((x, i) => [x, entry.curve.y[i]]),
+          // The swatch's dot and the tooltip's marker in the curve's colour, not ECharts' default palette.
+          itemStyle: { color: colour },
           lineStyle: {
             color: colour,
             width: thin ? 1.2 : 2,

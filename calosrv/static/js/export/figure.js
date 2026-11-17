@@ -62,8 +62,9 @@
  * in the same `finally` that restores the screen theme.
  *
  * The screen already draws those marks so: a paint builds under the same
- * context, set for the names the reader switched off (chart_panel.js
- * `screenBuild`), and a legend click repaints. What an export adds is the
+ * context, set for the names switched off on the legend on show, the reader's
+ * memory and a builder's own defaults (chart_panel.js `screenBuild`), and a
+ * legend click repaints. What an export adds is the
  * legend: the screen keeps a switched-off entry, greyed, so a click brings it
  * back, and the figure leaves it out with its row.
  *

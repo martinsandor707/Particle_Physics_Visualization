@@ -12,7 +12,7 @@ name some series carries.
 Pinned here, executed under Node:
 
 * the context: `withScreenHidden` sets the names and restores whatever was in force (an export's context
-  included, and on a throw); on screen `chartLegend`, `legendShown`, `legendTop` and `exportAlias` are the
+  included, and on a throw); on screen `chartLegend`, `legendShown`, `legendTop` and `legendAlias` are the
   identity;
 * `listedNames` and `screenHiddenNames`: a remembered name the legend on show does not list is not hidden;
 * `screenBuild`: one build with nothing switched off; with a listed name off, a second build under the
@@ -105,7 +105,7 @@ const out = {};
     top: cp.legendTop(long, 300, { wrap: true }), screenTop: cp.legendTop(long, 300) });
   const before = snap();
   c.identity = cp.withScreenHidden(['A', 'B', ...long], () => ({ same: snap() === before, shownSame: cp.legendShown(entries) === entries }));
-  c.alias = cp.withScreenHidden(['wide name'], () => { cp.exportAlias(['wide name', 'short'], 'short'); return [...cp.hiddenEntries()]; });
+  c.alias = cp.withScreenHidden(['wide name'], () => { cp.legendAlias(['wide name', 'short'], 'short'); return [...cp.hiddenEntries()]; });
   out.context = c;
 }
 
@@ -260,6 +260,57 @@ const out = {};
   out.catalog = r;
 }
 
+/* ---- review R-M3: a name chosen by width keeps the reader's choice across a relayout ---------- */
+{
+  const imps = await imp('panels/xgb_importance.js');
+  const payload = load('xgb_importance_momentum');
+  const el = makeElement(1100, 400);
+  const panel = new imps.XgbImportancePanel(el);
+  panel.render(payload, {});
+  const chart = charts[charts.length - 1];
+  const legendOf = () => (panel.liveLegend?.data ?? []).map((d) => d?.name ?? d);
+  const wide = legendOf();
+  const model = imps.importanceModel(payload);
+  const envelopeWide = imps.envelopeLegend(model, 1100);
+  const envelopeNarrow = imps.envelopeLegend(model, 400);
+  fire(chart, 'legendselectchanged', { name: envelopeWide, selected: { [envelopeWide]: false } });
+  flush();
+  const before = { hidden: panel.screenHidden, drawer: cp.legendHiddenNames(panel) };
+  // The Details drawer opens and the card narrows: the envelope takes its short name.
+  el.clientWidth = 400;
+  panel.relayout();
+  out.alias = { wide, envelopeWide, envelopeNarrow, before, memory: { ...panel.legendSelected },
+    after: { hidden: panel.screenHidden, drawer: cp.legendHiddenNames(panel), legend: legendOf(),
+      selected: panel.liveLegend?.selected ?? null } };
+  // Switched back on at the narrow width: on under both names.
+  fire(chart, 'legendselectchanged', { name: envelopeNarrow, selected: { [envelopeNarrow]: true } });
+  flush();
+  el.clientWidth = 1100;
+  panel.relayout();
+  out.alias.back = { memory: { ...panel.legendSelected }, hidden: panel.screenHidden, drawer: cp.legendHiddenNames(panel) };
+}
+
+/* ---- review R-N2: an entry a builder starts off leaves its companions out on screen too -------- */
+{
+  class Default extends cp.ChartPanel {
+    buildOption() {
+      const h = cp.hiddenEntries();
+      const series = [{ name: 'A', type: 'line', data: [1] }];
+      if (!h?.has('A')) series.push({ name: 'A (clipped)', type: 'custom', data: [] });
+      series.push({ name: 'B', type: 'line', data: [2] });
+      return { option: { ...cp.baseOption(), legend: cp.chartLegend(['A', 'B'], { selected: { A: false } }), series } };
+    }
+  }
+  const panel = new Default(makeElement(600, 400));
+  panel.render({ n: 1 }, {});
+  const chart = charts[charts.length - 1];
+  const lastSeries = () => chart.calls.filter(([k]) => k === 'setOption').at(-1)[1].series.map((x) => x.name);
+  const first = { hidden: panel.screenHidden, series: lastSeries(), exportOff: cp.legendOffNames(panel) };
+  fire(chart, 'legendselectchanged', { name: 'A', selected: { A: true, B: true } });
+  flush();
+  out.defaults = { first, on: { hidden: panel.screenHidden, series: lastSeries() } };
+}
+
 console.log(JSON.stringify(out));
 process.exit(0);
 """
@@ -285,7 +336,7 @@ def test_with_screen_hidden_sets_the_names_and_restores_the_context_in_force(res
 
 def test_on_screen_the_legend_helpers_keep_every_entry(result):
     assert result["context"]["identity"] == {"same": True, "shownSame": True}
-    # exportAlias adds a name only in an export: a paint lays out at the width the reader clicked at.
+    # legendAlias adds a name only in an export: a paint lays out at the width the reader clicked at.
     assert result["context"]["alias"] == ["wide name"]
 
 
@@ -411,3 +462,32 @@ def test_a_click_resizes_the_catalogue_card_to_the_rows_it_draws(result):
     # The legend keeps the frame, carried by one hidden series.
     assert result["catalog"]["frames"][2] in p["legend"]
     assert p["carrier"] == 1
+
+
+# ------------------------------------------------------------- review fixes R-M3 and R-N2 --
+
+
+def test_a_click_under_a_width_chosen_name_survives_the_relayout_that_renames_it(result):
+    """Review R-M3: the importance envelope is named in full on a wide card and in short on a narrow one. Switched
+    off at 1100 px, it stays off when the card narrows to 400 px (the Details drawer opening at a 1024 px window),
+    and the drawer keeps naming it; switched back on under its short name, it is on under both."""
+    a = result["alias"]
+    assert a["envelopeWide"] != a["envelopeNarrow"], a
+    assert a["envelopeWide"] in a["wide"]
+    assert a["before"] == {"hidden": [a["envelopeWide"]], "drawer": [a["envelopeWide"]]}
+    assert a["memory"][a["envelopeWide"]] is False and a["memory"][a["envelopeNarrow"]] is False
+    assert a["envelopeNarrow"] in a["after"]["legend"]
+    assert a["after"]["hidden"] == [a["envelopeNarrow"]] and a["after"]["drawer"] == [a["envelopeNarrow"]]
+    assert a["after"]["selected"].get(a["envelopeNarrow"]) is False
+    assert a["back"]["memory"][a["envelopeWide"]] is True and a["back"]["memory"][a["envelopeNarrow"]] is True
+    assert a["back"]["hidden"] == [] and a["back"]["drawer"] == []
+
+
+def test_an_entry_a_builder_starts_off_takes_its_companions_along_on_screen(result):
+    """Review R-N2: an export leaves out an entry a builder starts off (`selected: false`); the screen now does too,
+    keeping the entry and its carrier, until the reader switches it on."""
+    d = result["defaults"]
+    assert d["first"]["hidden"] == ["A"] and d["first"]["exportOff"] == ["A"]
+    # The builder keeps A's own series (the legend filter hides it), so no carrier is needed; its companion goes.
+    assert d["first"]["series"] == ["A", "B"]
+    assert d["on"]["hidden"] == [] and d["on"]["series"] == ["A", "A (clipped)", "B"]

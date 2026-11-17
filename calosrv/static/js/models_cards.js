@@ -1358,8 +1358,9 @@ export class ModelsSection {
       record.panelPromise = (async () => {
         const Class = await loadPanelClass(record.spec.panel, this.panelClasses, this.panelModules);
         const panel = new Class(record.plot, { card: record.spec.id });
-        // A legend click redraws nothing of the page, but the drawer names
-        // what the legend hides (`notes`): the page rebuilds it.
+        // A legend click repaints its own chart alone (chart_panel.js
+        // `repaintForLegend`), and the drawer names what the legend hides
+        // (`notes`): the page rebuilds it.
         panel.onLegendChange = () => {
           if (record.payload) this.onRendered(record.spec.id, record.payload);
         };

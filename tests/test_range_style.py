@@ -78,6 +78,25 @@ def test_the_dual_sliders_keep_their_geometry_and_take_the_token():
             assert selectors.startswith(SINGLE), selectors
 
 
+def test_the_dual_fill_stands_proud_of_the_track_against_the_ground():
+    """Review R-M1: the accent fill of the selected interval and --range-track are only about 1.8:1 apart, and no
+    track colour can clear 3:1 on the card and 3:1 from the accent at once. So the fill is 2 px taller than the
+    track and centred on it: its edges stand against the sidebar's ground, where the accent clears 3:1."""
+    c = _strip_comments(_read("controls.css"))
+    shared = re.search(r"\.dual \.track,\s*\.dual \.fill \{([^}]*)\}", c).group(1)
+    # The fill's own rule, not the selector list it shares with the track.
+    fill = re.search(r"(?m)(?<!,\n)^\.dual \.fill \{([^}]*)\}", c).group(1)
+    px = lambda body, prop: float(re.search(rf"{prop}:\s*([\d.]+)px", body).group(1))  # noqa: E731
+    track_top, track_h = px(shared, "top"), px(shared, "height")
+    fill_top, fill_h = px(fill, "top"), px(fill, "height")
+    assert fill_h == track_h + 2 and fill_top == track_top - 1, (fill, shared)
+    assert fill_top + fill_h / 2 == track_top + track_h / 2
+    for tokens in (_dark(), _light()):
+        assert contrast(tokens["--accent"], tokens["--canvas-alt"]) >= 3.0
+        # The fill against the track: under 3:1, which is why the fill's edges must face the ground.
+        assert contrast(tokens["--accent"], tokens["--range-track"]) < 3.0
+
+
 def test_no_accent_color_on_a_range_input():
     for sheet in CSS.glob("*.css"):
         for selectors, body in _rules(sheet.read_text(encoding="utf-8")):

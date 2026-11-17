@@ -567,16 +567,40 @@ export function isExportContext() {
   return exportContext;
 }
 
+/** Every name an entry whose legend name is chosen by width can take, by each of those names (`legendAlias`). */
+const aliasNames = new Map();
+
 /**
- * An entry whose legend name is chosen by width (`fitName` over `candidates`) is left out of an export under the
- * name it takes at the export's width, `chosen`, when the legend on show switched it off under another of its names
- * (review R2-3: a card about 1100 px wide names an envelope in full, a single-column figure in short). Export only:
- * a paint on screen lays out at the width the reader clicked at, where the names are the legend's own. The
+ * An entry whose legend name is chosen by width (`fitName` over `candidates`, the name `chosen`): the
  * name-choosing function calls it, so every reader of the name agrees.
+ *
+ * - The candidates are recorded as one entry's names, so a legend click under one of them is remembered under
+ *   every one (`listenToLegend`): a card about 1100 px wide names an envelope in full and a narrower one in
+ *   short, and a relayout between the two (the Details drawer opening, a window resized) would otherwise bring
+ *   the entry back on and drop it from the drawer's line (review legend-sliders R-M3).
+ * - In an export it is left out under the name it takes at the export's width when the legend on show switched
+ *   it off under another of its names (review R2-3: a single-column figure names it in short).
  */
-export function exportAlias(candidates, chosen) {
+export function legendAlias(candidates, chosen) {
+  const names = [...new Set((candidates ?? []).filter((n) => n !== null && n !== undefined).map(String))];
+  if (names.length > 1) {
+    for (const name of names) {
+      const known = aliasNames.get(name) ?? new Set();
+      for (const other of names) known.add(other);
+      aliasNames.set(name, known);
+    }
+  }
   if (!exportContext || !hiddenNames || chosen === null || chosen === undefined) return;
-  if ((candidates ?? []).some((n) => hiddenNames.has(String(n)))) hiddenNames.add(String(chosen));
+  if (names.some((n) => hiddenNames.has(n))) hiddenNames.add(String(chosen));
+}
+
+/** `change` ({name: shown}, one legend event's) with every other name of each changed entry set alike. */
+function withAliases(change) {
+  const out = { ...change };
+  for (const [name, shown] of Object.entries(change)) {
+    for (const alias of aliasNames.get(name) ?? []) if (!(alias in change)) out[alias] = shown;
+  }
+  return out;
 }
 
 /**
@@ -613,15 +637,23 @@ export function listedNames(option) {
 }
 
 /**
- * The names `panel`'s memory switches off that the legends of `option` list (`listedNames`): the entries a paint
- * of that option leaves out on screen, in the memory's order. A remembered name the option does not list is not
- * among them: nothing of it is drawn, and no entry would bring back a mark left out for it.
+ * The entries a paint of `option` leaves out on screen, those its legends list (`listedNames`) and show as off:
+ * the names `panel`'s memory switches off, in the memory's order, then the names a builder starts off
+ * (`selected: false`) that the memory has not switched back on, as an export leaves them out
+ * (`legendOffNames`). A remembered name the option does not list is not among them: nothing of it is drawn, and
+ * no entry would bring back a mark left out for it.
  */
 export function screenHiddenNames(panel, option) {
-  const off = memoryOff(panel?.legendSelected);
-  if (!off.length) return [];
+  const memory = panel?.legendSelected ?? {};
   const listed = listedNames(option);
-  return off.filter((name) => listed.has(name));
+  const out = memoryOff(memory).filter((name) => listed.has(name));
+  for (const legend of [option?.legend ?? []].flat()) {
+    if (!legend || typeof legend !== 'object' || legend.show === false) continue;
+    for (const [name, shown] of Object.entries(legend.selected ?? {})) {
+      if (shown === false && memory[name] !== true && listed.has(name) && !out.includes(name)) out.push(name);
+    }
+  }
+  return out;
 }
 
 /**
@@ -651,15 +683,14 @@ function withLegendCarriers(option, plain, off) {
 
 /**
  * What a paint of `panel` sets on screen: `build()` (a builder's {option, ...}) under the screen's legend context.
- * With nothing switched off in the reader's memory, one build with no context, exactly as before (the dark golden
- * does not move). Otherwise the option is built once with no context (`plain`), which says what its legends list;
- * with no listed name switched off, that is the result. Else it is built again with those names hidden
- * (`withScreenHidden`), so every builder leaves out their marks, companions and text as an export does, and given
- * their legend carriers (`withLegendCarriers`). The result is the second build's, with `plain` (the first build,
- * for what never depends on the legend: the energy card's notices and table) and `hidden` (the names left out).
+ * The option is built once with no context (`plain`), which says what its legends list and start off; with nothing
+ * listed switched off (`screenHiddenNames`), that build is the result, exactly as before (the dark golden does not
+ * move). Else it is built again with those names hidden (`withScreenHidden`), so every builder leaves out their
+ * marks, companions and text as an export does, and given their legend carriers (`withLegendCarriers`). The result
+ * is the second build's, with `plain` (the first build, for what never depends on the legend: the energy card's
+ * notices and table) and `hidden` (the names left out).
  */
 export function screenBuild(panel, build) {
-  if (!memoryOff(panel?.legendSelected).length) return build();
   const plain = build();
   const off = screenHiddenNames(panel, plain?.option);
   if (!off.length) return plain;
@@ -879,7 +910,8 @@ export function listenToLegend(panel) {
   const chart = panel.chart;
   if (typeof chart?.on !== 'function') return;
   const remember = (event) => {
-    Object.assign(panel.legendSelected, legendChange(event));
+    // Under every name the entry takes by width too (`legendAlias`), so a relayout keeps the reader's choice.
+    Object.assign(panel.legendSelected, withAliases(legendChange(event)));
     inkLiveLegend(panel);
     repaintForLegend(panel);
     if (typeof panel.onLegendChange === 'function') panel.onLegendChange(panel);
