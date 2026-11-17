@@ -113,6 +113,20 @@
    "unit": "%",
    "name": "Robust σ/E [%]"
   },
+  "y_model": {
+   "zero_based": true,
+   "lo": 0.0,
+   "hi": 1.0,
+   "interval": 0.2,
+   "provisional": true,
+   "n_clipped": 0,
+   "unit": "%",
+   "name": "Robust σ/E [%]",
+   "series": [
+    "xgb:a"
+   ],
+   "note": "With the calibrated deposit hidden, the y range is provisional: no window from 4 GeV reaches N = 20, and no window has a marker there, so it spans the empty default, 0–1%."
+  },
   "energy": {
    "x": {
     "min": 0.0,
@@ -130,6 +144,20 @@
     "n_clipped": 0,
     "unit": "%",
     "name": "Robust σ/E [%]"
+   },
+   "y_model": {
+    "zero_based": true,
+    "lo": 0.0,
+    "hi": 1.0,
+    "interval": 0.2,
+    "provisional": true,
+    "n_clipped": 0,
+    "unit": "%",
+    "name": "Robust σ/E [%]",
+    "series": [
+     "xgb:a"
+    ],
+    "note": "With the calibrated deposit hidden, the E view's y range is provisional: no window from 2 GeV reaches N = 20, and no window has a marker there, so it spans the empty default, 0–1%."
    },
    "curve_min_gev": 4.0,
    "noise_min_gev": 1.0,

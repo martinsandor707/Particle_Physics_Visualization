@@ -119,6 +119,21 @@
    "unit": "%",
    "name": "σ/E [%]"
   },
+  "y_model": {
+   "zero_based": true,
+   "lo": 0.0,
+   "hi": 140.0,
+   "interval": 20.0,
+   "provisional": false,
+   "n_clipped": 0,
+   "unit": "%",
+   "name": "σ/E [%]",
+   "series": [
+    "network:a",
+    "network:b"
+   ],
+   "note": "With the calibrated deposit hidden, the y range follows the model series' windows with N ≥ 20 (whiskers included) alone, from zero."
+  },
   "energy": {
    "x": {
     "min": 0.0,
@@ -136,6 +151,21 @@
     "n_clipped": 2,
     "unit": "%",
     "name": "σ/E [%]"
+   },
+   "y_model": {
+    "zero_based": true,
+    "lo": 0.0,
+    "hi": 140.0,
+    "interval": 20.0,
+    "provisional": false,
+    "n_clipped": 0,
+    "unit": "%",
+    "name": "σ/E [%]",
+    "series": [
+     "network:a",
+     "network:b"
+    ],
+    "note": "With the calibrated deposit hidden, the E view's y range follows the model series' windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it."
    },
    "curve_min_gev": 4.0,
    "noise_min_gev": 1.0,

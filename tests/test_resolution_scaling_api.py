@@ -59,10 +59,19 @@ served noise fit is ``rfit.fit_noise`` of its own windows weighted by
 ``fit_kappa(windows, c)``, its parameters bit for bit, in memory and through
 the wire. The E view's two notes are held verbatim: one curve per series, with
 no band.
+
+**The model series' own range** (the res-emax brief §4, Martin's decision of
+2026-11-17): ``axis.y_model`` and ``axis.energy.y_model`` are rebuilt on every
+served response from the model series' windows alone by the full ranges' rule,
+with their keys and the brief's fixed sentence, and are null where the
+response has no model series; ``n_clipped`` counts the model series' marks
+only; every other field stays as recorded; the two-shower response stays
+under the byte contract under every estimator.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -185,6 +194,7 @@ def _common(body):
     bad = [s for s in _strings(body) if signed_hyphens(s)]
     assert not bad, bad[:3]
     _check_windows_alone(body)
+    _check_model_ranges(body)
     _check_misfit(body)
     off = {o["series"]: o for o in body["off_axis"]}
     for s in body["series"]:
@@ -465,12 +475,31 @@ def _served_window_extents(body, energy: bool):
 def _check_windows_alone(body):
     """Both served σ/E ranges are the ranges the served windows alone give (Martin, 2026-11-11)."""
     keys = ("lo", "hi", "interval", "provisional", "n_clipped")
+    linear, e_view = _served_ranges(body)
+    assert {k: body["axis"]["y"][k] for k in keys} == {k: linear[k] for k in keys}
+    assert {k: body["axis"]["energy"]["y"][k] for k in keys} == {k: e_view[k] for k in keys}
+    # The sentences: the windows alone, no fit, and the clipped fits said.
+    (basis,) = [n for n in body["notes"] if n.startswith("The y range ")]
+    assert "No fit sets it" in basis and "clipped there with a caret" in basis
+    assert ("(whiskers included) alone" in basis) == (not body["axis"]["y"]["provisional"])
+    assert "the fits through them" not in basis
+
+
+def _model_body(body):
+    """The body with its model series alone (every series whose source is not the detector)."""
+    return {**body, "series": [s for s in body["series"] if s["source"] != rs.SOURCE_DETECTOR]}
+
+
+def _served_ranges(body):
+    """(1/√E range, E range) the served windows of ``body``'s series give, by the server's rule.
+
+    E view: with nothing robust from 2 GeV, the provisional range follows every marker, those
+    below 2 GeV included.
+    """
     extents, _ = _served_window_extents(body, energy=False)
     linear = response._y_axis(extents)
-    assert {k: body["axis"]["y"][k] for k in keys} == {k: linear[k] for k in keys}
     extents, below = _served_window_extents(body, energy=True)
     if not any(e.robust for e in extents):
-        # Nothing robust from 2 GeV: the provisional range follows every marker, those below 2 GeV included.
         for s in body["series"]:
             for w in s["windows"]:
                 if (w["value"] is not None and w["n"] >= rs.REPORT_MIN_N
@@ -478,12 +507,79 @@ def _check_windows_alone(body):
                     extents.append(response.Extent(w["value"], w["value"], w["value"], False))
     e_view = response._y_axis(extents)
     e_view["n_clipped"] += sum(1 for top in below if top > e_view["hi"])
-    assert {k: body["axis"]["energy"]["y"][k] for k in keys} == {k: e_view[k] for k in keys}
-    # The sentences: the windows alone, no fit, and the clipped fits said.
-    (basis,) = [n for n in body["notes"] if n.startswith("The y range ")]
-    assert "No fit sets it" in basis and "clipped there with a caret" in basis
-    assert ("(whiskers included) alone" in basis) == (not body["axis"]["y"]["provisional"])
-    assert "the fits through them" not in basis
+    return linear, e_view
+
+
+def _expected_model_notes(body):
+    """axis.y_model.note and axis.energy.y_model.note, in the res-emax brief's fixed words (§4)."""
+    models = _model_body(body)
+    fit_n = body["gates"]["fit_n"]
+    linear, e_view = body["axis"]["y_model"], body["axis"]["energy"]["y_model"]
+    hidden = "With the calibrated deposit hidden, "
+
+    def cause(floor):
+        windows = [w for s in models["series"] for w in s["windows"] if w["p_lo"] >= floor]
+        if not [w for w in windows if w["n"] >= fit_n]:
+            return f"no window from {floor:g} GeV reaches N = {fit_n}"
+        return None                                   # the fit-weight cause: checked by its prefix
+
+    def empty(y):
+        return (f"and no window has a marker there, so it spans the empty default, "
+                f"{y['lo']:g}–{y['hi']:g}%")
+
+    if not linear["provisional"]:
+        lin = (f"{hidden}the y range follows the model series' windows with N ≥ {fit_n} "
+               "(whiskers included) alone, from zero.")
+    else:
+        drawn = _served_window_extents(models, energy=False)[0]
+        follows = "so it follows the model series' markers" if drawn else empty(linear)
+        c = cause(rs.E_MIN_GEV)
+        lin = None if c is None else f"{hidden}the y range is provisional: {c}, {follows}."
+    if not e_view["provisional"]:
+        en = (f"{hidden}the E view's y range follows the model series' windows alone, from zero: "
+              f"those with N ≥ {fit_n} from 2 GeV, whiskers included; a window below 2 GeV never "
+              "sets it.")
+    else:
+        marked = any(w["value"] is not None and w["n"] >= rs.REPORT_MIN_N
+                     for s in models["series"] for w in s["windows"])
+        follows = ("so it follows the model series' markers, those below 2 GeV included" if marked
+                   else empty(e_view))
+        c = cause(rs.E_VIEW_Y_MIN_GEV)
+        en = None if c is None else f"{hidden}the E view's y range is provisional: {c}, {follows}."
+    return lin, en
+
+
+#: The keys a y_model carries: the range dict of response._y_axis, the full range's unit and name,
+#: and the model series' keys with the sentence (res-emax brief §4).
+Y_MODEL_KEYS = ("zero_based", "lo", "hi", "interval", "provisional", "n_clipped", "unit", "name",
+                "series", "note")
+
+
+def _check_model_ranges(body):
+    """axis.y_model and axis.energy.y_model: the ranges the served model windows alone give, by the
+    full range's rule, null without a model series (Martin's decision, 2026-11-17)."""
+    models = _model_body(body)
+    keys = [s["key"] for s in models["series"]]
+    linear, e_view = body["axis"]["y_model"], body["axis"]["energy"]["y_model"]
+    if not keys:
+        assert linear is None and e_view is None
+        return
+    expected = _served_ranges(models)
+    for served, full, rebuilt in ((linear, body["axis"]["y"], expected[0]),
+                                  (e_view, body["axis"]["energy"]["y"], expected[1])):
+        assert tuple(served) == Y_MODEL_KEYS
+        assert {k: served[k] for k in rebuilt} == rebuilt
+        assert served["unit"] == full["unit"] and served["name"] == full["name"]
+        assert served["series"] == keys
+        assert not signed_hyphens(served["note"])
+    for served, sentence, prefix in ((linear, _expected_model_notes(body)[0], "the y range"),
+                                     (e_view, _expected_model_notes(body)[1], "the E view's y range")):
+        if sentence is not None:
+            assert served["note"] == sentence
+        else:                                         # a window of N ≥ fit_n with no fit weight
+            assert served["note"].startswith(f"With the calibrated deposit hidden, {prefix} is "
+                                             "provisional: no window from ")
+            assert " carries a fit weight (" in served["note"]
 
 
 def _check_misfit(body):
@@ -590,11 +686,15 @@ def test_the_e_view_fields_of_the_two_shower_payload(synthetic_client, estimator
 @pytest.mark.parametrize("estimator", ESTIMATORS)
 def test_the_two_shower_payload_stays_under_the_contract(synthetic_client, estimator):
     """Measured on 2026-11-10: 56,388 bytes, the E view's fields 1,620 of them; the estimators' fields add
-    about 140 bytes a window (sizes per estimator in data/dev/design/res-robust/S1-backend.md)."""
+    about 140 bytes a window (sizes per estimator in data/dev/design/res-robust/S1-backend.md). The
+    model series' own ranges (axis.y_model, axis.energy.y_model; 2026-11-17) add 654–694 bytes."""
     reply = synthetic_client.get(ROUTE, params={"estimator": estimator})
     assert reply.status_code == 200
     assert len(reply.content) < density.RESPONSE_LIMIT == 100_000
-    assert "over the" not in " ".join(reply.json()["meta"]["warnings"])
+    body = reply.json()
+    assert "over the" not in " ".join(body["meta"]["warnings"])
+    assert body["axis"]["y_model"] is not None and body["axis"]["energy"]["y_model"] is not None
+    assert _y_model_bytes(body) <= Y_MODEL_GUARD
 
 
 def test_coord_system_moves_only_the_network_series(synthetic_client):
@@ -1199,6 +1299,60 @@ def test_c_is_the_median_over_the_fittable_windows_from_4_gev_alone(synthetic_cl
     assert scaled >= 2 and moved >= 1
 
 
+# The model series' own range on two showers (helpers at the end of the module).
+
+
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+def test_y_model_on_two_showers_is_the_networks_range(synthetic_client, estimator):
+    body = _get(synthetic_client, estimator=estimator)
+    for y in (body["axis"]["y_model"], body["axis"]["energy"]["y_model"]):
+        assert y["series"] == ["network:a", "network:b"]
+    _check_model_ranges(body)
+    # The full ranges are still every series' (the deposit's included).
+    linear, e_view = _served_ranges(body)
+    assert {k: body["axis"]["y"][k] for k in linear} == linear
+    assert {k: body["axis"]["energy"]["y"][k] for k in e_view} == e_view
+    assert _y_model_bytes(body) <= Y_MODEL_GUARD
+
+
+def test_n_clipped_counts_the_model_series_marks_only(synthetic_client):
+    """A deposit far above the model series sets the full range and is never counted in y_model's.
+
+    The model series' one weak window (N = 10 at 4 GeV, σ/E about 300%) leaves its own range,
+    which its robust windows set, and is its one clipped mark on both views; every deposit window
+    lies above that range too and would be counted if the deposit's marks entered.
+    """
+    _, result = _in_memory(synthetic_client, "sample")
+    model = dataclasses.replace(_series({**ROBUST, 4: (10, 3.0)}), source=rs.SOURCE_NETWORK,
+                                colour_slot="absolute")
+    deposit = _series({k: (200, 2.0 / np.sqrt(k + 0.5)) for k in range(4, 20)})
+    mixed = dataclasses.replace(result, series=[deposit, model])
+    axis = mixed._axis()
+    for full, own, energy in ((axis["y"], axis["y_model"], False),
+                              (axis["energy"]["y"], axis["energy"]["y_model"], True)):
+        assert own["series"] == ["network:a"]
+        assert not own["provisional"] and own["n_clipped"] == 1
+        expected = (rs.energy_y_axis([model]) if energy else rs.linear_y_axis([model]))
+        assert {k: own[k] for k in expected} == expected
+        assert full == {**(rs.energy_y_axis([deposit, model]) if energy
+                           else rs.linear_y_axis([deposit, model])),
+                        "unit": rs.UNIT, "name": rs.AXIS_NAMES["sample"]}
+        assert full["hi"] > own["hi"]
+        # Every deposit window lies above the model range: counting it would raise n_clipped.
+        deposit_marks = [w for w in deposit.windows
+                         if w.r is not None and (energy or not w.off_axis)]
+        assert deposit_marks and all(100 * w.r > own["hi"] for w in deposit_marks)
+    # With no model series, both are null.
+    alone = dataclasses.replace(result, series=[deposit])._axis()
+    assert alone["y_model"] is None and alone["energy"]["y_model"] is None
+
+
+@pytest.mark.parametrize("name", ["res_scaling_two", "res_scaling_median_two",
+                                  "res_scaling_robust_two"])
+def test_y_model_moves_no_other_two_shower_field(synthetic_client, name):
+    _every_other_field_is_recorded(synthetic_client, name)
+
+
 # ------------------------------------------------------------- one shower --
 
 
@@ -1448,6 +1602,24 @@ def test_a_provisional_mode_makes_its_noise_fit_provisional(single_client):
         assert mode["noise_reason"] == NOISE_REASON_FEW.format(gate=20)
 
 
+# The model series' own range: null on the single-shower kinds.
+
+
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+@pytest.mark.parametrize("table", [SINGLE_HITS_TABLE, SINGLE_EVENTS_TABLE])
+def test_y_model_is_null_without_a_model_series(single_client, table, estimator):
+    """Single-shower hits and the unpaired aggregate serve the deposit alone: no model range."""
+    body = _get(single_client, table_name=table, estimator=estimator)
+    assert [s["source"] for s in body["series"]] == [rs.SOURCE_DETECTOR]
+    assert body["axis"]["y_model"] is None and body["axis"]["energy"]["y_model"] is None
+
+
+@pytest.mark.parametrize("name", ["res_scaling_single_hits", "res_scaling_median_single_events",
+                                  "res_scaling_robust_single_hits"])
+def test_y_model_moves_no_other_single_shower_field(single_client, name):
+    _every_other_field_is_recorded(single_client, name)
+
+
 @pytest.mark.parametrize("estimator", ESTIMATORS)
 def test_the_xgboost_payload_holds_under_every_estimator(xgb_client, estimator):
     _common(_get(xgb_client, table_name=xgb_table(XGB_SOURCE), estimator=estimator))
@@ -1529,6 +1701,18 @@ def test_the_0_to_1_gev_window_never_enters_the_noise_fit(xgb_client, estimator)
             assert mode["points"] == [7, 10]
             assert mode["noise"]["points"] == [1, 7, 10]
             assert mode["noise"]["low_anchor"] == (1 if name == "anchors" else None)
+
+
+# The model series' own range on the XGBoost-paired aggregate.
+
+
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+def test_y_model_on_the_xgboost_aggregate_is_the_regressors_range(xgb_client, estimator):
+    body = _get(xgb_client, table_name=xgb_table(XGB_SOURCE), estimator=estimator)
+    for y in (body["axis"]["y_model"], body["axis"]["energy"]["y_model"]):
+        assert y["series"] == ["xgb:a"]
+    _check_model_ranges(body)
+    assert _y_model_bytes(body) <= Y_MODEL_GUARD
 
 
 # ---------------------------------------------------------- the estimator --
@@ -1721,3 +1905,86 @@ def test_fitted_span_is_null_without_points():
     series = _series(ROBUST)
     assert rs.fitted_span([], series.windows) is None
     assert rs.fitted_span([5, 10, 19], series.windows) == [5.0, 20.0]
+
+
+# ------------------------------------------- the model series' own range --
+# The res-emax brief §4 (Martin's decision, 2026-11-17): the card hides the calibrated deposit by
+# default, and its range then follows the series on show. axis.y_model and axis.energy.y_model are
+# the two views' ranges over the model series alone, by the full ranges' own rule; null without a
+# model series. _common rebuilds both from the wire on every response; the tests below pin the
+# kinds, the sentences, the count of clipped marks and the fields that must not move.
+
+#: The four sentences the recordings serve, verbatim (brief §4).
+Y_MODEL_LINEAR_ROBUST = ("With the calibrated deposit hidden, the y range follows the model series' "
+                         "windows with N ≥ 20 (whiskers included) alone, from zero.")
+Y_MODEL_ENERGY_ROBUST = ("With the calibrated deposit hidden, the E view's y range follows the model "
+                         "series' windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers "
+                         "included; a window below 2 GeV never sets it.")
+Y_MODEL_LINEAR_PROVISIONAL = ("With the calibrated deposit hidden, the y range is provisional: no "
+                              "window from 4 GeV reaches N = 20, so it follows the model series' "
+                              "markers.")
+Y_MODEL_ENERGY_PROVISIONAL = ("With the calibrated deposit hidden, the E view's y range is "
+                              "provisional: no window from 2 GeV reaches N = 20, so it follows the "
+                              "model series' markers, those below 2 GeV included.")
+Y_MODEL_LINEAR_EMPTY = ("With the calibrated deposit hidden, the y range is provisional: no window "
+                        "from 4 GeV reaches N = 20, and no window has a marker there, so it spans "
+                        "the empty default, 0–1%.")
+Y_MODEL_ENERGY_EMPTY = ("With the calibrated deposit hidden, the E view's y range is provisional: no "
+                        "window from 2 GeV reaches N = 20, and no window has a marker there, so it "
+                        "spans the empty default, 0–1%.")
+#: Both y_model objects of one response, compact on the wire: the recordings measure 608–694 bytes
+#: (2026-11-17), so this guard catches growth.
+Y_MODEL_GUARD = 800
+
+
+def _without_y_model(body):
+    body = json.loads(json.dumps(body))
+    body["axis"].pop("y_model")
+    body["axis"]["energy"].pop("y_model")
+    return body
+
+
+def _y_model_bytes(body):
+    return sum(len(json.dumps(y, ensure_ascii=False, separators=(",", ":")).encode())
+               for y in (body["axis"]["y_model"], body["axis"]["energy"]["y_model"]))
+
+
+@pytest.mark.parametrize(("name", "linear", "energy"), [
+    ("res_scaling_two", Y_MODEL_LINEAR_ROBUST, Y_MODEL_ENERGY_ROBUST),
+    ("res_scaling_median_two", Y_MODEL_LINEAR_ROBUST, Y_MODEL_ENERGY_ROBUST),
+    ("res_scaling_robust_two", Y_MODEL_LINEAR_ROBUST, Y_MODEL_ENERGY_ROBUST),
+    ("res_scaling_xgb", Y_MODEL_LINEAR_PROVISIONAL, Y_MODEL_ENERGY_PROVISIONAL),
+    ("res_scaling_median_xgb", Y_MODEL_LINEAR_PROVISIONAL, Y_MODEL_ENERGY_PROVISIONAL),
+    ("res_scaling_robust_xgb", Y_MODEL_LINEAR_EMPTY, Y_MODEL_ENERGY_EMPTY),
+])
+def test_the_y_model_sentences_of_the_recordings(name, linear, energy):
+    """Each recorded sentence, verbatim: robust, provisional on markers, and the empty default."""
+    body = json.loads((recorded_payloads.OUT / f"{name}.json").read_text(encoding="utf-8"))
+    lin, en = body["axis"]["y_model"], body["axis"]["energy"]["y_model"]
+    assert lin["note"] == linear and en["note"] == energy
+    assert lin["provisional"] == en["provisional"] == (linear != Y_MODEL_LINEAR_ROBUST)
+    assert (lin["note"], en["note"]) == _expected_model_notes(body)
+
+
+#: axis and axis.energy keys before y_model joined them (main at cba1710).
+AXIS_KEYS = ["x", "top", "y", "energy"]
+ENERGY_KEYS = ["x", "y", "curve_min_gev", "noise_min_gev", "y_min_gev", "data_max_gev", "rule",
+               "notes"]
+
+
+def _every_other_field_is_recorded(client, name):
+    """The served body without y_model is the recording without it, key order included."""
+    _, path, params, _ = recorded_payloads.PAYLOADS[name]
+    reply = client.get(path, params=params)
+    assert reply.status_code == 200, reply.text
+    served = recorded_payloads._masked(reply.json())
+    stored = json.loads((recorded_payloads.OUT / f"{name}.json").read_text(encoding="utf-8"))
+    for body in (served, stored):
+        assert list(body["axis"]) == ["x", "top", "y", "y_model", "energy"]
+        assert list(body["axis"]["energy"]) == ["x", "y", "y_model", *ENERGY_KEYS[2:]]
+        stripped = _without_y_model(body)
+        assert list(stripped["axis"]) == AXIS_KEYS
+        assert list(stripped["axis"]["energy"]) == ENERGY_KEYS
+    recorded = recorded_payloads._comparable(path, _without_y_model(stored), name)
+    now = recorded_payloads._comparable(path, _without_y_model(served), name)
+    assert now == recorded, recorded_payloads._differences(recorded, now)[:5]
