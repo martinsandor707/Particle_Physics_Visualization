@@ -69,6 +69,20 @@
  * mean rule, whisker or SD bar is drawn, and its tooltip quotes the circular
  * mean direction, R̄ and the circular SD instead of a mean and σ. Its curve,
  * where there is one, is the Gaussian fit of the core, named so.
+ *
+ * ## An export leaves a switched-off entry out
+ *
+ * In an export (chart_panel.js `exportHidden`, set by export/figure.js) a
+ * series whose legend entry is off is drawn nowhere, with every mark of its:
+ * C4's step outlines and kernel curve, and the "beyond the display range"
+ * caret where only left-out series lie beyond; D4's and the residual's
+ * histogram, curve and its "(clipped)" caret, band rows (events, SD band,
+ * mean with its interval, every caret), the long-dashed mean rule with its
+ * "mean" label, and the "beyond the axis" caret where only left-out series
+ * lie beyond. A band left with no row goes. The ranges and the series
+ * colours stay the screen's, and the legend rows are counted without the
+ * entry (`legendShown`, `legendTop`). With no export in progress nothing
+ * changes.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, formatSci, formatPercent, typographic } from '../scale.js';
@@ -79,7 +93,7 @@ import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries, seriesStops, niceCeil,
   niceInterval, withColour, chartLegend, FINE_STEPS, legendTop, legibleOpacity, showerColour, sigmaText,
   referenceRule, dispersionBar, clampInterval, liftedSeries, reservedBand, bandCaption, noticeGraphic, tickLabel,
-  coarseInterval, OFFSET_NOTE,
+  coarseInterval, OFFSET_NOTE, exportHidden, legendShown,
 } from './chart_panel.js';
 
 /** A series below this many showers is drawn dashed (CLAUDE.md histogram floor). */
@@ -208,8 +222,13 @@ export function distributionOption(payload, opts = {}, metrics = {}) {
   const floor = log ? logFloor(list) : 0;
   const series = [];
   const legend = [];
+  // The entries an export in progress leaves out with every mark of theirs (see the header); null on screen.
+  const hidden = exportHidden();
+  const drawn = hidden ? list.filter((s) => !hidden.has(s.label)) : list;
 
   list.forEach((s, k) => {
+    legend.push(s.label);
+    if (hidden?.has(s.label)) return;
     const colour = colours[k];
     const weak = (s.n_showers ?? 0) < SHAPE_FLOOR_SHOWERS;
     const tip = seriesTip(payload, s);
@@ -228,12 +247,11 @@ export function distributionOption(payload, opts = {}, metrics = {}) {
         }), colour));
       }
     }
-    legend.push(s.label);
   });
 
   /* Counts beyond the display range: a caret at each end, listing the series. */
-  const below = list.filter((s) => s.below > 0);
-  const above = list.filter((s) => s.above > 0);
+  const below = drawn.filter((s) => s.below > 0);
+  const above = drawn.filter((s) => s.above > 0);
   const listTip = (rows, where) => {
     const of = (s) => (where === 'below' ? s.below : s.above);
     const total = rows.reduce((sum, s) => sum + of(s), 0);
@@ -259,7 +277,8 @@ export function distributionOption(payload, opts = {}, metrics = {}) {
 
   /* Axes. */
   const wraps = THEME.legendWrap;
-  const rows = wraps ? Math.max(1, legendRows(legend, plotWidthPx, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1;
+  // An export counts the rows of the entries it keeps (`legendShown`; the same array on screen).
+  const rows = wraps ? Math.max(1, legendRows(legendShown(legend), plotWidthPx, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1;
   const top = pad.top + rows * 1.6 * THEME.fontLabel;
   const plotHeightPx = Math.max(60, height - top - pad.bottom);
   const unit = q.unit ? ` [${q.unit}]` : '';
@@ -631,14 +650,18 @@ function fittedOption(model, opts = {}, metrics = {}) {
   const yMax = model.yMax;
   const hasDensity = Number.isFinite(yMax) && yMax > 0;
   const yTop = hasDensity ? yMax : 1;
+  // The entries an export in progress leaves out with every mark of theirs (see the header); null on screen.
+  const hidden = exportHidden();
+  const entryOf = (e) => (e.none ? `${e.label} (not drawn)` : e.label);
+  const entries = hidden ? model.entries.filter((e) => !hidden.has(entryOf(e))) : model.entries;
 
   for (const e of model.entries) {
-    legend.push(e.none ? `${e.label} (not drawn)` : e.label);
-    if (e.none) series.push({ type: 'custom', name: `${e.label} (not drawn)`, silent: true, data: [], renderItem: () => null, itemStyle: { color: e.colour } });
+    legend.push(entryOf(e));
+    if (e.none && entries.includes(e)) series.push({ type: 'custom', name: `${e.label} (not drawn)`, silent: true, data: [], renderItem: () => null, itemStyle: { color: e.colour } });
   }
 
   /* ---- histograms from zero: robust series, they set the range --------- */
-  for (const e of model.entries) {
+  for (const e of entries) {
     if (!e.hist || !hasDensity) continue;
     const points = [[edges[0], 0]];
     for (let i = 0; i < e.hist.length; i += 1) {
@@ -659,7 +682,7 @@ function fittedOption(model, opts = {}, metrics = {}) {
   }
 
   /* ---- curves: thin and faint below the floor, clipped at the range ----- */
-  for (const e of model.entries) {
+  for (const e of entries) {
     if (!e.curve || !hasDensity) continue;
     const peak = Math.max(0, ...e.curve.map((p) => p[1]).filter(Number.isFinite));
     const clipped = peak > yTop;
@@ -684,7 +707,7 @@ function fittedOption(model, opts = {}, metrics = {}) {
   const plotHeightPx = Math.max(60, height - top - pad.bottom);
 
   /* ---- the reserved band, only for the series below the histogram floor - */
-  const bandEntries = model.entries.filter((e) => e.band && (e.strip?.length || e.markers));
+  const bandEntries = entries.filter((e) => e.band && (e.strip?.length || e.markers));
   const captionPx = 1.6 * THEME.fontSmall;
   const rowCount = bandEntries.reduce((sum, e) => sum + (e.strip?.length ? 1 : 0) + (e.markers ? 1 : 0), 0);
   const pitch = Math.max(ROW_MIN_PX, Math.min(ROW_MAX_PX,
@@ -701,7 +724,7 @@ function fittedOption(model, opts = {}, metrics = {}) {
   for (const row of rows) addBandRow(series, model, row, { lo, hi });
 
   /* ---- a histogram series' mean: a rule above the band, its interval an envelope - */
-  for (const e of model.entries) {
+  for (const e of entries) {
     if (e.band || !e.markers || !Number.isFinite(e.markers.mu)) continue;
     const m = e.markers;
     series.push(...referenceRule({
@@ -725,7 +748,7 @@ function fittedOption(model, opts = {}, metrics = {}) {
   }
 
   /* ---- counts beyond the axis, per series --------------------------------- */
-  const beyond = (where) => model.entries.filter((e) => (where === 'below' ? e.below : e.above) > 0);
+  const beyond = (where) => entries.filter((e) => (where === 'below' ? e.below : e.above) > 0);
   const listTip = (rows2, where) => `<b>${formatInt(rows2.reduce((s2, e) => s2 + (where === 'below' ? e.below : e.above), 0))} ${model.noun} ${where} the axis</b><br/>`
     + rows2.map((e) => `${escapeHtml(e.label)}: ${formatInt(where === 'below' ? e.below : e.above)}`).join('<br/>')
     + `<br/>${mutedLine('counted per series, in every statistic; not drawn')}`;
@@ -734,9 +757,10 @@ function fittedOption(model, opts = {}, metrics = {}) {
   if (beyond('above').length) outside.push({ at: [hi, 0], dir: 'right', tooltip: listTip(beyond('above'), 'above') });
   if (outside.length) series.push(caretSeries({ name: 'beyond the axis', carets: outside, color: THEME.muted, liftPx: bandTop + 6 }));
 
-  if (hasDensity && edges.length > 1 && model.entries.some((e) => e.hist)) {
+  if (hasDensity && edges.length > 1 && entries.some((e) => e.hist)) {
     // A list over every drawn series, as C4's: it takes the explanation placement and leaves the chart.
-    series.push(binHoverSeries({ name: 'bin readout', edges, tooltip: (i) => fittedReadout(model, i) }));
+    const readFrom = entries === model.entries ? model : { ...model, entries };
+    series.push(binHoverSeries({ name: 'bin readout', edges, tooltip: (i) => fittedReadout(readFrom, i) }));
   }
 
   const prov = model.xProvisional ? ' — provisional' : '';

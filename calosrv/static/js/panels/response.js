@@ -47,6 +47,18 @@
  * caret, its true values in the tooltip, and counted in the Details drawer
  * over the marks this card draws. Nothing is rescaled to fit a weak bin. A
  * part with nothing estimable says why, with no labelled scale.
+ *
+ * ## An export leaves a switched-off entry out
+ *
+ * In an export (chart_panel.js `exportHidden`, set by export/figure.js) a
+ * series whose legend entry is off is drawn nowhere, nor is any mark of its:
+ * B1's histogram with its mean and 1/c rules (and their "mean f" and
+ * "1/c (Σ E / Σ p)" labels), or a strip series' band rows (events, SD band,
+ * mean with its interval, 1/c diamond and interval, every caret), the band
+ * itself going with the last row; B2's dots, whiskers, SD boxes and its
+ * 1/c rule with its "1/c = …" label and whisker; σ/μ's dots and whiskers.
+ * The ranges stay the screen's, and the legend rows are counted without the
+ * entry (`legendTop`). With no export in progress nothing changes.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt } from '../scale.js';
@@ -56,7 +68,7 @@ import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries,
   clampInterval, showerColour, withColour, niceCeil, niceInterval, FINE_STEPS, legibleOpacity, sigmaText,
-  referenceRule, dispersionBar, dispersionBox, chartLegend, legendTop,
+  referenceRule, dispersionBar, dispersionBox, chartLegend, legendTop, exportHidden,
 } from './chart_panel.js';
 
 export const RESPONSE_MODES = Object.freeze(['b1', 'b2', 'resolution']);
@@ -100,6 +112,11 @@ function span(lo, hi, digits = 3, unit = '') {
 /** The series a card draws: one shower, or both. */
 function shownOf(series, shower) {
   return (series ?? []).filter((s) => !shower || shower === 'both' || s.key === shower);
+}
+
+/** Whether an export in progress leaves out legend entry `name` (see the header); false on screen. */
+function leftOut(hidden, name) {
+  return Boolean(hidden?.has(name));
 }
 
 /** Distinct showers in a list of series, for the colour rule. */
@@ -200,6 +217,8 @@ function b1Option(payload, opts, metrics) {
   const shown = shownOf(block.series, opts.shower);
   const series = [];
   const legend = [];
+  // The entries an export in progress leaves out with every mark of theirs (see the header); null on screen.
+  const hidden = exportHidden();
 
   /* ---- density histograms: robust (N ≥ 15), they set the y range -------- */
   const peaks = [];
@@ -214,6 +233,8 @@ function b1Option(payload, opts, metrics) {
     }
     points.push([edges[density.length], 0]);
     peaks.push(Math.max(0, ...density.filter(Number.isFinite)));
+    legend.push(s.label);
+    if (leftOut(hidden, s.label)) continue;
     series.push({
       type: 'custom',
       name: s.label,
@@ -245,12 +266,13 @@ function b1Option(payload, opts, metrics) {
       }),
       tooltip: { formatter: () => histogramTip(s) },
     });
-    legend.push(s.label);
   }
   const hasDensity = peaks.some((p) => p > 0);
   const yMax = hasDensity ? niceCeil(Y_HEADROOM * Math.max(...peaks), FINE_STEPS) : 1;
-  const strips = shown.filter((s) => s.draw !== 'histogram' || !s.histogram);
-  for (const s of strips) if (s.strip?.values?.length) legend.push(`${s.label} (events)`);
+  const allStrips = shown.filter((s) => s.draw !== 'histogram' || !s.histogram);
+  for (const s of allStrips) if (s.strip?.values?.length) legend.push(`${s.label} (events)`);
+  // In an export a strip series left out takes no row; on screen, every one.
+  const strips = hidden ? allStrips.filter((s) => !leftOut(hidden, `${s.label} (events)`)) : allStrips;
   const top = legendTop(legend, plotWidthPx);
   const plotHeightPx = Math.max(60, height - top - pad.bottom);
 
@@ -283,6 +305,7 @@ function b1Option(payload, opts, metrics) {
   for (const row of rows) addB1Marks(series, row, { lo, hi, yMax, nShowers });
   // A histogram series: its 1/c as a rule from the baseline, its interval a thin envelope.
   for (const s of histograms) {
+    if (leftOut(hidden, s.label)) continue;
     const colour = showerColour(s.key, nShowers);
     addB1Mean(series, s, { lo, hi, yMax, colour });
     addB1Reference(series, s, { lo, hi, yMax, colour });
@@ -294,7 +317,7 @@ function b1Option(payload, opts, metrics) {
       name: 'bin readout',
       edges,
       position: opts.readoutPosition ?? null,
-      tooltip: (i) => b1Readout(shown, edges, i),
+      tooltip: (i) => b1Readout(hidden ? shown.filter((s) => !leftOut(hidden, s.label)) : shown, edges, i),
     }));
   }
 
@@ -739,6 +762,8 @@ function b2Option(payload, opts, metrics) {
   const spans = [];
   const calibrations = [];
   let anyMark = false;
+  // The entries an export in progress leaves out with every mark of theirs (see the header); null on screen.
+  const hidden = exportHidden();
 
   shown.forEach((s, k) => {
     const colour = showerColour(s.key, nShowers);
@@ -773,6 +798,8 @@ function b2Option(payload, opts, metrics) {
       legend.push(label);
       anyMark = true;
     }
+    // Left out of the export: its bins still set the momentum axis, nothing of it is drawn.
+    if (leftOut(hidden, label)) return;
     // The SD boxes: silent, named in the readout; a dashed outline carries their extent.
     series.push({
       type: 'custom',
@@ -813,7 +840,8 @@ function b2Option(payload, opts, metrics) {
     // N and notes, often 150-230 px tall. Like every explanation it leaves the
     // hovered chart (the chart-level placement, tooltip.js), so it never covers
     // the plot it explains; only a short readout stays beside the pointer.
-    tooltip: (i) => momentumReadout(shown, b2Bins, edges, i, b2Tip, (b) => b.mean),
+    tooltip: (i) => momentumReadout(hidden ? shown.filter((s) => !leftOut(hidden, s.label)) : shown,
+      b2Bins, edges, i, b2Tip, (b) => b.mean),
   }));
   if (!anyMark) {
     return emptyOption(opts, metrics, 'No momentum bin holds an event of this selection: there is no sampling fraction to draw.');
@@ -955,6 +983,8 @@ function resolutionOption(payload, opts, metrics) {
   const series = [];
   const legend = [];
   const spans = [];
+  // The entries an export in progress leaves out with every mark of theirs (see the header); null on screen.
+  const hidden = exportHidden();
 
   for (const s of shown) {
     const colour = showerColour(s.key, nShowers);
@@ -972,6 +1002,8 @@ function resolutionOption(payload, opts, metrics) {
     }
     // A series that draws nothing gets no legend entry.
     if (items.length) legend.push(label);
+    // Left out of the export: its bins still set the momentum axis, nothing of it is drawn.
+    if (leftOut(hidden, label)) continue;
     addBinPointMarks(series, {
       label, colour, offsetPx: showerOffset(s.key, both), items, yLo: y.lo, yHi: y.hi,
       tip: (it) => resolutionTip(it.bin, it.series, block),
@@ -996,7 +1028,8 @@ function resolutionOption(payload, opts, metrics) {
     // N and notes, often 150-230 px tall. Like every explanation it leaves the
     // hovered chart (the chart-level placement, tooltip.js), so it never covers
     // the plot it explains; only a short readout stays beside the pointer.
-    tooltip: (i) => momentumReadout(shown, b2Bins, edges, i, (b, label, s) => resolutionTip(b, s, block), (b) => b.value),
+    tooltip: (i) => momentumReadout(hidden ? shown.filter((s) => !leftOut(hidden, s.label)) : shown,
+      b2Bins, edges, i, (b, label, s) => resolutionTip(b, s, block), (b) => b.value),
   }));
 
   const top = legendTop(legend, plotWidthPx);

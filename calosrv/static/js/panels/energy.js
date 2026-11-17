@@ -56,9 +56,18 @@
  * the reader's legend choices (`listenToLegend`) and every paint lays them
  * over the option, draws a hidden entry in a legible ink and, while anything
  * is hidden, clears the chart first (`setOptionWithLegend`). The memory lives
- * as long as the panel, `clear()` keeps it, and it never enters the hash. The
- * exporter reads `legendSelected` too, so a figure leaves the hidden series
- * out; `onLegendChange` tells main.js, which names them in the drawer.
+ * as long as the panel, `clear()` keeps it, and it never enters the hash.
+ * `onLegendChange` tells main.js, which names them in the drawer.
+ *
+ * An export leaves a switched-off entry out with every mark of it (Martin's
+ * decision, 2026-11-17; export/figure.js sets the context, chart_panel.js
+ * `exportHidden`): a histogram, a fitted curve and its "(clipped)" caret, a
+ * strip row's events with its dispersion band and its mean with the 95%
+ * interval (the row is not laid out; the reserved band goes with the last
+ * row), a reference's rule, band and label. Its legend entry goes too, and
+ * the two legends' rows are counted without it (`legendShown`). The density
+ * axis keeps the range the screen shows. With no export in progress nothing
+ * changes.
  */
 
 import {
@@ -66,7 +75,7 @@ import {
 } from '../scale.js';
 import { categoricalStops } from '../palette.js';
 import {
-  isPrintTheme, listenToLegend, onLightCard, seriesStops, setOptionWithLegend,
+  exportHidden, isPrintTheme, legendShown, listenToLegend, onLightCard, seriesStops, setOptionWithLegend,
 } from './chart_panel.js';
 import { fitsWidth, legendRows, wrapText } from '../textfit.js';
 import { hideTooltipOnScroll, plotBoxFromGrid, tooltipOption, tooltipPosition } from './tooltip.js';
@@ -248,6 +257,9 @@ export class EnergyPanel {
     const counts = payload.slice_counts || {};
     const axis = payload.axis || {};
     const thresholds = payload.thresholds || {};
+    // The names an export in progress leaves out with every mark of theirs (see the header); null on screen.
+    const hidden = exportHidden();
+    const off = (name) => Boolean(hidden?.has(name));
 
     // On the light screen card the slices take `seriesStops`, each colour at
     // 3:1 or more against the card: the raw categorical sub-range fell to
@@ -282,7 +294,7 @@ export class EnergyPanel {
       if (entry.histogram && entry.histogram.n_in_range > 0) {
         const centres = axis.hist_centres || [];
         const counts2 = entry.histogram.counts;
-        series.push({
+        if (!off(name)) series.push({
           type: 'line',
           name,
           step: 'middle',
@@ -312,7 +324,7 @@ export class EnergyPanel {
         // imported from the populated slices, not a measurement.
         const thin = !entry.drives_scale;
         const curveName = thin ? `${name} fit (N=${entry.fit.n})` : `${name} fit`;
-        series.push({
+        if (!off(curveName)) series.push({
           type: 'line',
           name: curveName,
           symbol: 'none',
@@ -352,23 +364,35 @@ export class EnergyPanel {
     // Each low-statistics series gets its own row, tightening as their number
     // grows so the reserved band never eats the plot.
     const stripEntries = shown.filter((e) => e.draw !== 'histogram');
+    const stripName = (entry) => {
+      const slice = slices.find((s) => s.index === entry.slice);
+      return `E_${entry.shower.toUpperCase()} · ${slice ? slice.label : String(entry.slice)}`;
+    };
+    // In an export a row left out (its events' entry off) takes no place in the band.
+    const stripRows = hidden
+      ? stripEntries.filter((e) => !off(`${stripName(e)} (events)`))
+      : stripEntries;
     const plotPx = Math.max(140, (metrics.height || 340)
       - (metrics.reservedBottom || 0) - 100);
-    const rowGap = stripEntries.length
+    const rowGap = stripRows.length
       ? Math.max(ROW_GAP_MIN_PX, Math.min(
-        ROW_GAP_MAX_PX, (plotPx * STRIP_BAND_SHARE) / stripEntries.length,
+        ROW_GAP_MAX_PX, (plotPx * STRIP_BAND_SHARE) / stripRows.length,
       ))
       : ROW_GAP_MAX_PX;
 
-    stripEntries.forEach((entry, row) => {
+    stripEntries.forEach((entry) => {
       const colour = sliceColor.get(entry.slice) || THEME.accent;
-      const slice = slices.find((s) => s.index === entry.slice);
-      const sliceLabel = slice ? slice.label : String(entry.slice);
-      const name = `E_${entry.shower.toUpperCase()} · ${sliceLabel}`;
+      const name = stripName(entry);
       const dashed = entry.shower === 'b';
+      const values = (entry.strip && entry.strip.values) || [];
+      const row = stripRows.indexOf(entry);
+      if (row < 0) {
+        // Left out of the export: its entry stays in the names, so the legend marks it off.
+        if (values.length) legendNames.push(`${name} (events)`);
+        return;
+      }
       const rowY = STRIP_BASE_PX + row * rowGap;
 
-      const values = (entry.strip && entry.strip.values) || [];
       if (values.length) {
         // One tick per event along the row. Not a density, and deliberately
         // not drawn as one: its height is a fixed pixel count.
@@ -397,7 +421,7 @@ export class EnergyPanel {
       series.push(this.dispersionSeries(entry, m, colour, name, markerY));
       series.push(this.meanSeries(entry, m, colour, name, xLo, xHi, markerY));
     });
-    const stripCount = stripEntries.length;
+    const stripCount = stripRows.length;
 
     /* The strip rows sit on the density axis at heights that are not densities.
      * That is the one place this panel comes close to CLAUDE.md section 2's
@@ -467,6 +491,7 @@ export class EnergyPanel {
 
     /* ---- clipped low-N curves are disclosed, not silently cut ------------- */
     for (const c of clipped) {
+      if (off(c.name)) continue;
       series.push({
         type: 'custom',
         name: `${c.name} (clipped)`,
@@ -515,6 +540,7 @@ export class EnergyPanel {
       const prefix = benchmark.tooltip_prefix || '[Reference Benchmark]';
       const legendName = `[Ref] ${benchmark.label}`;
       benchmarkNames.push(legendName);
+      if (off(legendName)) continue;
       const tooltipText = () =>
         `<span style="color:${THEME.muted}">${prefix}</span><br/>`
         + `${benchmark.label}<br/>μ = ${formatNumber(benchmark.mu, 2)} GeV`
@@ -569,15 +595,18 @@ export class EnergyPanel {
      * costs less room than wrapping. A printed figure has no scroll arrow to
      * click, so entries the reader cannot reach are entries that are not there
      * - the legend must wrap and the grid must make room for it. */
+    // An export lists and counts the entries it keeps (`legendShown`, the same arrays on screen).
     const wraps = THEME.legendWrap;
+    const mainShown = legendShown(legendNames);
+    const benchShown = legendShown(benchmarkNames);
     const mainRows = wraps
-      ? legendRows(legendNames, plotWidthPx, THEME.fontLabel,
+      ? legendRows(mainShown, plotWidthPx, THEME.fontLabel,
         { fontFamily: THEME.fontFamily })
       : 1;
-    const benchRows = wraps && benchmarkNames.length
-      ? legendRows(benchmarkNames, plotWidthPx, THEME.fontSmall,
+    const benchRows = wraps && benchShown.length
+      ? legendRows(benchShown, plotWidthPx, THEME.fontSmall,
         { fontFamily: THEME.fontFamily })
-      : (benchmarkNames.length ? 1 : 0);
+      : (benchShown.length ? 1 : 0);
     this.lastLegendRows = mainRows + benchRows;
 
     const rowPx = 1.6 * THEME.fontLabel;
@@ -620,10 +649,10 @@ export class EnergyPanel {
       },
       legend: [
         {
-          show: true,
+          show: mainShown === legendNames || mainShown.length > 0,
           type: wraps ? 'plain' : 'scroll',
           top: 0,
-          data: legendNames,
+          data: mainShown,
           textStyle: {
             color: THEME.muted,
             fontSize: THEME.fontLabel,
@@ -632,12 +661,13 @@ export class EnergyPanel {
           inactiveColor: THEME.border,
           itemWidth: 16,
           itemHeight: 8,
+          ...leftOut(legendNames, mainShown),
         },
         {
-          show: benchmarkNames.length > 0,
+          show: benchShown.length > 0,
           type: wraps ? 'plain' : 'scroll',
           top: wraps ? benchTop : 20,
-          data: benchmarkNames,
+          data: benchShown,
           textStyle: {
             color: THEME.muted,
             fontSize: THEME.fontSmall,
@@ -647,6 +677,7 @@ export class EnergyPanel {
           inactiveColor: THEME.border,
           itemWidth: 16,
           itemHeight: 8,
+          ...leftOut(benchmarkNames, benchShown),
         },
       ],
       tooltip: tooltipOption(this.tooltipPosition),
@@ -1098,6 +1129,19 @@ function endMark(x, y, colour, clamped, direction) {
     },
     style: { fill: 'transparent', stroke: colour, lineWidth: 1.2 * THEME.lineAxis },
   };
+}
+
+/**
+ * The `selected` of a legend whose entries an export left out: each name of
+ * `names` missing from `kept` marked false, so its series stays filtered with
+ * no entry listing it. {} when nothing was left out (on screen, `kept` is
+ * `names` itself), so the legend is today's.
+ */
+function leftOut(names, kept) {
+  if (kept === names) return {};
+  const shown = new Set(kept);
+  const dropped = names.filter((name) => !shown.has(name));
+  return dropped.length ? { selected: Object.fromEntries(dropped.map((name) => [name, false])) } : {};
 }
 
 /** Largest finite value, by loop: these arrays are 200 long and there are many. */

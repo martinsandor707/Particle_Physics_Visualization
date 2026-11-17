@@ -33,17 +33,19 @@ Pinned here:
   ``legendHiddenLine`` says so, and panel_notes.js ``withHiddenLegend`` puts the
   line first in Marks and legend (making the section, before Reading the
   density axis, where a drawer has none), with no hazard;
-* the export (``export/figure.js``): the print option carries the memory; a
-  legend that hides an entry greys it in the lightest tint of the print muted
-  ink that clears 4.5:1 on white (#6f7681), where ECharts would have drawn it
-  in the print border, the near-black #111827, darker than the entries on show;
-  a panel without a memory, or with one that hides nothing, keeps the legend's
-  own inks; the screen theme is back after;
+* the export (``export/figure.js``; Martin's decision of 2026-11-17, replacing
+  the greyed entry of 2026-11-11): what the legend on show switches off, the
+  reader's memory or a builder's own default, is left out of the figure with
+  its legend entry: the printed legend lists none of it, marks it false and
+  greys nothing (no inactive ink is laid); a panel without a memory, or with
+  one that hides nothing, exports the legend as built, in its own inks; the
+  export's legend context is cleared and the screen theme is back after;
 * Page 1's energy panel (``panels/energy.js``), on the recorded two-shower
   response: the same listeners, memory, clear and ink through the shared
   helpers, on its two legends (the series and the references) each taking the
   names it lists; across shower A alone (fewer series) and back; its drawer
-  line; its export;
+  line; its export, which lists neither left-out entry, marks both off and
+  greys neither;
 * the export's legend context (res-emax, Martin's decision of 2026-11-17):
   with none set, ``chartLegend``, ``wrappedLegend`` and ``legendTop`` return
   what they returned before ``setExportHidden`` was ever called; with one set,
@@ -317,9 +319,11 @@ const exportOf = (p) => {
   const made = charts.slice(n).filter((c) => c.renderer === 'svg');
   const set = made.flatMap((c) => c.calls.filter(([kind]) => kind === 'setOption'));
   return { charts: made.length, selected: set.map(([, option]) => option.legend?.selected ?? null),
+    data: set.map(([, option]) => (option.legend?.data ?? null)?.map((d) => d?.name ?? d) ?? null),
+    show: set.map(([, option]) => option.legend?.show ?? null),
     inks: set.map(([, option]) => [option.legend?.inactiveColor ?? null, option.legend?.inactiveBorderColor ?? null]),
     lines: set.map(([, option]) => option.legend?.lineStyle?.inactiveColor ?? null),
-    screenBack: THEME.medium !== 'print' };
+    screenBack: THEME.medium !== 'print', contextCleared: cp.exportHidden() === null };
 };
 out.export = { hidden: exportOf(panel) };
 const plain = {
@@ -337,18 +341,30 @@ const exportWith = (memory) => {
 };
 out.export.nothingHidden = exportWith({});
 out.export.allShown = exportWith({ A: true });
-// The print inks, measured under the print tokens: the grey the export gives a hidden entry, against the ink of
-// the entries on show and the border ECharts would otherwise use.
+// One entry off of two, painted first so the legend on show carries it: the figure keeps the other.
+{
+  const p = new TinyPanel(element);
+  p.render({ n: 1 }, {});
+  p.legendSelected.B = false;
+  p.render({ n: 1 }, {});
+  out.export.oneOff = exportOf(p);
+}
+// A builder's own default off (no memory): the legend on show marks it off, so the figure leaves it out too.
+{
+  class DefaultOff extends cp.ChartPanel {
+    buildOption() {
+      return { option: { ...cp.baseOption(), legend: cp.chartLegend(['A', 'B'], { selected: { B: false } }), series } };
+    }
+  }
+  const p = new DefaultOff(element);
+  p.render({ n: 1 }, {});
+  out.export.builderDefault = exportOf(p);
+}
+// The print border: the legend's own inactiveColor (chartLegend's THEME.border), which the export no longer replaces.
 {
   const { PRINT_TOKENS } = await imp('export/tokens.js');
-  const { contrast } = await imp('palette.js');
-  const saved = { ...THEME };
-  Object.assign(THEME, PRINT_TOKENS);
-  const white = cp.rgbOf(THEME.card);
-  const ink = fig.printInactiveInk();
-  out.printInk = { ink, inkOnCard: contrast(cp.rgbOf(ink), white), mutedOnCard: contrast(cp.rgbOf(THEME.muted), white),
-    border: THEME.border, screenRule: cp.legendInactiveInk() };
-  Object.assign(THEME, saved);
+  out.printBorder = PRINT_TOKENS.border;
+  out.figureExports = Object.keys(fig).sort();
 }
 
 /* ---- Page 1's energy panel: the same memory, events, clear, ink, drawer and export ---- */
@@ -402,7 +418,7 @@ out.export.allShown = exportWith({ A: true });
   const notes = pn.withHiddenLegend(pn.energyNotes({ payload, notices: ep.lastNotices }), ep);
   record.notes = notes.sections.map((s) => [s.heading, s.lines]);
   record.builderNotes = pn.energyNotes({ payload, notices: ep.lastNotices }).sections.map((s) => s.heading);
-  // The export: the figure leaves both out, its legends grey them in the print's ink.
+  // The export: the figure leaves both out with their entries, and greys nothing.
   const n = charts.length;
   fig.exportPanel(ep, { panelId: 'energy', format: 'svg', widthMm: 85, state: null });
   const printed = charts.slice(n).filter((c) => c.renderer === 'svg')
@@ -633,8 +649,9 @@ def test_every_legend_event_tells_the_page_once_with_the_panel(result):
 
 # --------------------------------------------------- the ink of a hidden entry --
 
-#: The inactive inks: the faintest tint of each card's muted ink at 4.5:1 (chart_panel.js `legendInactiveInk`).
-DARK_INACTIVE, LIGHT_INACTIVE, PRINT_INACTIVE = "#808993", "#6e7780", "#6f7681"
+#: The inactive inks: the faintest tint of each screen card's muted ink at 4.5:1 (chart_panel.js
+#: `legendInactiveInk`). An export lays none: it leaves a hidden entry out (res-emax, 2026-11-17).
+DARK_INACTIVE, LIGHT_INACTIVE = "#808993", "#6e7780"
 
 
 @pytest.mark.parametrize(("theme", "ink", "card"), [("dark", DARK_INACTIVE, "#1c2128"),
@@ -687,7 +704,7 @@ def test_with_inactive_ink_is_pure_and_inks_only_a_legend_that_hides(result):
     # An array legend: the one that hides is inked, the others are the same objects (a hidden legend included).
     assert [a["inactive"] for a in got["array"]] == [DARK_INACTIVE, None, None], got["array"]
     assert got["arraySame"] == [True, True], got
-    # An ink handed in (the export's print ink) is the one laid.
+    # An ink handed in is the one laid.
     assert {k: got["given"][k] for k in ("inactive", "border", "line")} == {
         "inactive": "#123456", "border": "#123456", "line": "#123456"}
 
@@ -734,35 +751,49 @@ def test_with_hidden_legend_puts_the_line_first_in_marks_and_legend_and_adds_no_
 # ------------------------------------------------------------------ the export --
 
 
-def test_the_export_leaves_out_what_the_legend_hides(result):
+def test_the_export_leaves_out_what_the_legend_hides_with_its_entry(result):
+    """Martin's decision of 2026-11-17: an exported figure describes only what is on show. A series switched off on
+    the legend is left out together with its entry (the greyed entry of 2026-11-11 is retired)."""
     got = result["export"]
-    ink = result["printInk"]
-    # The panel's memory at the end of the paint steps: A and B both switched off by the inverse.
-    assert got["hidden"]["charts"] == 1 and got["hidden"]["selected"] == [{"A": False, "B": False}], got
-    assert got["hidden"]["screenBack"], got
-    # Its legend greys the hidden entries, text, swatch and swatch line, in the print's inactive ink.
-    assert got["hidden"]["inks"] == [[ink["ink"], ink["ink"]]], (got["hidden"], ink)
-    assert got["hidden"]["lines"] == [ink["ink"]], got["hidden"]
+    # The panel's memory at the end of the paint steps: A and B both switched off by the inverse. Neither is listed,
+    # both are marked off, and a legend left with no entry is not shown.
+    hidden = got["hidden"]
+    assert hidden["charts"] == 1 and hidden["selected"] == [{"A": False, "B": False}], hidden
+    assert hidden["data"] == [[]] and hidden["show"] == [False], hidden
+    # One of two off: the other entry alone is listed.
+    one = got["oneOff"]
+    assert one["data"] == [["A"]] and one["selected"] == [{"B": False}] and one["show"] == [True], one
+    # A builder's own default off is left out as the reader's choice is.
+    default = got["builderDefault"]
+    assert default["data"] == [["A"]] and default["selected"] == [{"B": False}], default
+    # The context is cleared and the screen theme is back after every export.
+    for case in got.values():
+        assert case["screenBack"] and case["contextCleared"], case
+
+
+def test_no_exported_legend_entry_is_greyed(result):
+    """No inactive ink is laid on an export: the legend keeps the builder's own `inactiveColor` (the print border)
+    and gains no swatch or swatch-line ink, whatever the memory hides. figure.js no longer exports a print ink."""
+    got = result["export"]
+    border = result["printBorder"]
+    for key, case in got.items():
+        assert case["lines"] == [None], (key, case)
+        for inactive, swatch in case["inks"]:
+            assert swatch is None, (key, case)
+            assert inactive in (None, border), (key, case)
+    assert "printInactiveInk" not in result["figureExports"], result["figureExports"]
+    assert "printLegendOption" in result["figureExports"], result["figureExports"]
+
+
+def test_a_panel_that_hides_nothing_exports_its_legend_as_built(result):
+    got = result["export"]
     # A panel without a memory, and one whose memory is empty, export the option as built; one whose memory hides
-    # nothing keeps the legend's own inks.
+    # nothing keeps the legend's own entries and inks.
     assert got["noMemory"]["selected"] == [None] and got["noMemory"]["inks"] == [[None, None]], got
-    assert got["nothingHidden"]["selected"] == [None], got
-    assert got["allShown"]["selected"] == [{"A": True}], got
-    assert got["allShown"]["inks"] == [[ink["border"], None]], (got["allShown"], ink)
-    assert got["allShown"]["lines"] == [None], got["allShown"]
-
-
-def test_a_hidden_entry_is_printed_lighter_than_the_entries_on_show_and_still_legible(result):
-    """ECharts draws a hidden entry in `inactiveColor`, which `chartLegend` takes from THEME.border, and the print
-    border (#111827) is darker than the print muted ink of the entries on show (#374151): the hidden entry would
-    read as the emphasised one. The export's grey is the lightest tint of the muted ink at the 4.5:1 text floor."""
-    ink = result["printInk"]
-    assert ink["inkOnCard"] >= 4.5, ink
-    assert ink["inkOnCard"] < 5, "the faintest legible tint, so it reads as off"
-    assert ink["inkOnCard"] < ink["mutedOnCard"], ink
-    assert ink["ink"].lower() == PRINT_INACTIVE, ink
-    # The screen's rule, taken under the print tokens: one derivation for the three cards.
-    assert ink["screenRule"] == ink["ink"], ink
+    assert got["noMemory"]["data"] == [["A", "B"]], got
+    assert got["nothingHidden"]["selected"] == [None] and got["nothingHidden"]["data"] == [["A", "B"]], got
+    assert got["allShown"]["selected"] == [{"A": True}] and got["allShown"]["data"] == [["A", "B"]], got
+    assert got["allShown"]["inks"] == [[result["printBorder"], None]], got["allShown"]
 
 
 # ------------------------------------------------------- Page 1's energy panel --
@@ -837,16 +868,20 @@ def test_the_energy_drawer_names_the_hidden_series_in_a_marks_and_legend_section
 
 
 def test_the_energy_export_leaves_out_what_the_legend_hides(result):
-    """figure.js's energy branch reads `legendSelected` too: each printed legend marks its own hidden entry off, in
-    the print's inactive ink (text, swatch, swatch line), and the screen theme is back after."""
+    """figure.js's energy branch reads the legend on show too: each printed legend lists none of its own left-out
+    entries, marks them off and greys nothing; the rest of each legend is kept, and the screen theme is back after."""
     got = result["energy"]["export"]
     entry, reference = result["energy"]["entry"], result["energy"]["reference"]
     assert got["screenBack"], got
     assert len(got["printed"]) == 1, got
     series, references = got["printed"][0]
-    assert series["selected"] == {entry: False} and references["selected"] == {reference: False}, got
+    assert entry not in series["data"] and reference not in references["data"], got
+    # The on-screen legends held 14 and 2 entries; one of each is left out.
+    assert len(series["data"]) == 13 and len(references["data"]) == 1, got
+    assert series["selected"][entry] is False and references["selected"][reference] is False, got
     for legend in (series, references):
-        assert (legend["inactive"], legend["border"], legend["line"]) == (PRINT_INACTIVE,) * 3, legend
+        assert legend["border"] is None and legend["line"] is None, legend
+        assert legend["inactive"] == result["printBorder"], legend
 
 
 # ------------------------------------------- the export's legend context (res-emax) --

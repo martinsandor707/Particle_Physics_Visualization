@@ -610,9 +610,10 @@ export function withLegendMemory(option, memory) {
  * - the dark screen card #1c2128: #808993 at 4.56:1, beside the muted #8b949e
  *   at 5.26:1. The card leaves little room under the muted ink, so the grey
  *   swatch is what mostly says "off";
- * - the light screen card #ffffff: #6e7780 at 4.55:1, beside #59636e at 6.11:1;
- * - print: #6f7681 at 4.58:1, beside #374151 at 10.31:1
- *   (export/figure.js `printInactiveInk`).
+ * - the light screen card #ffffff: #6e7780 at 4.55:1, beside #59636e at 6.11:1.
+ *
+ * Screen only: an export greys nothing. It leaves a switched-off entry out of
+ * its legend together with its series (export/figure.js `printLegendOption`).
  */
 export function legendInactiveInk() {
   const card = rgbOf(THEME.card) ?? [28, 33, 40];
