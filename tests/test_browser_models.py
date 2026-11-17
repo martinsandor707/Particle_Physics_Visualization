@@ -127,6 +127,7 @@ from conftest import BASELINE_TABLE, MODELS_XGB_TABLE, SINGLE_HITS_TABLE
 from test_browser_physics import (
     _PROBE, _RECORD_CANVAS_TEXT, _WATCH_EXPORTS, _WATCH_HOVER, _assert_sections, _beside, _check_tips,
     _download_svg, _hyphen_negatives, _live_series, _overlap, _route_requests,
+    _DRAWN as _CHART_DRAWN, _click_legend as _click_chart_legend,
 )
 
 pytestmark = pytest.mark.skipif(
@@ -4148,6 +4149,88 @@ def test_the_resolution_cards_export_describes_only_what_is_on_show(models_live_
     assert problems_cut == [], problems_cut
 
 
+def _assert_carried(drawn, name, key, where):
+    """The entry `name` is off and every mark of it has left the canvas (legend-sliders, Martin's decision of
+    2026-11-17): the legend marks it off, exactly one series of its name is left (its legend carrier, the entry's
+    first series), filtered and drawing nothing, and no other series of its key (`<key>|…`) is on the chart."""
+    series, selected = drawn
+    assert selected.get(name) is False, (where, selected)
+    own = [(sid, v) for sid, v in series.items() if v[0] == name]
+    assert len(own) == 1, (where, "not exactly one series of the entry (its legend carrier)", own)
+    assert own[0][1][1] is True and own[0][1][3] == 0, (where, "the carrier is drawn", own)
+    others = [sid for sid in series if str(sid).startswith(f"{key}|") and sid != own[0][0]]
+    assert others == [], (where, "marks of the entry left on the chart", others)
+
+
+def test_a_resolution_entry_switched_off_takes_its_end_label_and_off_scale_values_off_the_screen(models_live_server):
+    """The screen draws what the export draws (legend-sliders, Martin's decision of 2026-11-17), on the resolution
+    card's E view with the recorded two-shower response (the card's defaults: E view, deposit hidden, both showers).
+
+    Shower B's energy network switched off with a click on its legend entry: after the repaint, every mark of its key
+    (`network:b|…`) has left the chart but one legend carrier, filtered and drawing nothing; the end-label column
+    holds "A" and no "B"; the legend still lists the entry, in the legible inactive ink. Switched back on, "B"
+    returns and every series draws as the fresh render did. The recording draws no off-scale window, so the note band
+    is checked on a copy whose model-series E range ends at 60% (as the export test does): both networks' off-scale
+    values are named, and shower B's leave the note band with its entry and come back with it, shower A's staying.
+    No request, no page error."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        assert _res_press(page, "res-view", "energy")
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+        fresh = _drawn(page)
+        assert LEGEND_ON_SHOW not in fresh[1], fresh[1]
+        labels = page.evaluate(_RES_PANEL_MARKS)["endLabels"]
+        assert sorted(set(labels) & {"A", "B"}) == ["A", "B"], labels
+        assert any(str(sid).startswith("network:b|") and v[3] for sid, v in fresh[0].items()), sorted(fresh[0])
+        # The recording itself draws no off-scale window (what the note band would name).
+        assert "off scale" not in _res_note(page), _res_note(page)
+        before = len(requests)
+
+        _click_legend(page, LEGEND_ON_SHOW)
+        _assert_carried(_drawn(page), LEGEND_ON_SHOW, "network:b", "B switched off")
+        labels = page.evaluate(_RES_PANEL_MARKS)["endLabels"]
+        assert "A" in labels and "B" not in labels, labels
+        assert LEGEND_ON_SHOW in page.evaluate(_RES_LEGEND_NAMES), page.evaluate(_RES_LEGEND_NAMES)
+        ink = page.evaluate(_RES_LEGEND_INK, LEGEND_ON_SHOW)
+        assert ink["text"] == SCREEN_INACTIVE["dark"] and set(ink["swatch"]) == {SCREEN_INACTIVE["dark"]}, ink
+
+        _click_legend(page, LEGEND_ON_SHOW)
+        assert problems == [], problems
+        assert _drawn(page) == (fresh[0], {LEGEND_ON_SHOW: True})
+        labels = page.evaluate(_RES_PANEL_MARKS)["endLabels"]
+        assert sorted(set(labels) & {"A", "B"}) == ["A", "B"], labels
+        assert requests[before:] == [], f"the legend asked the service: {requests[before:]}"
+        browser.close()
+
+        # The note band's off-scale values: a copy whose model-series E range ends at 60%.
+        bodies = {}
+        for est in RES_ESTIMATORS:
+            served = _fixture_payload(RES_TWO, est)
+            served["axis"]["energy"]["y_model"].update(hi=60.0, interval=10.0)
+            bodies[est] = json.dumps(served)
+        browser, page, problems_cut, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_bodies(page, bodies)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        note = _res_note(page)
+        assert "off scale" in note and "A network" in note and "B network" in note, note
+        before = len(requests)
+        _click_legend(page, LEGEND_ON_SHOW)
+        note = _res_note(page)
+        assert "off scale" in note and "A network" in note and "B network" not in note, note
+        _click_legend(page, LEGEND_ON_SHOW)
+        note = _res_note(page)
+        assert "A network" in note and "B network" in note, note
+        assert requests[before:] == [], f"the legend asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+    assert problems_cut == [], problems_cut
+
+
 # ---------------------------------------------------------------- 3-D views --
 
 
@@ -6206,6 +6289,107 @@ def test_the_accuracy_cards_log10_button_puts_the_angle_facet_on_a_log_axis_draw
                                timeout=5_000)
         assert page.evaluate(_FACET_MARKS, "plot-perf-catalog") == linear
         assert requests[asked:] == [], f"the angle axis control asked the service: {requests[asked:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+#: The catalogue card as a chart holds it: each facet's category rows (benchCatalogModel keys, `<species>:<frame>`
+#: and `gap:<i>`), each value axis's type and range, the legend's names and selected map, and the plot's height
+#: (the element ECharts draws in, sized by CatalogChartPanel.fitHeight) and the chart's.
+_CATALOG_ROWS_FN = """(inst) => {
+  const o = inst.getOption();
+  const legend = (o.legend || [])[0] || {};
+  return {
+    rows: (o.yAxis || []).map((a) => [...(a.data || [])].map((d) => (typeof d === 'object' ? d.value : d))),
+    x: (o.xAxis || []).map((a) => [a.type ?? 'value', a.min ?? null, a.max ?? null]),
+    legend: (legend.data || []).map((d) => (typeof d === 'string' ? d : d?.name)),
+    selected: { ...(legend.selected || {}) },
+    chart: inst.getHeight(),
+  };
+}"""
+
+_CATALOG_ROWS = f"""(plotId) => {{
+  const host = document.getElementById(plotId);
+  return {{ ...({_CATALOG_ROWS_FN})(echarts.getInstanceByDom(host)), plot: host.getBoundingClientRect().height }};
+}}"""
+
+#: The same, for every SVG export as it is serialised (the exporter's own chart).
+_WATCH_EXPORT_ROWS = f"""() => {{
+  if (window.__exportRows) return;
+  window.__exportRows = [];
+  const init = echarts.init;
+  echarts.init = function (dom, theme, opts) {{
+    const chart = init.call(this, dom, theme, opts);
+    if (opts && opts.renderer === 'svg') {{
+      const render = chart.renderToSVGString.bind(chart);
+      chart.renderToSVGString = (...args) => {{
+        window.__exportRows.push(({_CATALOG_ROWS_FN})(chart));
+        return render(...args);
+      }};
+    }}
+    return chart;
+  }};
+}}"""
+
+#: The catalogue's legend entry of the Local frame (bench_catalog.js labelOf(payload, 'frame', 'local')).
+CATALOG_LOCAL = "Local"
+
+
+def _svg_height(svg):
+    return float(re.search(r'<svg[^>]*?\sheight="([\d.]+)', svg).group(1))
+
+
+def test_the_catalogue_card_lays_out_its_facets_without_a_frame_switched_off(models_live_server):
+    """Review R2-7 on screen and in the export (legend-sliders, 2026-11-17; bench_catalog.js benchCatalogModel): the
+    Local frame switched off on the accuracy card's legend takes its rows out of every facet, so no empty, unlabelled
+    slot is left. The live chart's category axes hold no `<species>:local` row, the card's plot element is shorter,
+    the value axes do not move, and the legend still lists Local, marked off. The SVG export lays its facets out
+    without those rows too: no `:local` row, no "Local" text (its legend entry and any row label), and a figure
+    shorter than the whole figure's. Switched back on, the rows, the plot's height and the chart return. No request,
+    no page error."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        page.evaluate(_WATCH_EXPORT_ROWS)
+        _scroll_to(page, "perf-catalog")
+        _frames(page, 3)
+        whole = page.evaluate(_CATALOG_ROWS, "plot-perf-catalog")
+        assert whole["rows"] and all(any(r.endswith(":local") for r in rows) for rows in whole["rows"]), whole["rows"]
+        assert CATALOG_LOCAL in whole["legend"], whole["legend"]
+        _, whole_svg = _download_svg(page, "perf-catalog")
+        whole_export = page.evaluate("() => window.__exportRows.at(-1)")
+        assert CATALOG_LOCAL in _svg_texts(whole_svg), sorted(set(_svg_texts(whole_svg)))
+        before = len(requests)
+
+        _click_chart_legend(page, "plot-perf-catalog", CATALOG_LOCAL)
+        _frames(page, 3)
+        off = page.evaluate(_CATALOG_ROWS, "plot-perf-catalog")
+        assert off["selected"].get(CATALOG_LOCAL) is False and CATALOG_LOCAL in off["legend"], off
+        assert not [r for rows in off["rows"] for r in rows if r.endswith(":local")], off["rows"]
+        assert [[r for r in rows if not r.endswith(":local")] for rows in whole["rows"]] == off["rows"], \
+            (whole["rows"], off["rows"])
+        assert off["x"] == whole["x"], ("the value axes moved", whole["x"], off["x"])
+        assert off["plot"] < whole["plot"] and off["chart"] < whole["chart"], (whole["plot"], off["plot"])
+        drawn = page.evaluate(_CHART_DRAWN, "plot-perf-catalog")["series"]
+        own = [s for s in drawn if s[0] == CATALOG_LOCAL]
+        assert len(own) == 1 and own[0][1] is True and own[0][3] == 0, own
+
+        name, svg = _download_svg(page, "perf-catalog")
+        exported = page.evaluate("() => window.__exportRows.at(-1)")
+        assert not [r for rows in exported["rows"] for r in rows if r.endswith(":local")], exported["rows"]
+        assert CATALOG_LOCAL not in exported["legend"], exported["legend"]
+        assert CATALOG_LOCAL not in _svg_texts(svg), sorted(set(_svg_texts(svg)))
+        assert _svg_height(svg) < _svg_height(whole_svg), (_svg_height(whole_svg), _svg_height(svg))
+        assert exported["chart"] < whole_export["chart"], (whole_export["chart"], exported["chart"])
+        print("catalogue heights", {"plot": [whole["plot"], off["plot"]], "chart": [whole["chart"], off["chart"]],
+                                    "svg": [_svg_height(whole_svg), _svg_height(svg)], "name": name})
+
+        _click_chart_legend(page, "plot-perf-catalog", CATALOG_LOCAL)
+        _frames(page, 3)
+        back = page.evaluate(_CATALOG_ROWS, "plot-perf-catalog")
+        assert back["rows"] == whole["rows"] and back["x"] == whole["x"], back
+        assert back["plot"] == whole["plot"] and back["chart"] == whole["chart"], (whole, back)
+        assert back["selected"].get(CATALOG_LOCAL) is not False, back["selected"]
+        assert requests[before:] == [], f"the legend or an export asked the service: {requests[before:]}"
         browser.close()
     assert problems == [], problems
 
