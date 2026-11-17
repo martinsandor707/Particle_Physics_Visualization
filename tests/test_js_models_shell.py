@@ -729,20 +729,26 @@ def test_the_resolution_card_asks_with_the_selection_and_the_frames_energy_netwo
     assert r["one"]["params"]["estimator"] == r["open"]["params"]["estimator"] == "median"
     # It draws whatever network is selected: no notice, unlike the performance cards.
     assert r["notice"] is None
-    assert r["controls"] == ["resView", "resEstimator", "resWindows", "resScalingShower", "resLiterature"]
-    assert r["optionsTwo"] == {"palette": "viridis", "card": "res-scaling", "view": "linear", "estimator": "median",
-                                "literature": ["pi", "e"], "windows": "all", "shower": "b"}
+    # The Deposit toggle and the E max slider (Martin's decisions of 2026-11-17), in the brief's order.
+    assert r["controls"] == ["resView", "resEstimator", "resWindows", "resScalingShower", "resDeposit", "resLiterature",
+                             "resEMax"]
+    # The card opens on the E view with the deposit hidden and E max at the slider's lower end (null).
+    assert r["optionsTwo"] == {"palette": "viridis", "card": "res-scaling", "view": "energy", "estimator": "median",
+                                "literature": ["pi", "e"], "windows": "all", "shower": "b", "deposit": False,
+                                "eMax": None}
     # One shower: no shower choice reaches the panel.
-    assert r["optionsOne"] == {"palette": "viridis", "card": "res-scaling", "view": "linear", "estimator": "median",
-                                 "literature": ["pi", "e"], "windows": "anchors", "shower": "both"}
+    assert r["optionsOne"] == {"palette": "viridis", "card": "res-scaling", "view": "energy", "estimator": "median",
+                                 "literature": ["pi", "e"], "windows": "anchors", "shower": "both", "deposit": False,
+                                 "eMax": None}
 
 
 def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
     v = request_results["resScaling"]["views"]
     assert v["viewChoices"] == ["linear", "energy"]
-    # Under the default estimator, the median relative error, the card is not titled a resolution.
-    assert v["titles"][0] == v["titles"][2] == "Median Relative Error vs. 1/\u221aE"
-    assert v["titles"][1] == "Median Relative Error vs. E"
+    # Under the default estimator, the median relative error, the card is not titled a resolution; it opens on the
+    # E view (Martin's decisions of 2026-11-17), so the default title is the E view's.
+    assert v["titles"][0] == "Median Relative Error vs. 1/\u221aE"
+    assert v["titles"][1] == v["titles"][2] == "Median Relative Error vs. E"
     assert v["titles"][3] == "Model Error vs. Incident Momentum"
     assert v["refControl"] is False, "one set of literature buttons (Martin, 2026-11-11): no separate reference control"
     assert v["windows"][0] == ["3 anchors", "All \u2265 4 GeV"]
@@ -812,8 +818,9 @@ def test_the_responses_estimator_wins_over_the_control_in_the_title(request_resu
 def test_an_exported_resolution_figure_names_its_estimator(request_results):
     """The response's estimator, else the one asked for; never on another card."""
     m = request_results["resScaling"]["views"]["est"]["metas"]
-    assert m[0] == {"estimator": "robust"}
-    assert m[1] == {"estimator": "sample", "view": "energy", "reference": "e"}
+    # On the card the meta also says whether the deposit is drawn (no `deposit` option: it is, as before).
+    assert m[0] == {"estimator": "robust", "deposit": True}
+    assert m[1] == {"estimator": "sample", "deposit": True, "view": "energy", "reference": "e"}
     assert m[2] == {}
 
 
@@ -2626,3 +2633,365 @@ def test_the_page_holds_a_landed_card():
     land = source[source.index("function landDeepLink"):source.index("async function boot")]
     assert "pinOnResize({ card: result.card, watch: document.getElementById(`msub-${" in land
     assert land.index("revealPanel(") < land.index("pinOnResize(")
+
+
+# ----------------------------------------- the resolution card's E max and deposit --
+#
+# Martin's decisions of 2026-11-17 (data/dev/design/res-emax/brief.md §6): the card opens on the E view with the
+# calibrated deposit hidden, a one-button Deposit toggle (shut where the deposit is the response's only series)
+# and an E max slider from the data's top window edge to the server's axis end, hidden on the 1/√E view. Both
+# repaint the response in hand and never ask the server again. The pure parts (the specs, the options, the
+# export's meta) and the section on the fake document (the slider's DOM and sync, its input coalescing).
+
+_RES_CARD_SCRIPT = _FAKE_DOM + r"""
+const [cardsUrl, stateUrl, capsUrl, labelsUrl, cataloguePath, fixturePaths] = JSON.parse(process.argv[1]);
+const catalogue = load(cataloguePath);
+const fixtures = loadAll(fixturePaths);
+const cards = await import(cardsUrl);
+const { State } = await import(stateUrl);
+const caps = await import(capsUrl);
+const { MODELS_LABELS } = await import(labelsUrl);
+const exps = Object.fromEntries(catalogue.experiments.map((e) => [e.capabilities.kind, e]));
+const out = { labels: { forced: MODELS_LABELS.res_deposit_forced, emaxTitle: MODELS_LABELS.res_emax.title,
+  fixed: MODELS_LABELS.res_emax_fixed, deposit: MODELS_LABELS.res_deposit } };
+const two = fixtures.two;
+const deposit = fixtures.single;
+// The data reach the axis end: the slider's two ends meet.
+const flat = structuredClone(two);
+flat.axis.energy.data_max_gev = flat.axis.energy.x.max;
+
+// ---- the pure parts
+const ctl = Object.fromEntries(cards.cardControls('res-scaling').map((c) => [c.name, c]));
+const d = ctl.resDeposit;
+const r = ctl.resEMax;
+const at = (payload, controls = {}) => ({ payload, controls: { ...cards.DEFAULT_CONTROLS, ...controls } });
+out.defaults = Object.fromEntries(['resView', 'resEstimator', 'resDeposit', 'resEMax', 'resLiterature', 'resWindows',
+  'resScalingShower'].map((k) => [k, cards.DEFAULT_CONTROLS[k]]));
+out.defaultTitle = [cards.cardTitle('res-scaling'), cards.MODELS_CARDS.find((c) => c.id === 'res-scaling').title];
+out.deposit = {
+  spec: { kind: d.kind, attr: d.attr, label: d.label, request: d.request ?? null, stateKey: d.stateKey ?? null,
+    visible: 'visible' in d },
+  choices: d.choices({}),
+  pressed: {
+    twoOff: d.pressed(at(two, { resDeposit: 'off' }), 'on'), twoOn: d.pressed(at(two, { resDeposit: 'on' }), 'on'),
+    singleOff: d.pressed(at(deposit, { resDeposit: 'off' }), 'on'), singleOn: d.pressed(at(deposit, { resDeposit: 'on' }), 'on'),
+  },
+  toggle: [d.toggle(at(two, { resDeposit: 'off' }), 'on'), d.toggle(at(two, { resDeposit: 'on' }), 'on')],
+  disabled: { two: d.choiceDisabled(at(two), 'on'), single: d.choiceDisabled(at(deposit), 'on'), none: d.choiceDisabled(at(null), 'on') },
+};
+out.emax = {
+  spec: { kind: r.kind, attr: r.attr, label: r.label, request: r.request ?? null, stateKey: r.stateKey ?? null,
+    title: r.title, fixedTitle: r.fixedTitle, ariaLabel: r.ariaLabel, unit: r.unit },
+  range: [r.range(at(two)), r.range(at(deposit)), r.range(at(flat)), r.range(at(null))],
+  get: [r.get(at(two)), r.get(at(two, { resEMax: 37 })), r.get(at(two, { resEMax: 500 })), r.get(at(two, { resEMax: 5 })),
+    r.get(at(null, { resEMax: 40 }))],
+  visible: [r.visible(at(two, { resView: 'energy' })), r.visible(at(two, { resView: 'linear' }))],
+};
+const opt = (controls, plan = caps.page2Plan(exps.two_shower_hits)) => cards.cardOptions('res-scaling', { plan, controls });
+out.options = {
+  default: opt({}),
+  on: opt({ resDeposit: 'on', resEMax: 45 }),
+  linear: opt({ resView: 'linear', resEMax: 45 }),
+  // Only the resolution card takes them.
+  perf: Object.keys(cards.cardOptions('perf-bins', { plan: caps.page2Plan(exps.two_shower_hits), controls: { resDeposit: 'on' } })),
+};
+const meta = (payload, controls) => cards.exportMeta(payload, opt(controls));
+out.metas = {
+  twoDefault: meta(two, {}),
+  twoOn: meta(two, { resDeposit: 'on', resEMax: 45 }),
+  twoNoLit: meta(two, { resLiterature: '' }),
+  twoNoLitOn: meta(two, { resLiterature: '', resDeposit: 'on' }),
+  twoOneLit: meta(two, { resLiterature: 'e' }),
+  singleForced: meta(deposit, { resLiterature: '' }),
+  linear: meta(two, { resView: 'linear' }),
+  flat: meta(flat, {}),
+  // Without the option (the builders' own callers) nothing new is named in the E view.
+  noOption: cards.exportMeta(two, { card: 'res-scaling', estimator: 'median', view: 'energy', literature: [] }),
+};
+
+// ---- the section on the fake document
+const frames = new Map();
+let frameId = 0;
+const cancelled = [];
+globalThis.requestAnimationFrame = (fn) => { frameId += 1; frames.set(frameId, fn); return frameId; };
+globalThis.cancelAnimationFrame = (id) => { cancelled.push(id); frames.delete(id); };
+const runFrames = () => { const due = [...frames.values()]; frames.clear(); for (const fn of due) fn(); };
+const calls = [];
+let body = two;
+globalThis.fetch = async (url) => {
+  const u = new URL(url);
+  calls.push(u.pathname + u.search);
+  if (u.pathname === '/api/resolution-scaling') return { ok: true, status: 200, json: async () => body };
+  return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({ detail: 'no route' }) };
+};
+const rendered = [];
+class FakePanel {
+  constructor(element) { this.element = element; }
+  render(payload, opts) { rendered.push(opts); }
+  clear() {}
+  relayout() {}
+  setBusy() {}
+}
+const build = () => {
+  window.location.hash = '';
+  const state = new State();
+  const host = document.createElement('section');
+  const section = new cards.ModelsSection({ resolution: host }, {
+    state, panelClasses: { ResolutionScalingPanel: FakePanel }, notesModules: { models: {} }, root: 'MAIN',
+  });
+  const sets = [];
+  const set = section.setControl.bind(section);
+  section.setControl = (control, value) => { sets.push([control.name, value]); return set(control, value); };
+  const card = host.children[0];
+  const open = async (kind, table) => {
+    const plan = caps.page2Plan(exps[kind]);
+    state.restrictAxes(plan.axes);
+    state.set({ table_name: table }, { silent: true });
+    section.applyPlan(plan);
+    FakeObserver.last.show([card]);
+    await settle();
+  };
+  return { state, section, sets, card, open };
+};
+const one = build();
+const { section, sets, card } = one;
+const label = card.find((el) => el.tagName === 'LABEL');
+const input = label.find((el) => el.tagName === 'INPUT');
+const output = label.find((el) => el.tagName === 'OUTPUT');
+const button = card.find((el) => el.dataset.resDeposit === 'on');
+const snap = () => ({
+  hidden: label.hidden, disabled: input.disabled, title: label.title, min: input.min, max: input.max, step: input.step,
+  value: input.value, output: output.textContent,
+});
+const pressed = () => ({ pressed: button.getAttribute('aria-pressed'), active: button.classList.contains('is-active'),
+  disabled: button.disabled, title: button.title });
+out.dom = {
+  label: { className: label.className, card: label.dataset.resEmax, title: label.title,
+    children: label.children.map((c) => [c.tagName, c.className]), name: label.children[0].textContent },
+  input: { type: input.type, aria: input.getAttribute('aria-label') },
+  order: card.children[0].children[1].children.map((el) => el.tagName === 'LABEL' ? 'range'
+    : (el.dataset.export ? 'export' : (el.dataset.inspect ? 'details' : el.getAttribute('aria-label')))),
+  depositGroup: button.parent.getAttribute('aria-label'),
+  depositButtons: button.parent.children.length,
+  depositLabel: button.textContent,
+};
+out.beforePayload = snap();
+await one.open('two_shower_hits', 'experiment_baseline');
+const requests = () => calls.filter((c) => c.startsWith('/api/resolution-scaling')).length;
+out.loaded = { ...snap(), requests: requests(), opts: rendered.at(-1), deposit: pressed() };
+
+// Two input events in one frame: one set, at the frame, with the value then on the input.
+input.value = '35'; input.dispatch('input');
+input.value = '40'; input.dispatch('input');
+out.coalesce = { before: sets.length, frames: frames.size };
+runFrames();
+out.coalesce.after = [...sets];
+out.coalesce.stored = section.controls.resEMax;
+out.coalesce.type = typeof section.controls.resEMax;
+out.coalesce.snap = snap();
+out.coalesce.opts = rendered.at(-1);
+// A `change` of the value already stored sets nothing new (early return: no repaint).
+const paints = rendered.length;
+input.value = '40'; input.dispatch('change');
+out.sameChange = { sets: sets.length, repaints: rendered.length - paints };
+// A `change` sets at once, and takes over a frame still pending.
+input.value = '50'; input.dispatch('input');
+input.value = '55'; input.dispatch('change');
+out.change = { stored: section.controls.resEMax, cancelled: [...cancelled], snap: snap() };
+const setsBefore = sets.length;
+runFrames();
+out.change.afterFrames = sets.length - setsBefore;
+// The value written back after a set is the one in force: snapped to the slider's grid.
+section.setControl(ctl.resEMax, 62);
+out.writeBack = { stored: section.controls.resEMax, snap: snap(), opts: rendered.at(-1).eMax };
+// The Deposit toggle: a click draws the deposit, a second hides it again; repaints only.
+button.click();
+out.depositOn = { stored: section.controls.resDeposit, ...pressed(), opts: rendered.at(-1).deposit };
+button.click();
+out.depositOff = { stored: section.controls.resDeposit, ...pressed(), opts: rendered.at(-1).deposit };
+// The 1/√E view hides the slider and keeps the deposit toggle.
+card.find((el) => el.dataset.resView === 'linear').click();
+out.linear = { hidden: label.hidden, depositHidden: button.parent.hidden, title: card.find((el) => el.className === 'title').textContent };
+card.find((el) => el.dataset.resView === 'energy').click();
+out.backToEnergy = { hidden: label.hidden, title: card.find((el) => el.className === 'title').textContent };
+out.requestsAfter = requests();
+// An export names what is drawn now.
+out.exportMeta = section.exportTarget('res-scaling').meta;
+
+// The data reach the axis end: the slider is shut with its reason.
+section.reset();
+body = flat;
+await one.open('two_shower_hits', 'experiment_baseline');
+out.flat = snap();
+// The deposit is the only series: forced on, the toggle shut with its reason.
+section.reset();
+body = deposit;
+await one.open('single_shower_events', 'single_events');
+out.single = { ...snap(), deposit: pressed(), exportMeta: section.exportTarget('res-scaling').meta };
+// A shut card: its slider goes with its picture.
+const shut = caps.page2Plan(exps.two_shower_hits);
+shut.cards = { ...shut.cards, 'res-scaling': { shown: true, enabled: false, reason: 'Shut for the test.' } };
+section.applyPlan(shut);
+out.shut = { hidden: label.hidden, depositHidden: button.parent.hidden };
+
+// Without requestAnimationFrame an input sets at once.
+delete globalThis.requestAnimationFrame;
+delete globalThis.cancelAnimationFrame;
+body = two;
+const bare = build();
+await bare.open('two_shower_hits', 'experiment_baseline');
+const bareInput = bare.card.find((el) => el.tagName === 'INPUT');
+bareInput.value = '30'; bareInput.dispatch('input');
+bareInput.value = '35'; bareInput.dispatch('input');
+out.noFrame = { sets: bare.sets, stored: bare.section.controls.resEMax };
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def res_card_results() -> dict:
+    fixtures = {"two": _path("res_scaling_median_two"), "single": _path("res_scaling_median_single_events")}
+    return _run(_RES_CARD_SCRIPT, [
+        (JS / "models_cards.js").as_uri(), (JS / "state.js").as_uri(), (JS / "capabilities.js").as_uri(),
+        (JS / "labels.js").as_uri(), _path("experiments"), fixtures,
+    ])
+
+
+def test_the_resolution_card_opens_on_the_focused_comparison(res_card_results):
+    """Martin's decisions of 2026-11-17: the E view, the median, the deposit hidden, both showers, E max at the
+    slider's lower end; the title is the E view's."""
+    r = res_card_results
+    assert r["defaults"] == {"resView": "energy", "resEstimator": "median", "resDeposit": "off", "resEMax": None,
+                             "resLiterature": "pi,e", "resWindows": "anchors", "resScalingShower": "both"}
+    assert r["defaultTitle"] == ["Median Relative Error vs. E", "Median Relative Error vs. E"]
+
+
+def test_the_deposit_toggle_is_one_render_only_button_shut_where_the_deposit_is_alone(res_card_results):
+    d = res_card_results["deposit"]
+    assert d["spec"] == {"kind": "toggles", "attr": "resDeposit", "label": "Benchmark", "request": None,
+                         "stateKey": None, "visible": False}, "shown on both views, never in a link, no request"
+    assert d["choices"] == res_card_results["labels"]["deposit"] and [c["value"] for c in d["choices"]] == ["on"]
+    # Pressed is whether the deposit is drawn: hidden on two showers while off, always drawn where it is alone.
+    assert d["pressed"] == {"twoOff": False, "twoOn": True, "singleOff": True, "singleOn": True}
+    assert d["toggle"] == ["on", "off"]
+    forced = res_card_results["labels"]["forced"]
+    assert d["disabled"] == {"two": None, "single": forced, "none": None}
+    assert forced == "The calibrated deposit is this response's only series, so it is always drawn."
+
+
+def test_the_e_max_slider_runs_from_the_datas_top_edge_to_the_axis_end(res_card_results):
+    e = res_card_results["emax"]
+    labels = res_card_results["labels"]
+    assert e["spec"] == {"kind": "range", "attr": "resEmax", "label": "E max", "request": None, "stateKey": None,
+                         "title": labels["emaxTitle"], "fixedTitle": labels["fixed"],
+                         "ariaLabel": "E max, the upper end of the energy axis in GeV", "unit": "GeV"}
+    # Two showers: data to 18 GeV, rounded up to the 5 GeV step; the deposit-only file: data to 20 GeV.
+    assert e["range"] == [{"min": 20, "max": 80, "step": 5}, {"min": 20, "max": 80, "step": 5},
+                          {"min": 80, "max": 80, "step": 5}, None]
+    # null opens on the lower end; a number is clamped and snapped to the grid; no payload, no value.
+    assert e["get"] == [20, 35, 80, 20, None]
+    assert e["visible"] == [True, False], "E view only: the 1/√E view's right border stays the origin"
+
+
+def test_the_card_options_carry_the_deposit_and_e_max(res_card_results):
+    o = res_card_results["options"]
+    assert o["default"]["deposit"] is False and o["default"]["eMax"] is None and o["default"]["view"] == "energy"
+    assert o["on"]["deposit"] is True and o["on"]["eMax"] == 45
+    # The panel reads eMax in the E view only; the option travels in both.
+    assert o["linear"]["view"] == "linear" and o["linear"]["eMax"] == 45
+    assert "deposit" not in o["perf"] and "eMax" not in o["perf"]
+
+
+_NAMING_KEYS = ("estimator", "deposit", "view", "eMax", "literature", "reference")
+
+
+def _naming(meta: dict) -> dict:
+    """The keys the resolution card adds to its response's meta (export/filename.js), the rest being the payload's."""
+    return {k: meta[k] for k in _NAMING_KEYS if k in meta}
+
+
+def test_an_exported_resolution_figure_names_its_deposit_e_max_and_reference(res_card_results):
+    m = {k: _naming(v) for k, v in res_card_results["metas"].items()}
+    assert m["twoDefault"] == {"estimator": "median", "deposit": False, "view": "energy", "eMax": 20,
+                               "literature": ["pi", "e"]}
+    assert m["twoOn"] == {"estimator": "median", "deposit": True, "view": "energy", "eMax": 45,
+                          "literature": ["pi", "e"]}
+    # No literature curve and the deposit hidden: nothing to divide by.
+    assert m["twoNoLit"]["reference"] == "none" and m["twoNoLit"]["deposit"] is False
+    assert m["twoNoLitOn"]["reference"] == "deposit"
+    assert m["twoOneLit"]["reference"] == "e"
+    # The deposit alone is forced on: it is drawn, and it is the ratio's reference.
+    assert m["singleForced"]["deposit"] is True and m["singleForced"]["reference"] == "deposit"
+    # The 1/√E view: no E max, no view, no reference.
+    assert m["linear"] == {"estimator": "median", "deposit": False}
+    assert m["flat"]["eMax"] == 80
+    assert m["noOption"] == {"estimator": "median", "deposit": True, "view": "energy", "reference": "deposit"}
+
+
+def test_the_e_max_slider_is_a_labelled_range_built_without_markup(res_card_results):
+    dom = res_card_results["dom"]
+    assert dom["label"] == {"className": "mini-range", "card": "res-scaling",
+                            "title": res_card_results["labels"]["emaxTitle"],
+                            "children": [["SPAN", "mini-range-name"], ["INPUT", "mini-range-input"],
+                                         ["OUTPUT", "mini-range-value"]], "name": "E max"}
+    assert dom["input"] == {"type": "range", "aria": "E max, the upper end of the energy axis in GeV"}
+    assert dom["order"] == ["details", "View", "Estimator", "Windows", "Showers", "Benchmark", "Literature curves",
+                            "range", "export"]
+    assert dom["depositGroup"] == "Benchmark" and dom["depositButtons"] == 1 and dom["depositLabel"] == "Deposit"
+
+
+def test_the_slider_is_hidden_until_the_card_has_a_response_and_then_opens_on_the_datas_top_edge(res_card_results):
+    r = res_card_results
+    assert r["beforePayload"]["hidden"] is True
+    loaded = r["loaded"]
+    assert {k: loaded[k] for k in ("hidden", "disabled", "min", "max", "step", "value", "output")} == {
+        "hidden": False, "disabled": False, "min": "20", "max": "80", "step": "5", "value": "20", "output": "20 GeV"}
+    assert loaded["title"] == r["labels"]["emaxTitle"]
+    assert loaded["requests"] == 1
+    assert loaded["opts"]["deposit"] is False and loaded["opts"]["eMax"] is None and loaded["opts"]["view"] == "energy"
+    # Two showers with networks: the deposit is hidden, the toggle is live.
+    assert loaded["deposit"] == {"pressed": "false", "active": False, "disabled": False,
+                                 "title": r["labels"]["deposit"][0]["title"]}
+
+
+def test_input_events_are_coalesced_to_one_set_per_frame_and_a_change_sets_at_once(res_card_results):
+    r = res_card_results
+    c = r["coalesce"]
+    assert c["before"] == 0 and c["frames"] == 1
+    assert c["after"] == [["resEMax", 40]] and c["stored"] == 40 and c["type"] == "number"
+    assert c["snap"]["value"] == "40" and c["snap"]["output"] == "40 GeV" and c["opts"]["eMax"] == 40
+    assert r["sameChange"] == {"sets": 2, "repaints": 0}, "the stored number is set again: an early return"
+    ch = r["change"]
+    assert ch["stored"] == 55 and ch["cancelled"] == [2] and ch["afterFrames"] == 0
+    assert ch["snap"]["value"] == "55" and ch["snap"]["output"] == "55 GeV"
+    # The value written back is the one in force, snapped to the 5 GeV grid from 20.
+    w = r["writeBack"]
+    assert w["stored"] == 62 and w["snap"]["value"] == "60" and w["snap"]["output"] == "60 GeV" and w["opts"] == 62
+    # Without requestAnimationFrame every input sets at once.
+    assert r["noFrame"] == {"sets": [["resEMax", 30], ["resEMax", 35]], "stored": 35}
+
+
+def test_the_deposit_toggle_and_the_view_repaint_without_a_request(res_card_results):
+    r = res_card_results
+    assert r["depositOn"] == {"stored": "on", "pressed": "true", "active": True, "disabled": False,
+                              "title": r["labels"]["deposit"][0]["title"], "opts": True}
+    assert r["depositOff"]["stored"] == "off" and r["depositOff"]["pressed"] == "false" and r["depositOff"]["opts"] is False
+    assert r["linear"] == {"hidden": True, "depositHidden": False, "title": "Median Relative Error vs. 1/√E"}
+    assert r["backToEnergy"] == {"hidden": False, "title": "Median Relative Error vs. E"}
+    assert r["requestsAfter"] == 1, "the slider, the toggle and the view repaint the response in hand"
+    assert _naming(r["exportMeta"]) == {"estimator": "median", "deposit": False, "view": "energy", "eMax": 60,
+                                        "literature": ["pi", "e"]}
+
+
+def test_the_slider_and_the_toggle_are_shut_with_their_reasons(res_card_results):
+    r = res_card_results
+    assert r["flat"]["hidden"] is False and r["flat"]["disabled"] is True and r["flat"]["title"] == r["labels"]["fixed"]
+    assert r["flat"]["min"] == r["flat"]["max"] == "80" and r["flat"]["output"] == "80 GeV"
+    s = r["single"]
+    assert s["deposit"] == {"pressed": "true", "active": True, "disabled": True, "title": r["labels"]["forced"]}
+    # The card's E max is its own, kept across an experiment switch and clamped to the new response's slider.
+    assert s["hidden"] is False and s["min"] == "20" and s["value"] == "60" and s["output"] == "60 GeV"
+    # Forced on, so the export names it drawn; both literature curves are on, so no reference is named.
+    assert _naming(s["exportMeta"]) == {"estimator": "median", "deposit": True, "view": "energy", "eMax": 60,
+                                        "literature": ["pi", "e"]}
+    assert r["shut"] == {"hidden": True, "depositHidden": True}
