@@ -2675,6 +2675,8 @@ out.deposit = {
   pressed: {
     twoOff: d.pressed(at(two, { resDeposit: 'off' }), 'on'), twoOn: d.pressed(at(two, { resDeposit: 'on' }), 'on'),
     singleOff: d.pressed(at(deposit, { resDeposit: 'off' }), 'on'), singleOn: d.pressed(at(deposit, { resDeposit: 'on' }), 'on'),
+    // Before the first response: the toggle alone (the default, hidden, never reads as pressed).
+    noneOff: d.pressed(at(null, { resDeposit: 'off' }), 'on'), noneOn: d.pressed(at(null, { resDeposit: 'on' }), 'on'),
   },
   toggle: [d.toggle(at(two, { resDeposit: 'off' }), 'on'), d.toggle(at(two, { resDeposit: 'on' }), 'on')],
   disabled: { two: d.choiceDisabled(at(two), 'on'), single: d.choiceDisabled(at(deposit), 'on'), none: d.choiceDisabled(at(null), 'on') },
@@ -2872,7 +2874,8 @@ def test_the_deposit_toggle_is_one_render_only_button_shut_where_the_deposit_is_
                          "stateKey": None, "visible": False}, "shown on both views, never in a link, no request"
     assert d["choices"] == res_card_results["labels"]["deposit"] and [c["value"] for c in d["choices"]] == ["on"]
     # Pressed is whether the deposit is drawn: hidden on two showers while off, always drawn where it is alone.
-    assert d["pressed"] == {"twoOff": False, "twoOn": True, "singleOff": True, "singleOn": True}
+    assert d["pressed"] == {"twoOff": False, "twoOn": True, "singleOff": True, "singleOn": True,
+                            "noneOff": False, "noneOn": True}
     assert d["toggle"] == ["on", "off"]
     forced = res_card_results["labels"]["forced"]
     assert d["disabled"] == {"two": None, "single": forced, "none": None}

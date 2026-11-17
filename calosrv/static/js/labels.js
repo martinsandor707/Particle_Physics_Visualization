@@ -302,6 +302,7 @@ export const MODELS_LABELS = Object.freeze({
   res_emax: {
     label: 'E max',
     title: 'The upper end of the E view\'s energy axis, in 5 GeV steps: from the data\'s highest window edge, so every window stays on the axis, to the axis end the server sets. Nothing beyond it is drawn on either panel, and no fit is refitted; the card repaints without a request.',
+    aria: 'E max, the upper end of the energy axis in GeV',
   },
   res_emax_fixed: 'The data reach the axis end, so there is no extrapolation to cut.',
   // The resolution card's windows: the three anchors its fits are defined on, or every

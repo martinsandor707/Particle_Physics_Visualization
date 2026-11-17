@@ -554,7 +554,10 @@ const RES_LITERATURE_CONTROL = {
 const RES_DEPOSIT_CONTROL = {
   name: 'resDeposit', kind: 'toggles', attr: 'resDeposit', label: 'Benchmark',
   choices: () => MODELS_LABELS.res_deposit,
-  pressed: ({ payload, controls }) => depositShown(payload, controls?.resDeposit === 'on'),
+  // Before the card's first response the button reads the toggle alone: with no payload there is no "only
+  // series" to force it on, and the default (hidden) must not read as pressed.
+  pressed: ({ payload, controls }) => (payload
+    ? depositShown(payload, controls?.resDeposit === 'on') : controls?.resDeposit === 'on'),
   toggle: ({ controls }) => (controls?.resDeposit === 'on' ? 'off' : 'on'),
   choiceDisabled: ({ payload }) => (depositForced(payload) ? MODELS_LABELS.res_deposit_forced : null),
 };
@@ -569,7 +572,7 @@ const RES_EMAX_CONTROL = {
   name: 'resEMax', kind: 'range', attr: 'resEmax', label: MODELS_LABELS.res_emax.label,
   title: MODELS_LABELS.res_emax.title,
   fixedTitle: MODELS_LABELS.res_emax_fixed,
-  ariaLabel: 'E max, the upper end of the energy axis in GeV',
+  ariaLabel: MODELS_LABELS.res_emax.aria,
   unit: 'GeV',
   range: (ctx) => eMaxRange(ctx.payload),
   get: (ctx) => eMaxOf(ctx.payload, ctx.controls.resEMax),
