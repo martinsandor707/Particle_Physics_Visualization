@@ -304,3 +304,32 @@
   color: var(--muted);
   border-bottom: 1px solid var(--border);
 }
+
+/* The E max slider of the resolution card (res_emax): a labelled range input and its
+   value, one inline unit in the wrapping card toolbar, sized like the .mini controls
+   (10px). The input's width is fixed and the output reserves room for its widest value
+   ("100 GeV"), so the toolbar does not reflow as the value changes while it is dragged.
+   Nothing here is animated. */
+.mini-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.mini-range-name { color: var(--text); }
+.mini-range-input {
+  flex: 0 1 8em;
+  width: 8em;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.mini-range-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mini-range-input:disabled { opacity: 0.6; cursor: not-allowed; }
+.mini-range-value {
+  min-width: 4.5em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.mini-range[hidden] { display: none; }
