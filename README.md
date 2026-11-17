@@ -3797,7 +3797,7 @@ is left out; nothing is substituted for what is missing.
 | Section | `two_shower_hits` | `single_shower_hits` | `single_shower_events` (aggregate) |
 |---|---|---|---|
 | Model performance | The energy and angle networks' per-shower predictions, in every input frame at once (segmentation has no per-shower prediction) | Absent: no networks | The **XGBoost** hold-out series, once an analysis is done; otherwise absent |
-| Energy resolution | The calibrated deposit (hidden by the card's Deposit toggle until switched on) and the energy network of the selected frame, showers A and B kept apart | The calibrated deposit, named after the selection's species | The calibrated deposit and, once an analysis is done, the XGBoost momentum hold-out |
+| Energy resolution | The calibrated deposit (hidden by the card's Deposit toggle until switched on) and the energy network of the selected frame, showers A and B kept apart | The calibrated deposit, named after the selection's species (drawn whatever the Deposit toggle says: it is the only series) | The calibrated deposit and, once an analysis is done, the XGBoost momentum hold-out (the deposit then hidden by the Deposit toggle until switched on; drawn whatever it says before) |
 | XGBoost model | Absent | Absent | Shown when a model run pairs with the experiment; its cards open when the analysis is done and current |
 | Event features | Both showers, each in its own right, in the Absolute, per-shower translated and Local frames, rebuilt from the per-event Group-1 sums | Shower A, same frames | The producer's own feature columns, as stored |
 | Primaries | Absent: the species columns are not in the two-shower export | The share of events with no primary-tagged hit | Absent: no hits |
