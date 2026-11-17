@@ -1160,10 +1160,11 @@ RES_EMAX = '.main .card[data-panel="res-scaling"] label.mini-range[data-res-emax
 #: Their fixed text (labels.js MODELS_LABELS.res_deposit, res_deposit_forced, res_emax; brief §6.3), verbatim.
 RES_DEPOSIT_TITLE = ("Draw or hide the calibrated deposit c·E_dep, the linear-sum benchmark, on both views: its windows, "
                      "its fitted curve and its fit-table rows. Hidden, the error-scale range follows the model series "
-                     "alone, and the ratio panel divides by the literature curve on show, or draws nothing with none on.")
+                     "alone, and the ratio panel divides by the literature curve on show (with both on, the one the "
+                     "model series' windows lie farther from), or draws nothing with none on.")
 RES_DEPOSIT_FORCED = "The calibrated deposit is this response's only series, so it is always drawn."
-RES_EMAX_TITLE = ("The upper end of the E view's energy axis, in 5 GeV steps: from the data's highest window edge, so "
-                  "every window stays on the axis, to the axis end the server sets. Nothing beyond it is drawn on either "
+RES_EMAX_TITLE = ("The upper end of the E view's energy axis, in 5 GeV steps: from the data's highest window edge "
+                  "rounded up to 5 GeV, so every window stays on the axis, to the axis end the server sets. Nothing beyond it is drawn on either "
                   "panel, and no fit is refitted; the card repaints without a request.")
 RES_EMAX_ARIA = "E max, the upper end of the energy axis in GeV"
 #: The empty state with the deposit hidden (brief §5.6) and the ratio panel's sentence with no reference (§5.5).
@@ -1266,10 +1267,12 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
         state = page.evaluate(_CARD, "res-scaling")
         assert state["title"] == "Median Relative Error vs. 1/√E", state
         if table == BASELINE_TABLE:
-            # The deposit hidden and the networks' two events holding no window: the hidden deposit's empty state
-            # (brief §5.6); with the deposit on, the empty state of a selection with no window, as below.
+            # The deposit hidden and the networks' two events holding no window, nor the deposit's: the view's own
+            # empty state, never the advice to switch the deposit on, which would draw nothing either (B's finding);
+            # with the deposit on, the empty state of a selection with no window, as below.
             texts = page.evaluate(_CHART_TEXTS, "plot-res-scaling")
-            assert any(_flat(t) == RES_DEPOSIT_HIDDEN_EMPTY for t in texts), texts
+            assert not any(_flat(t) == RES_DEPOSIT_HIDDEN_EMPTY for t in texts), texts
+            assert any(_flat(t).startswith("No momentum window") for t in texts), texts
             assert _res_deposit(page, True)
             state = page.evaluate(_CARD, "res-scaling")
         axes = page.evaluate(_RES_AXES)
