@@ -1355,9 +1355,41 @@ ENERGY_ENTRY = "E_A · 150 ≤ D < 200 mm fit (N=8)"
 #: The first entry of its second legend, the isolated references' (a line series drawing a mark line and area).
 ENERGY_REFERENCE = "[Ref] Isolated Reference E₁ (no overlap)"
 #: The ink of a hidden legend entry on each screen card (chart_panel.js `legendInactiveInk`, the faintest tint of the
-#: muted ink at 4.5:1; tests/test_js_chart_legend.py derives them), and in an exported figure (`printInactiveInk`).
+#: muted ink at 4.5:1; tests/test_js_chart_legend.py derives them). An exported figure greys nothing: it leaves the
+#: entry out (res-emax, Martin's decision of 2026-11-17; `printInactiveInk` is retired).
 INACTIVE = {"dark": "#808993", "light": "#6e7780"}
-PRINT_INACTIVE = "#6f7681"
+
+#: Every chart the export builds as SVG: its legends' listed names and whether each is shown, its series' names, its
+#: grids' tops and its height, read just before serialisation.
+_WATCH_EXPORT_SHAPE = """() => {
+  if (window.__exportShape) return;
+  window.__exportShape = [];
+  const init = echarts.init;
+  echarts.init = function (dom, theme, opts) {
+    const chart = init.call(this, dom, theme, opts);
+    if (opts && opts.renderer === 'svg') {
+      const render = chart.renderToSVGString.bind(chart);
+      chart.renderToSVGString = (...args) => {
+        const o = chart.getOption();
+        window.__exportShape.push({
+          legends: (o.legend || []).map((l) => ({ show: l.show !== false,
+            names: (l.data || []).map((d) => (typeof d === 'string' ? d : d?.name)),
+            selected: { ...(l.selected || {}) } })),
+          series: (o.series || []).map((s) => s.name ?? ''),
+          gridTops: (o.grid || []).map((g) => g.top),
+          height: chart.getHeight(),
+        });
+        return render(...args);
+      };
+    }
+    return chart;
+  };
+}"""
+
+
+def _svg_texts(svg):
+    """Every <text> of an SVG figure, unescaped (the SVG escapes the "<" of "D < 200 mm")."""
+    return [html.unescape(t) for t in re.findall(r"<text[^>]*>([^<]*)</text>", svg)]
 
 
 def _hidden_line(*names):
@@ -1456,6 +1488,14 @@ def _click_legend(page, plot_id, name):
     _frames(page)
 
 
+def _toggle_legend(page, plot_id, name):
+    """Toggle a legend entry with the action a click on it dispatches (`legendToggleSelect`, which emits
+    `legendselectchanged`), for an entry on a page of a scrolling legend that is not on show."""
+    page.evaluate("""([plotId, name]) => echarts.getInstanceByDom(document.getElementById(plotId))
+      .dispatchAction({ type: 'legendToggleSelect', name })""", [plot_id, name])
+    _frames(page)
+
+
 def _assert_hidden(drawn, fresh, name, where):
     """The entry's series are filtered and draw nothing; every other series draws as a fresh render did."""
     series = drawn["series"]
@@ -1493,8 +1533,10 @@ def test_the_energy_card_keeps_its_legend_and_names_what_it_hides(physics_live_s
     never the 1.33:1 border; the drawer gains a Marks and legend section naming it, before Reading the density axis.
     It stays off across a theme switch and back (in each card's ink) and across shower A alone, which draws fewer
     series, and Both, with no page error and no request. A reference switched off on the second legend takes the ink
-    there too, and the drawer names both until it is back on. The SVG export leaves the entry out and prints it in
-    the print's grey. Switched back on, every series draws as the fresh render did and the drawer's section is gone."""
+    there too, and the drawer names both until it is back on. The SVG export leaves the entry out with its legend
+    entry (res-emax, Martin's decision of 2026-11-17: no exported entry is greyed): no text names it, and the entry
+    on show beside it is printed. Switched back on, every series draws as the fresh render did and the drawer's
+    section is gone."""
     with physics_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, physics_live_server["base"], BASELINE_TABLE,
                                                   routes=(("**/api/energy-distribution?*", _serve_energy),))
@@ -1552,15 +1594,14 @@ def test_the_energy_card_keeps_its_legend_and_names_what_it_hides(physics_live_s
         assert _sections(page)["Marks and legend"] == [_hidden_line(ENERGY_ENTRY)]
         _assert_hidden(page.evaluate(_DRAWN, "plot-energy"), fresh["both"], ENERGY_ENTRY, "the reference back on")
 
-        # The export leaves it out: its legend prints the entry in the print's grey, lighter than the entries on show.
+        # The export leaves it out with its legend entry: no text names it, greyed or not; the entry on show beside
+        # it is printed.
         name, svg = _download_svg(page, "energy")
         assert name.startswith("energy_") and name.endswith(".svg"), name
-        # The SVG escapes the "<" of "D < 200 mm".
-        inks = {html.unescape(text): fill.lower()
-                for fill, text in re.findall(r'<text[^>]*?fill="([^"]+)"[^>]*>([^<]+)</text>', svg)}
+        texts = _svg_texts(svg)
         on_show = "E_B · 150 ≤ D < 200 mm fit (N=8)"
-        assert ENERGY_ENTRY in inks and on_show in inks, sorted(inks)
-        assert inks[ENERGY_ENTRY] == PRINT_INACTIVE != inks[on_show], (inks[ENERGY_ENTRY], inks[on_show])
+        assert on_show in texts, sorted(texts)
+        assert not [t for t in texts if ENERGY_ENTRY in t], sorted(texts)
 
         # Back on: every series draws as the fresh render did, and the drawer no longer names it.
         _click_legend(page, "plot-energy", ENERGY_ENTRY)
@@ -1570,6 +1611,72 @@ def test_the_energy_card_keeps_its_legend_and_names_what_it_hides(physics_live_s
                                                   if got != was]
         assert "Marks and legend" not in _sections(page), _sections(page)
         assert requests[before:] == [], f"the legend, the theme or the shower asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+def test_the_energy_cards_export_leaves_out_an_entry_switched_off_with_its_companions(physics_live_server):
+    """The export rule on Page 1's energy card (res-emax, Martin's decision of 2026-11-17; CLAUDE.md §5 "The export
+    follows it, and describes only what is on show"; brief §7 "Companion marks"), on the recorded two-shower response.
+
+    An event strip's entry, `<series> (events)`, draws companions under other names: `<series> · dispersion` and
+    `<series> · mean ±95% CI`, which ECharts' legend filter cannot hide. Switched off on the legend, the SVG export
+    holds no text of the entry or of its companions, the export chart draws none of them, its legends list every entry
+    of the whole figure but that one (and mark it off), the figure is laid out without it (its plot no lower, its
+    height no taller than the whole figure's), and every other legend entry the whole figure printed is printed."""
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, physics_live_server["base"], BASELINE_TABLE,
+                                                  routes=(("**/api/energy-distribution?*", _serve_energy),))
+        page.evaluate(_WATCH_EXPORT_SHAPE)
+        page.locator('.card[data-panel="energy"]').scroll_into_view_if_needed()
+        page.wait_for_function(
+            "(name) => { const i = echarts.getInstanceByDom(document.getElementById('plot-energy'));"
+            " return Boolean(i && (i.getOption().legend || [])[0]?.data?.includes(name)); }",
+            arg=ENERGY_ENTRY, timeout=30_000)
+        _frames(page)
+        drawn = page.evaluate(_DRAWN, "plot-energy")
+        names = [s[0] for s in drawn["series"]]
+        strips = [n for legend in drawn["legends"] for n in legend["names"] if n.endswith(" (events)")
+                  and f"{n[:-len(' (events)')]} · dispersion" in names and f"{n[:-len(' (events)')]} · mean ±95% CI" in names]
+        assert strips, ("no event strip with its dispersion and mean on the recorded response", names)
+        entry = strips[0]
+        base = entry[:-len(" (events)")]
+        companions = {f"{base} · dispersion", f"{base} · mean ±95% CI"}
+        before = len(requests)
+
+        # The whole figure: the strip, its companions and its entry are printed.
+        _, whole_svg = _download_svg(page, "energy")
+        whole = page.evaluate("() => window.__exportShape.at(-1)")
+        whole_texts = _svg_texts(whole_svg)
+        whole_listed = [n for legend in whole["legends"] for n in legend["names"]]
+        assert entry in whole_texts and entry in whole_listed, (entry, whole_listed)
+        assert companions <= set(whole["series"]), (companions, whole["series"])
+
+        # The strip entries sit on a later page of the scrolling legend, past the plot's right edge, where a pointer
+        # cannot reach them: the legend's own toggle action, the one a click dispatches.
+        _toggle_legend(page, "plot-energy", entry)
+        # Off on screen: its legend marks it off and its own series is filtered.
+        screen = page.evaluate(_DRAWN, "plot-energy")
+        assert any(legend["selected"].get(entry) is False for legend in screen["legends"]), screen["legends"]
+        assert all(s[1] for s in screen["series"] if s[0] == entry), screen["series"]
+        _, svg = _download_svg(page, "energy")
+        shape = page.evaluate("() => window.__exportShape.at(-1)")
+        texts = _svg_texts(svg)
+        # Nothing of the entry: no text, no series, no companion.
+        assert not [t for t in texts if t.startswith(entry) or t.startswith(f"{base} · ")], texts
+        assert not [s for s in shape["series"] if s == entry or s.startswith(f"{base} · ")], shape["series"]
+        listed = [n for legend in shape["legends"] for n in legend["names"]]
+        assert listed == [n for n in whole_listed if n != entry], (whole_listed, listed)
+        assert any(legend["selected"].get(entry) is False for legend in shape["legends"]), shape["legends"]
+        # Laid out without it, and the entries on show printed as before.
+        assert shape["gridTops"][0] <= whole["gridTops"][0] and shape["height"] <= whole["height"], (shape, whole)
+        kept = [n for n in whole_listed if n != entry and n in whole_texts]
+        assert kept and all(n in texts for n in kept), [n for n in kept if n not in texts]
+
+        _toggle_legend(page, "plot-energy", entry)
+        screen = page.evaluate(_DRAWN, "plot-energy")
+        assert not any(legend["selected"].get(entry) is False for legend in screen["legends"]), screen["legends"]
+        assert requests[before:] == [], f"the legend or an export asked the service: {requests[before:]}"
         browser.close()
     assert problems == [], problems
 

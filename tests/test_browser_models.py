@@ -36,13 +36,23 @@ page is checked as a reader meets it:
 * the feature explorer's A / B toggle (two showers) goes on every feature
   request and round-trips in the hash;
 * Admin Settings lists the model runs and rescans them;
-* the energy-resolution card (``res-scaling``) draws its reversed 1/√E axis
+* the energy-resolution card (``res-scaling``) opens (res-emax, Martin's
+  decisions of 2026-11-17) on the E (GeV) + ratio view, Median |rel. err.|,
+  both showers, the calibrated deposit hidden and E max at the data's edge
+  (20 GeV on the recordings), in both themes; the E max slider repaints with
+  no request, ticks the axis it ends and draws nothing beyond it on either
+  panel; the Deposit toggle shows and hides the deposit on both views, the
+  range following the series on show (``y_model``), and is shut, pressed,
+  where the deposit is the only series; with the deposit hidden and no
+  literature curve on the ratio panel draws no mark and says why;
+* in its 1/√E view (pressed explicitly) it draws its reversed 1/√E axis
   ending at the origin corner, the Energy (GeV) axis on top over the same
   range with ∞ at 0, a y axis from 0 and its fit table under the plot; its
   window, shower and theme switches repaint with no request (the two-shower
   baseline's two events draw its empty state, with the table still there);
   its "E (GeV) + ratio" view, from the same response and with no request,
-  stacks two grids on one 0-80 GeV axis, σ/E from 0 over a log ratio axis
+  stacks two grids on one E axis (0-80 GeV with E max at the server's end),
+  σ/E from 0 over a log ratio axis
   symmetric about 1, one fitted curve per series and panel (its a/√E ⊕ b ⊕ c/E,
   else its a₀/√E from 4 GeV) solid over its windows and dashed beyond, with no
   band anywhere on the view (Martin's directive of 2026-11-15), a 600 px plot,
@@ -50,7 +60,7 @@ page is checked as a reader meets it:
   rule on either grid; "Ratio to" and the shower buttons repaint it, and the
   1/√E view, which keeps its bands, comes back identical;
 * the resolution card's Estimator control (Martin's decisions of 2026-11-12), on the recorded two-shower responses
-  served by the request's estimator: View, Estimator, Windows, Shower, Literature in that order, Median |rel. err.|
+  served by the request's estimator: View, Estimator, Windows, Shower, Deposit, Literature in that order, Median |rel. err.|
   pressed by default, the View and literature buttons with their titles (the E view's naming one curve per series
   and no band; each equation without a % sign, its units beside it); each switch one request carrying the new
   estimator, the other choices kept; the title, the
@@ -68,9 +78,12 @@ page is checked as a reader meets it:
   2026-11-11, both views, on the recorded two-shower response) stays off
   across the window switch with no page error, and switched back on draws
   every one of its marks as a fresh render does; it stays off across a theme
-  switch with no request, and the export leaves it out and greys its entry;
-  on screen its entry is drawn in the card's legible inactive ink, and the
-  open drawer names it in Marks and legend until it is switched back on;
+  switch with no request, and the export leaves it out with its legend
+  entry, its end label and its off-scale values (res-emax: no exported entry
+  is greyed); on screen its entry is drawn in the card's legible inactive
+  ink, and the open drawer names it in Marks and legend until it is switched
+  back on; the exported file name carries energy, emax-<n>, deposit-off and
+  ratio-none as the card's state says;
 * the particle filter on Views (brief particle-filter §8): the 3-D event card's
   Pick for me, Most tilted and Densest drawing from the pool, the densest
   candidate drawn with its matching shower, "2-D ↗" opening the Physics page's
@@ -100,6 +113,7 @@ Opt-in (``CALOSRV_BROWSER_TESTS=1``): it needs Playwright's Chromium.
 from __future__ import annotations
 
 import base64
+import html
 import json
 import math
 import os
@@ -948,9 +962,15 @@ def test_the_2d_cards_export_their_plot_alone_and_the_3d_cards_have_no_export(mo
         assert texts, card_id
         assert _hyphen_negatives(texts) == [], (card_id, _hyphen_negatives(texts))
         if card_id == "res-scaling":
-            # The plot alone: both x axes (the top one's ∞ at the origin) and no row of the screen's fit table.
-            assert "∞" in texts and any("1/√E" in t for t in texts), texts
+            # The card's default (res-emax, Martin's decisions of 2026-11-17): the E view, its E axis named and no
+            # 1/√E axis, and no row of the screen's fit table. Its name: the E view's tokens, the axis end at the
+            # data's edge and, where a model series is on show, the deposit hidden (forced on for the deposit-only
+            # single-shower hits, so their name says nothing of it).
+            assert "Energy E [GeV]" in texts and "∞" not in texts, texts
+            assert not [t for t in texts if "1/√E" in t and "/√E ⊕" not in t], texts
             assert not [t for t in texts if "Windows fitted" in t or "Quadrature" in t or "SE(a" in t], texts
+            assert "_energy_emax-20_" in name and re.search(r"_est-median_\d{8}_\d{6}\.svg$", name), name
+            assert ("_deposit-off_" in name) is (table == MODELS_XGB_TABLE), name
         if card_id in ("perf-catalog", "perf-diagnostics"):
             # The plot alone: none of the screen's tables or blocks under the plot frame.
             assert not [t for t in texts if "Secondary metrics" in t or "Validation N" in t or "Throughput on one" in t
@@ -1133,6 +1153,81 @@ def _res_press(page, attr, value):
     return button.get_attribute("aria-pressed") == "true"
 
 
+#: The resolution card's Deposit toggle (models_cards.js RES_DEPOSIT_CONTROL: one button, value 'on', in the
+#: "Benchmark" group) and its E max slider (RES_EMAX_CONTROL, the `range` kind), res-emax brief §6.2.
+RES_DEPOSIT = '.main .card[data-panel="res-scaling"] button[data-res-deposit="on"]'
+RES_EMAX = '.main .card[data-panel="res-scaling"] label.mini-range[data-res-emax="res-scaling"]'
+#: Their fixed text (labels.js MODELS_LABELS.res_deposit, res_deposit_forced, res_emax; brief §6.3), verbatim.
+RES_DEPOSIT_TITLE = ("Draw or hide the calibrated deposit c·E_dep, the linear-sum benchmark, on both views: its windows, "
+                     "its fitted curve and its fit-table rows. Hidden, the error-scale range follows the model series "
+                     "alone, and the ratio panel divides by the literature curve on show, or draws nothing with none on.")
+RES_DEPOSIT_FORCED = "The calibrated deposit is this response's only series, so it is always drawn."
+RES_EMAX_TITLE = ("The upper end of the E view's energy axis, in 5 GeV steps: from the data's highest window edge, so "
+                  "every window stays on the axis, to the axis end the server sets. Nothing beyond it is drawn on either "
+                  "panel, and no fit is refitted; the card repaints without a request.")
+RES_EMAX_ARIA = "E max, the upper end of the energy axis in GeV"
+#: The empty state with the deposit hidden (brief §5.6) and the ratio panel's sentence with no reference (§5.5).
+RES_DEPOSIT_HIDDEN_EMPTY = ("The calibrated deposit is hidden, and the model series have no window to draw in this "
+                            "selection; switch on Deposit to draw it.")
+RATIO_NONE_TEXT = "No ratio drawn: no reference is on show."
+RATIO_NONE_SCREEN_TEXT = " Switch on π±, e± or the deposit to draw one."
+
+#: The E max slider as the reader meets it: whether it is laid out, its bounds, value and text.
+_RES_EMAX_STATE = """(sel) => {
+  const label = document.querySelector(sel);
+  if (!label) return null;
+  const input = label.querySelector('input');
+  return {
+    hidden: label.hidden, shown: label.getClientRects().length > 0, type: input.type, disabled: input.disabled,
+    min: input.min, max: input.max, step: input.step, value: input.value,
+    output: label.querySelector('output.mini-range-value')?.textContent ?? null,
+    name: label.querySelector('.mini-range-name')?.textContent ?? null,
+    title: label.title, aria: input.getAttribute('aria-label'),
+  };
+}"""
+
+
+def _res_deposit(page, on):
+    """Put the resolution card's Deposit toggle in the state asked: a click only when its aria-pressed differs (a
+    forced deposit's button is shut and pressed, so asking for it on clicks nothing). Whether it is then pressed."""
+    button = page.locator(RES_DEPOSIT)
+    want = "true" if on else "false"
+    if button.get_attribute("aria-pressed") != want:
+        button.click()
+        page.wait_for_function("([sel, want]) => document.querySelector(sel)?.getAttribute('aria-pressed') === want",
+                               arg=[RES_DEPOSIT, want], timeout=10_000)
+    _frames(page)
+    return button.get_attribute("aria-pressed") == "true"
+
+
+def _set_emax(page, value, event="change"):
+    """Move the E max slider to `value` as a reader's drag or key does (Playwright's fill() cannot drive a range
+    input): its value set and one `input` (coalesced to one repaint per frame) or `change` (at once) event."""
+    page.evaluate("""([sel, v, ev]) => {
+      const input = document.querySelector(`${sel} input`);
+      input.value = String(v);
+      input.dispatchEvent(new Event(ev, { bubbles: true }));
+    }""", [RES_EMAX, value, event])
+    _frames(page, 3)
+
+
+def _default_emax(payload):
+    """The slider's lower end, where the card opens (res_axis.js eMaxRange): the data's top window edge rounded up to
+    5 GeV, at least 5, at most the server's axis end."""
+    energy = payload["axis"]["energy"]
+    top = energy["x"]["max"]
+    edge = energy.get("data_max_gev")
+    if edge is None or not math.isfinite(edge):
+        return top
+    return min(top, max(5, math.ceil(edge / 5) * 5))
+
+
+def _has_model_series(payload):
+    """Whether the response holds a series other than the calibrated deposit (res_axis.js hasModelSeries): where it
+    does not, the deposit is forced on."""
+    return any(s.get("source") != "detector" for s in payload["series"])
+
+
 def _theme_module():
     """test_browser_theme.py's probes (`_AXIS_INK`, `MUTED`, `_CAMERA`, `_GL_DRAWN`). Imported when a test runs:
     that module imports this one at its top."""
@@ -1146,7 +1241,12 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
     right border; the top axis is the same range relabelled E = 1/x² with ∞ at 0, carries no series and puts every
     value at the bottom axis's pixel; the y axis starts at 0 on the plot's bottom edge, so the bottom-right corner is
     the origin. The fit table sits under the plot, outside the chart. "3 anchors" / "All ≥ 4 GeV", the shower
-    buttons (two showers) and a theme switch repaint from the response in hand."""
+    buttons (two showers) and a theme switch repaint from the response in hand.
+
+    The card opens on the E view (res-emax, Martin's decisions of 2026-11-17), so the 1/√E view is pressed first,
+    with the card's other defaults kept: the calibrated deposit hidden where a model series is on show. On the
+    baseline's two events the 1/√E view then says the deposit-hidden empty state; the deposit switched on, the
+    empty state it always said."""
     theme = _theme_module()
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, models_live_server["base"], table)
@@ -1156,9 +1256,22 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
         assert len(asked) == 1, _urls(requests)
         # A networked plan names the energy network's frame (models_cards.js cardRequest).
         assert (asked[0].get("coord_system") == "lab") is (table == BASELINE_TABLE), asked
-        # The default estimator goes on the request (brief §3), and the title names what it plots (brief §4).
+        # The default estimator goes on the request (brief §3), and the title names what it plots (brief §4) in the
+        # view the card opens on, then in the 1/√E view.
         assert asked[0].get("estimator") == DEFAULT_ESTIMATOR, asked
+        assert state["title"] == "Median Relative Error vs. E", state
+        assert _res_press(page, "res-view", "linear")
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+        state = page.evaluate(_CARD, "res-scaling")
         assert state["title"] == "Median Relative Error vs. 1/√E", state
+        if table == BASELINE_TABLE:
+            # The deposit hidden and the networks' two events holding no window: the hidden deposit's empty state
+            # (brief §5.6); with the deposit on, the empty state of a selection with no window, as below.
+            texts = page.evaluate(_CHART_TEXTS, "plot-res-scaling")
+            assert any(_flat(t) == RES_DEPOSIT_HIDDEN_EMPTY for t in texts), texts
+            assert _res_deposit(page, True)
+            state = page.evaluate(_CARD, "res-scaling")
         axes = page.evaluate(_RES_AXES)
         fit = page.evaluate(_RES_TABLE)
         series = page.evaluate(_RES_SERIES)
@@ -1311,9 +1424,14 @@ def _assert_e_view_curves(view, payload, mode):
     inside its fit's own span (`span_gev`) and meeting it at both edges, unless the curve is above the plot at the
     span's low edge (CLAUDE.md §5: a fit is never a range setter, so its solid run then starts on the axis's top
     edge); each dashed run [6, 4] and wholly outside the span; on the main panel the dashed part beyond the span runs
-    to the axis end. a/√E ⊕ b is never drawn on this view (it is tabled). Returns the forms drawn per series."""
+    to the axis end. a/√E ⊕ b is never drawn on this view (it is tabled). Returns the forms drawn per series.
+
+    The axis end is the chart's: E max (res-emax), from the data's edge to the server's `axis.energy.x.max`; nothing
+    is drawn past it, and a run fitted up to it is solid to the end with no dashed part beyond."""
     energy = payload["axis"]["energy"]
-    x_max, curve_min = energy["x"]["max"], energy["curve_min_gev"]
+    x_max, curve_min = view["x"][-1]["max"], energy["curve_min_gev"]
+    assert all(a["max"] == x_max for a in view["x"]) and _default_emax(payload) <= x_max <= energy["x"]["max"], \
+        (view["x"], energy["x"])
     assert curve_min == CURVE_MIN_GEV and energy["noise_min_gev"] == NOISE_MIN_GEV, energy
     by_key = {s["key"]: s for s in payload["series"]}
     top = view["y"][0]["max"]
@@ -1359,7 +1477,7 @@ def _assert_e_view_curves(view, payload, mode):
     # fit unless its line is above the axis top at every E (B ≥ top², where its caret at the axis end says so
     # instead), the a₀/√E fallback unless it is above the top even at the axis end, where it is lowest.
     shown = {i.split("|")[0] for i in view["ids"] if i.endswith("|markers") and "|ratio|" not in i}
-    x_end = energy["x"]["max"]
+    x_end = x_max
     for key in shown:
         mf = by_key[key]["fits"][mode]
         expected = _drawn_form(mf)
@@ -1452,7 +1570,12 @@ def _serve_res_fixture(page, kind):
     """Answer the page's /api/resolution-scaling with the recorded response of `kind` for the estimator the request
     names; the request is still made and counted. A request naming no estimator, or another one, is answered 422,
     so it shows in the page's problems."""
-    bodies = {est: _res_fixture(kind, est).read_text(encoding="utf-8") for est in RES_ESTIMATORS}
+    _serve_res_bodies(page, {est: _res_fixture(kind, est).read_text(encoding="utf-8") for est in RES_ESTIMATORS})
+
+
+def _serve_res_bodies(page, bodies):
+    """Answer the page's /api/resolution-scaling with `bodies[estimator]` (JSON text), as `_serve_res_fixture` does;
+    an estimator with no body is answered 422."""
 
     def answer(route):
         asked = parse_qs(urlparse(route.request.url).query).get("estimator", [None])[0]
@@ -1479,7 +1602,12 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
     1). The title names the view, the plot is 600 px tall (420 px in the 1/√E view), its export holds both grids,
     and every tooltip over either grid keeps to the 20% rule. Back in the 1/√E view the axes, the series and the
     fit table are exactly what they were. The baseline's two events draw the E view's empty state; the recorded
-    two-shower response draws both showers, and A / B / Both repaint the E view with no request."""
+    two-shower response draws both showers, and A / B / Both repaint the E view with no request.
+
+    The card opens on the E view with the deposit hidden and E max at the data's edge (res-emax, Martin's decisions
+    of 2026-11-17; their own tests below). This test reads the views with the deposit on and, in the E view, E max
+    at the server's end (the slider's upper end), so every mark these checks read is drawn over the server's axis:
+    the deposit and E max set first, then the 1/√E view as the picture to come back to."""
     base = models_live_server["base"]
     drawn = fixture is not None or table in RES_DRAWN
     with models_live_server["playwright"].sync_playwright() as p:
@@ -1495,6 +1623,11 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
         payload = _fixture_payload(fixture) if fixture else _res_payload(base, asked[0])
         assert payload["estimator"]["name"] == DEFAULT_ESTIMATOR, payload["estimator"]
         energy = payload["axis"]["energy"]
+        # The deposit on (a forced one is already), then the 1/√E view: the picture the switch back must return.
+        assert _res_deposit(page, True)
+        assert _res_press(page, "res-view", "linear")
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
         axes, fit, series = page.evaluate(_RES_AXES), page.evaluate(_RES_TABLE), page.evaluate(_RES_SERIES)
         linear = page.evaluate(_RES_CHROME)
         # Under the default median the card plots a median relative error, never called a resolution (brief §4).
@@ -1502,10 +1635,15 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
         assert linear["height"] == 420 and linear["styleHeight"] == "", linear
         assert [v for v, _ in linear["views"]] == ["1/√E linear", "E (GeV) + ratio"], linear
         assert linear["views"][0][1] == "true" and linear["references"] == [] and linear["literature"] == [], linear
+        # The E max slider is the E view's alone: hidden here.
+        assert page.evaluate(_RES_EMAX_STATE, RES_EMAX)["shown"] is False
         before = len(requests)
 
-        # The toggle: the E view from the response in hand.
+        # The toggle: the E view from the response in hand; E max at the server's end, a repaint too.
         assert _res_press(page, "res-view", "energy")
+        _set_emax(page, energy["x"]["max"])
+        emax = page.evaluate(_RES_EMAX_STATE, RES_EMAX)
+        assert emax["shown"] and float(emax["value"]) == energy["x"]["max"], emax
         chrome = page.evaluate(_RES_CHROME)
         assert chrome["title"] == "Median Relative Error vs. E", chrome
         # 600 px for the two panels; an empty state keeps the card's 420 px (the review's U-F11).
@@ -1541,7 +1679,8 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
             flagged = page.evaluate(_DETAILS, "res-scaling")
             assert flagged["flagged"] and NO_INTERVAL in flagged["title"], flagged
             name, _ = _download_svg(page, "res-scaling")
-            assert "_energy_lit-pi-e_est-median_" in name, name
+            # The E view's tokens (res-emax): the axis end right after `energy`, the deposit on (no deposit-off).
+            assert f"_energy_emax-{round(energy['x']['max'])}_lit-pi-e_est-median_" in name, name
             # Both off: each shower's deposit fit is the reference, as the checks below take it.
             assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
             assert [t[:3] for t in page.evaluate(_RES_LIT_TOGGLES)] == [["π±", "false", False], ["e±", "false", False]]
@@ -1552,6 +1691,7 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
             assert (main["left"], main["right"]) == (ratio["left"], ratio["right"]), view["rects"]
             assert ratio["top"] >= main["bottom"], view["rects"]
             assert [a["gridIndex"] for a in view["x"]] == [0, 1], view["x"]
+            # E max at the server's end: the server's axis and interval (res_axis.js eAxisTicks at serverMax).
             assert {(a["min"], a["max"], a["interval"]) for a in view["x"]} == \
                 {(0, energy["x"]["max"], energy["x"]["interval"])}, (view["x"], energy["x"])
             assert energy["x"]["max"] >= 80, energy["x"]
@@ -1778,8 +1918,9 @@ _RES_CONTROLS = """() => {
   }));
 }"""
 
-#: The controls in the brief's order: View, Estimator, Windows, Shower, Literature.
-RES_CONTROL_LABELS = ["View", "Estimator", "Windows", "Showers", "Literature curves"]
+#: The button groups in the brief's order: View, Estimator, Windows, Shower, Deposit (the "Benchmark" group,
+#: res-emax brief §6.2), Literature; the E max slider follows them, a `label.mini-range`, not a group.
+RES_CONTROL_LABELS = ["View", "Estimator", "Windows", "Showers", "Benchmark", "Literature curves"]
 #: The Estimator buttons, verbatim from brief §4 (labels.js MODELS_LABELS.res_estimator).
 RES_ESTIMATOR_BUTTONS = {
     "median": ("Median |rel. err.|",
@@ -1895,7 +2036,8 @@ def test_the_estimator_control_reloads_the_card_once_and_keeps_every_other_choic
         assert state["message"] is None and state["canvas"], state
         first = _requests_of(requests, "/api/resolution-scaling")
         assert len(first) == 1 and first[0].get("estimator") == DEFAULT_ESTIMATOR, first
-        assert state["title"] == RES_TITLES["median"]["linear"], state
+        # The card opens on the E view (res-emax, Martin's decisions of 2026-11-17).
+        assert state["title"] == RES_TITLES["median"]["energy"], state
 
         controls = page.evaluate(_RES_CONTROLS)
         assert [g["label"] for g in controls] == RES_CONTROL_LABELS, controls
@@ -1907,24 +2049,31 @@ def test_the_estimator_control_reloads_the_card_once_and_keeps_every_other_choic
                                    f'button:nth-child({i + 1})', "data-res-estimator")
                 for i in range(3)] == list(RES_ESTIMATORS)
         # The View buttons and their titles (labels.js res_view; the E view's title says one curve per series and
-        # no band, review-ui F1, 19f6ab2), the 1/√E view pressed at open.
+        # no band, review-ui F1, 19f6ab2), the E view pressed at open (res-emax).
         view = next(g for g in controls if g["label"] == "View")
-        assert view["buttons"] == [[label, "true" if value == "linear" else "false", title]
+        assert view["buttons"] == [[label, "true" if value == "energy" else "false", title]
                                    for value, (label, title) in RES_VIEW_BUTTONS.items()], view
+        # The Deposit toggle: one button, not pressed at open, its title verbatim (labels.js res_deposit).
+        deposit = next(g for g in controls if g["label"] == "Benchmark")
+        assert deposit["shown"] and deposit["buttons"] == [["Deposit", "false", RES_DEPOSIT_TITLE]], deposit
         # The literature toggles' titles: the equation without a % sign, its units beside it (c406217).
         assert [[t[0], t[3]] for t in page.evaluate(_RES_LIT_TOGGLES)] == \
             [[LITERATURE[key][0], LITERATURE_TITLE[key]] for key in ("pi", "e")]
 
-        # The reader's other choices, none of them the defaults: the E view, every window, shower B, e± alone.
+        # The reader's other choices, none of them the defaults: every window, shower B, the deposit on, e± alone,
+        # E max at 45 GeV (the E view, the default, pressed again changes nothing).
         before = len(requests)
         assert _res_press(page, "res-view", "energy")
         assert _res_press(page, "res-windows", "all")
         assert _res_press(page, "models-shower", "b")
+        assert _res_deposit(page, True)
         assert not _res_press(page, "res-literature", "pi")
+        _set_emax(page, 45)
         assert requests[before:] == [], f"a render-only control asked the service: {requests[before:]}"
         kept = {k: v for k, v in _res_pressed(page).items() if k != "Estimator"}
         assert kept == {"View": ["E (GeV) + ratio"], "Windows": ["All windows"], "Showers": ["B"],
-                        "Literature curves": ["e±"]}, kept
+                        "Benchmark": ["Deposit"], "Literature curves": ["e±"]}, kept
+        assert page.evaluate(_RES_EMAX_STATE, RES_EMAX)["output"] == "45 GeV"
         assert _literature_drawn(page) == ["e"]
         page.evaluate(_SCROLL_START, "res-scaling")
         _frames(page)
@@ -1941,13 +2090,18 @@ def test_the_estimator_control_reloads_the_card_once_and_keeps_every_other_choic
             pressed = _res_pressed(page)
             assert pressed["Estimator"] == [RES_ESTIMATOR_BUTTONS[est][0]], (where, pressed)
             assert {k: v for k, v in pressed.items() if k != "Estimator"} == kept, (where, pressed)
+            # E max as the reader left it, on the new response's slider too (its range is the same 20–80 GeV).
+            assert page.evaluate(_RES_EMAX_STATE, RES_EMAX)["output"] == "45 GeV", where
             # The literature toggle the reader left: e± alone is drawn, under every estimator.
             assert _literature_drawn(page) == ["e"], (where, _res_ids(page))
             assert _res_y_name(page).startswith(served["axis"]["energy"]["y"]["name"]), (where, _res_y_name(page))
             assert page.evaluate(_RES_CHROME)["title"] == RES_TITLES[est]["energy"], where
             assert not {"estimator", "resEstimator", "res_estimator"} & set(_hash(page)), (where, _hash(page))
+            assert not {"resDeposit", "resEMax", "res_deposit", "res_emax", "emax"} & set(_hash(page)), \
+                (where, _hash(page))
             name, _ = _download_svg(page, "res-scaling")
-            assert name.startswith("res-scaling_") and "_energy_ratio-e_" in name, (where, name)
+            assert name.startswith("res-scaling_") and "_energy_emax-45_ratio-e_" in name, (where, name)
+            assert "deposit-off" not in name, (where, name)
             assert re.search(rf"_est-{est}_\d{{8}}_\d{{6}}\.svg$", name), (where, name)
             exported.setdefault((est, "energy"), name)
             # The 1/√E view of the same response: its title, its axis name and its export, with no request.
@@ -2000,7 +2154,8 @@ def test_the_median_estimator_discloses_its_comparison_with_the_literature_curve
             _frames(page)
             return details
 
-        # The 1/√E view draws no curve: nothing to disclose.
+        # The 1/√E view (pressed: the card opens on the E view, res-emax) draws no curve: nothing to disclose.
+        assert _res_press(page, "res-view", "linear")
         assert _literature_drawn(page) == []
         disclosed("median, 1/√E view", warning=False, hazard=False, no_interval=False)
 
@@ -2163,12 +2318,13 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
         assert state["message"] is None and state["canvas"], state
         if estimator != DEFAULT_ESTIMATOR:
             _res_estimator(page, requests, estimator, served["estimator"]["axis_name"])
+        # The deposit on (hidden at open since res-emax): its windows' tooltips are among those read.
+        assert _res_deposit(page, True)
         shares, counts = {}, {}
         # Each view in both modes; the E view's anchors after its all-windows render, the switch that reuses and
-        # moves the markers.
+        # moves the markers. Each view pressed: the card opens on the E view.
         for view, mode in (("linear", "anchors"), ("linear", "all"), ("energy", "all"), ("energy", "anchors")):
-            if view == "energy":
-                assert _res_press(page, "res-view", "energy")
+            assert _res_press(page, "res-view", view)
             assert _res_press(page, "res-windows", mode)
             page.evaluate(_SCROLL_START, "res-scaling")
             _frames(page)
@@ -2384,7 +2540,12 @@ def test_the_resolution_card_screens_under_each_estimator(models_live_server, sc
                 if view == "linear":
                     shoot(f"res-scaling_{scheme}_linear_{est}", where, table=True)
                 else:
-                    stem = f"res-scaling_{scheme}_energy_{est}_{mode}_{'lit-pi-e' if lit else 'lit-none'}"
+                    # Named as the card's export names the state (res-emax): the default E max and the deposit hidden;
+                    # with both curves off, no reference (`ratio-none`), the ratio panel's sentence on screen.
+                    stem = (f"res-scaling_{scheme}_energy_emax-20_{'lit-pi-e' if lit else 'ratio-none'}_deposit-off"
+                            f"_{est}_{mode}")
+                    if not lit:
+                        assert RATIO_NONE_TEXT in _res_note(page), (where, _res_note(page)[-300:])
                     # The fit table does not follow the literature toggles: one per mode.
                     shoot(stem, where, table=lit)
             _res_press(page, "res-windows", "anchors")
@@ -2659,8 +2820,10 @@ def test_the_noise_fit_comes_down_from_the_top_and_the_ratio_marks_start_at_one_
         assert page.evaluate("() => document.documentElement.dataset.theme") == scheme
         before = len(requests)
         assert _res_press(page, "res-view", "energy")
+        # The deposit on (hidden at open since res-emax): its fits are the ratio's reference with both curves off.
+        assert _res_deposit(page, True)
         assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
-        assert requests[before:] == [], f"the view or a literature toggle asked the service: {requests[before:]}"
+        assert requests[before:] == [], f"the view, the deposit or a literature toggle asked the service: {requests[before:]}"
         seen = {"curve": 0, "entry": 0, "low": 0, "ratio": 0}
         for est in NOISE_ESTIMATORS:
             payload = _fixture_payload(RES_TWO, est)
@@ -3000,7 +3163,9 @@ def test_the_e_view_draws_one_curve_per_series_with_no_band_and_one_pooled_scale
         assert _res_press(page, "res-view", "energy")
         both = '.main .card[data-panel="res-scaling"] button[data-models-shower="both"]'
         assert page.get_attribute(both, "aria-pressed") == "true", "both showers on show"
-        assert requests[before:] == [], f"the view asked the service: {requests[before:]}"
+        # The deposit on (hidden at open since res-emax): every series of the response draws its one curve.
+        assert _res_deposit(page, True)
+        assert requests[before:] == [], f"the view or the deposit asked the service: {requests[before:]}"
         seen = {"families": 0, "noise": 0, "curve tips": 0, "ratio tips": 0, "literature tips": 0,
                 "literature ratio tips": 0, "low": 0, "drawers": 0, "tips": 0}
         squeezed = {"literature squeezed": 0}
@@ -3172,11 +3337,8 @@ def test_the_e_view_draws_one_curve_per_series_with_no_band_and_one_pooled_scale
 #: below 10⁻⁶ of the value), carry no fit weight and in the 3-anchor mode draw nothing (review-ui M1), so the tests
 #: take the network, which every estimator draws and fits in both window modes.
 LEGEND_ENTRY = "Shower A · Energy network · absolute frame"
-#: Another entry, on show while LEGEND_ENTRY is hidden: its export ink is the legend's ink for an entry on show.
+#: Another entry, on show while LEGEND_ENTRY is hidden: the export keeps it, and its legend lists it.
 LEGEND_ON_SHOW = "Shower B · Energy network · absolute frame"
-#: The ink an exported figure's legend draws a hidden entry in (export/figure.js `printInactiveInk`, 4.58:1 on
-#: white; tests/test_js_chart_legend.py derives it).
-PRINT_INACTIVE = "#6f7681"
 
 #: The resolution card as ECharts drew it: per series, its id, its name, whether the legend filters it, its data
 #: items and the elements its view holds now; the legend's selected state.
@@ -3209,22 +3371,39 @@ _LEGEND_ITEM = """(name) => {
   return at;
 }"""
 
-#: Every chart the SVG export builds, its legend state and which of its series the legend filters when serialised.
+#: Every chart the export builds (SVG, or the PNG's own canvas chart), its legend state (the first legend's
+#: selected map, and every legend's listed names and whether it is shown), which of its series the legend filters
+#: when serialised, and its grids' tops.
 _WATCH_EXPORT_LEGEND = """() => {
   if (window.__exportLegend) return;
   window.__exportLegend = [];
+  const record = (chart, renderer) => {
+    const model = chart.getModel();
+    const o = chart.getOption();
+    window.__exportLegend.push({
+      renderer,
+      selected: { ...((o.legend || [])[0]?.selected || {}) },
+      legends: (o.legend || []).map((l) => ({ show: l.show !== false,
+        names: (l.data || []).map((d) => (typeof d === 'string' ? d : d?.name)) })),
+      series: model.getSeries().map((s) => [s.id, s.name, model.isSeriesFiltered(s)]),
+      gridTops: (o.grid || []).map((g) => g.top),
+      height: chart.getHeight(),
+    });
+  };
   const init = echarts.init;
   echarts.init = function (dom, theme, opts) {
     const chart = init.call(this, dom, theme, opts);
     if (opts && opts.renderer === 'svg') {
       const render = chart.renderToSVGString.bind(chart);
       chart.renderToSVGString = (...args) => {
-        const model = chart.getModel();
-        window.__exportLegend.push({
-          selected: { ...((chart.getOption().legend || [])[0]?.selected || {}) },
-          series: model.getSeries().map((s) => [s.id, s.name, model.isSeriesFiltered(s)]),
-        });
+        record(chart, 'svg');
         return render(...args);
+      };
+    } else if (opts && opts.renderer === 'canvas') {
+      const url = chart.getDataURL.bind(chart);
+      chart.getDataURL = (...args) => {
+        record(chart, 'png');
+        return url(...args);
       };
     }
     return chart;
@@ -3278,8 +3457,8 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_the_window_switch_
         _serve_res_fixture(page, RES_TWO)
         state = _scroll_to(page, "res-scaling")
         assert state["message"] is None and state["canvas"], state
-        if view == "energy":
-            assert _res_press(page, "res-view", "energy")
+        # Each view pressed: the card opens on the E view (res-emax), so the 1/√E case asks for its own.
+        assert _res_press(page, "res-view", view)
         page.evaluate(_SCROLL_START, "res-scaling")
         _frames(page)
         before = len(requests)
@@ -3340,20 +3519,28 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_a_theme_switch_and
     """Martin's bug 2 (2026-11-11): a series switched off on the legend came back on a theme switch, whose repaint
     (setOption with notMerge) forgot the legend. Now it stays off in the light theme and again in the dark one, with
     no request; switched on again it draws whole, and off again it keeps the reader's last choice. The export
-    follows the screen: the figure's legend marks the entry off, the export chart filters its every series and no
-    other, and its legend draws the entry in the print's inactive grey, lighter than the entries on show."""
+    follows the screen and describes only what is on show (Martin's decision of 2026-11-17, replacing the greyed
+    entry of 2026-11-11): its legend lists every entry the whole figure listed but the hidden one, and marks that
+    one off; no series of the entry is drawn (the E view leaves them out, the 1/√E view's legend filters them) and
+    no other is filtered; no text of the SVG names the entry, and the entry on show is printed as it was."""
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
         _serve_res_fixture(page, RES_TWO)
         page.evaluate(_WATCH_EXPORT_LEGEND)
         state = _scroll_to(page, "res-scaling")
         assert state["message"] is None and state["canvas"], state
-        if view == "energy":
-            assert _res_press(page, "res-view", "energy")
+        # Each view pressed: the card opens on the E view (res-emax), so the 1/√E case asks for its own.
+        assert _res_press(page, "res-view", view)
         page.evaluate(_SCROLL_START, "res-scaling")
         _frames(page)
         fresh, selected = _drawn(page)
         assert LEGEND_ENTRY not in selected, selected
+        # The whole figure first: what an export prints with nothing switched off.
+        _, whole_svg = _download_svg(page, "res-scaling")
+        whole = page.evaluate("() => window.__exportLegend.at(-1)")
+        whole_inks = {text: fill.lower()
+                      for fill, text in re.findall(r'<text[^>]*?fill="([^"]+)"[^>]*>([^<]+)</text>', whole_svg)}
+        assert LEGEND_ENTRY in whole_inks and LEGEND_ON_SHOW in whole_inks, sorted(whole_inks)
         before = len(requests)
 
         _click_legend(page, LEGEND_ENTRY)
@@ -3366,19 +3553,30 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_a_theme_switch_and
             _assert_hidden(_drawn(page), fresh, f"{view}: switched off, then the {theme} theme")
         assert requests[before:] == [], f"a theme switch asked the service: {requests[before:]}"
 
-        # The export: the figure leaves the entry out, and its legend says so.
+        # The export: the figure leaves the entry out with its legend entry, and its legend marks it off.
         name, svg = _download_svg(page, "res-scaling")
         assert name.startswith("res-scaling_") and name.endswith(".svg"), name
         exported = page.evaluate("() => window.__exportLegend.at(-1)")
         assert exported["selected"].get(LEGEND_ENTRY) is False, exported["selected"]
-        hidden = {sid for sid, name, filtered in exported["series"] if filtered}
-        assert hidden and hidden == {sid for sid, name, _ in exported["series"] if name == LEGEND_ENTRY}, exported
+        listed = [n for legend in exported["legends"] for n in legend["names"]]
+        whole_listed = [n for legend in whole["legends"] for n in legend["names"]]
+        assert LEGEND_ENTRY in whole_listed and listed == [n for n in whole_listed if n != LEGEND_ENTRY], \
+            (whole_listed, listed)
+        # No series of the entry draws (the entry's key is network:a: its markers, whiskers, carets, curves, end
+        # labels), and no other series is filtered.
+        own = [(sid, filtered) for sid, sname, filtered in exported["series"]
+               if sname == LEGEND_ENTRY or str(sid).startswith("network:a|")]
+        assert all(filtered for _, filtered in own), own
+        assert not [sid for sid, sname, filtered in exported["series"] if filtered and (sid, filtered) not in own], \
+            exported["series"]
+        if view == "energy":
+            # The E view leaves the entry's marks out of the export altogether (brief §5.7).
+            assert own == [], own
         inks = {text: fill.lower() for fill, text in re.findall(r'<text[^>]*?fill="([^"]+)"[^>]*>([^<]+)</text>', svg)}
-        on_show = [t for t in inks if t == LEGEND_ON_SHOW]
-        assert LEGEND_ENTRY in inks and on_show, sorted(inks)
-        # The hidden entry in the print's inactive grey (export/figure.js printInactiveInk), lighter than the
-        # entries on show, never the near-black print border ECharts would have used.
-        assert inks[LEGEND_ENTRY] == PRINT_INACTIVE != inks[on_show[0]], (inks[LEGEND_ENTRY], inks[on_show[0]])
+        # No text names the hidden entry, greyed or not (PRINT_INACTIVE is retired); the entry on show is printed
+        # in the ink it had in the whole figure.
+        assert not [t for t in inks if LEGEND_ENTRY in t], sorted(inks)
+        assert inks.get(LEGEND_ON_SHOW) == whole_inks[LEGEND_ON_SHOW], (inks.get(LEGEND_ON_SHOW), whole_inks)
 
         # Back on, then off again: the memory holds the last click.
         _click_legend(page, LEGEND_ENTRY)
@@ -3473,6 +3671,437 @@ def test_the_open_drawer_names_the_series_the_legend_hides_and_the_entry_stays_l
         assert requests[before:] == [], f"the legend or the theme asked the service: {requests[before:]}"
         browser.close()
     assert problems == [], problems
+
+
+# --------------------------- the resolution card's defaults, E max and Deposit (res-emax) --
+
+#: What the E view draws against E max: every series datum's E beyond `eMax` (end labels apart, whose datum sits at
+#: the axis end by design), the end labels' data E, and every painted point beyond the pixel of E max on its own
+#: grid (a polyline's or a line's points, a caret's centroid, any other element's centre), end labels apart, which
+#: are drawn in the column beside the plot.
+_RES_BEYOND = """(eMax) => {
+  const inst = echarts.getInstanceByDom(document.getElementById('plot-res-scaling'));
+  const o = inst.getOption();
+  const out = { data: [], endLabels: [], paint: [], painted: 0 };
+  for (const s of o.series || []) {
+    const id = s.id ?? s.name;
+    for (const d of s.data || []) {
+      const x = Array.isArray(d) ? d[0] : (Array.isArray(d?.value) ? d.value[0] : null);
+      if (typeof x !== 'number' || !Number.isFinite(x)) continue;
+      if (/\\|endlabels$/.test(id)) out.endLabels.push(x);
+      else if (x > eMax + 1e-9) out.data.push([id, x]);
+    }
+  }
+  inst.getModel().eachSeries((s) => {
+    const id = s.get('id') || s.name;
+    if (/\\|endlabels$/.test(id)) return;
+    const limit = inst.convertToPixel({ xAxisIndex: s.get('xAxisIndex') ?? 0 }, eMax);
+    inst.getViewOfSeriesModel(s)?.group?.traverse((el) => {
+      if (el.isGroup || el.invisible || el.ignore) return;
+      el.updateTransform();
+      const g = (x, y) => el.transformCoordToGlobal(x, y)[0];
+      const sh = el.shape || {};
+      let xs;
+      if (Array.isArray(sh.points) && sh.points.length) {
+        xs = el.type === 'polygon'
+          ? [g(sh.points.reduce((t, p) => t + p[0], 0) / sh.points.length, sh.points.reduce((t, p) => t + p[1], 0) / sh.points.length)]
+          : sh.points.map((p) => g(p[0], p[1]));
+      } else if (Number.isFinite(sh.x1)) {
+        xs = [g(sh.x1, sh.y1), g(sh.x2, sh.y2)];
+      } else {
+        const r = el.getBoundingRect();
+        xs = [g(r.x + r.width / 2, r.y + r.height / 2)];
+      }
+      out.painted += 1;
+      const far = Math.max(...xs);
+      if (far > limit + 0.5) out.paint.push([id, el.type, far - limit]);
+    });
+  });
+  return out;
+}"""
+
+#: Every series that paints on the ratio panel (yAxisIndex 1) with its painted element count, and the end labels'
+#: texts as drawn.
+_RES_PANEL_MARKS = """() => {
+  const inst = echarts.getInstanceByDom(document.getElementById('plot-res-scaling'));
+  const out = { ratio: [], endLabels: [] };
+  inst.getModel().eachSeries((s) => {
+    const id = s.get('id') || '';
+    let n = 0;
+    const texts = [];
+    inst.getViewOfSeriesModel(s)?.group?.traverse((el) => {
+      if (el.isGroup || el.invisible || el.ignore) return;
+      n += 1;
+      if (el.type === 'text' && el.style?.text) texts.push(el.style.text);
+    });
+    if ((s.get('yAxisIndex') ?? 0) === 1 && n) out.ratio.push([id, n]);
+    if (/\\|endlabels$/.test(id)) out.endLabels.push(...texts);
+  });
+  return out;
+}"""
+
+#: The ratio panel's y axis as the option holds it: whether it draws labels, ticks and split lines, and its name.
+_RES_RATIO_AXIS = """() => {
+  const a = (echarts.getInstanceByDom(document.getElementById('plot-res-scaling')).getOption().yAxis || [])[1] || {};
+  return { type: a.type, name: a.name ?? '', labels: a.axisLabel?.show !== false, ticks: a.axisTick?.show !== false,
+           split: a.splitLine?.show === true, values: a.axisLabel?.customValues ?? null };
+}"""
+
+#: The time from one `input` event on the E max slider to the chart's two x axes ending at the new value, in ms
+#: (the event coalesced to the next animation frame's repaint, polled on the frame clock); null after 5 s.
+_EMAX_LATENCY = """([sel, v]) => new Promise((done) => {
+  const input = document.querySelector(`${sel} input`);
+  const t0 = performance.now();
+  input.value = String(v);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  const check = () => {
+    const x = echarts.getInstanceByDom(document.getElementById('plot-res-scaling')).getOption().xAxis || [];
+    if (x.length === 2 && x.every((a) => a.max === v)) done(performance.now() - t0);
+    else if (performance.now() - t0 > 5000) done(null);
+    else requestAnimationFrame(check);
+  };
+  check();
+})"""
+
+#: The E view's x axis ticks at each E max the tests set (res_axis.js eAxisTicks: every 5 GeV up to 40, every 10
+#: above, the end always ticked; at the server's end, the server's interval).
+E_TICKS = {20: [0, 5, 10, 15, 20], 45: [0, 10, 20, 30, 40, 45], 80: [0, 10, 20, 30, 40, 50, 60, 70, 80]}
+
+
+def _svg_texts(svg):
+    """Every <text> of an SVG figure, unescaped."""
+    return [html.unescape(t) for t in re.findall(r"<text[^>]*>([^<]*)</text>", svg)]
+
+
+def _download_png(page, panel_id):
+    """Export a card as a 300 dpi single-column PNG; its file name and bytes."""
+    page.click(f'button[data-export="{panel_id}"]')
+    page.wait_for_selector(".menu")
+    with page.expect_download() as download:
+        page.click(".menu-item:has-text('PNG 300 DPI — single column')")
+    with open(download.value.path(), "rb") as handle:
+        return download.value.suggested_filename, handle.read()
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_the_resolution_card_opens_on_the_e_view_with_the_deposit_hidden_and_e_max_at_the_datas_edge(
+        models_live_server, scheme):
+    """res-emax (Martin's decisions of 2026-11-17; brief §6.1, CLAUDE.md §5 "Its defaults"), on the recorded
+    two-shower response in both themes: one /api/resolution-scaling request, under the median; the title "Median
+    Relative Error vs. E"; pressed: the E (GeV) + ratio view, Median |rel. err.|, 3 anchors, Both showers and both
+    literature curves, the Deposit button not pressed (its title verbatim); the E max slider laid out with 20–80 GeV
+    in 5 GeV steps, at 20, "20 GeV", its name, title and aria-label verbatim; both x axes from 0 to 20 ticked
+    [0, 5, 10, 15, 20]; no deposit series, legend entry, fit-table row or chart text; the y range the model series'
+    own (`axis.energy.y_model`); the curves within the 20 GeV axis; a 600 px plot."""
+    payload = _fixture_payload(RES_TWO)
+    energy = payload["axis"]["energy"]
+    assert _default_emax(payload) == 20 and energy["x"]["max"] == 80, energy["x"]
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE, scheme=scheme)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        assert page.evaluate("() => document.documentElement.dataset.theme") == scheme
+        asked = _requests_of(requests, "/api/resolution-scaling")
+        assert len(asked) == 1 and asked[0].get("estimator") == "median", _urls(requests)
+        before = len(requests)
+
+        chrome = page.evaluate(_RES_CHROME)
+        assert chrome["title"] == "Median Relative Error vs. E", chrome
+        assert chrome["height"] == 600 and chrome["styleHeight"] == "600px", chrome
+        assert _res_pressed(page) == {
+            "View": ["E (GeV) + ratio"], "Estimator": ["Median |rel. err.|"], "Windows": ["3 anchors"],
+            "Showers": ["Both"], "Benchmark": [], "Literature curves": ["π±", "e±"],
+        }, _res_pressed(page)
+        button = page.locator(RES_DEPOSIT)
+        assert button.text_content() == "Deposit" and button.get_attribute("aria-pressed") == "false"
+        assert not button.is_disabled() and button.get_attribute("title") == RES_DEPOSIT_TITLE
+        emax = page.evaluate(_RES_EMAX_STATE, RES_EMAX)
+        assert emax == {
+            "hidden": False, "shown": True, "type": "range", "disabled": False, "min": "20", "max": "80", "step": "5",
+            "value": "20", "output": "20 GeV", "name": "E max", "title": RES_EMAX_TITLE, "aria": RES_EMAX_ARIA,
+        }, emax
+
+        axes = page.evaluate(_RES_AXES)
+        assert len(axes["x"]) == 2, axes["x"]
+        for a in axes["x"]:
+            assert (a["min"], a["max"]) == (0, 20) and a["ticks"] == a["values"] == E_TICKS[20], a
+        ids = _res_ids(page)
+        assert not [i for i in ids if str(i).startswith("detector:")], ids
+        assert any(str(i).startswith("network:a|") for i in ids) and any(str(i).startswith("network:b|") for i in ids)
+        legend = page.evaluate(_RES_LEGEND_NAMES)
+        assert LEGEND_ENTRY in legend and LEGEND_ON_SHOW in legend, legend
+        assert not [n for n in legend if "deposit" in n.lower()], legend
+        rows = page.evaluate(_RES_TABLE)["rows"]
+        assert rows and not [r for r in rows if "deposit" in r.lower()], rows
+        assert not [t for t in page.evaluate(_CHART_TEXTS, "plot-res-scaling") if "deposit" in t.lower()]
+        view = page.evaluate(_RES_ENERGY)
+        assert view["y"][0]["max"] == energy["y_model"]["hi"], (view["y"][0], energy["y_model"])
+        _assert_e_view_curves(view, payload, "anchors")
+        assert page.evaluate(_RES_BEYOND, 20)["paint"] == []
+        assert requests[before:] == [], f"reading the card asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+def test_the_e_max_slider_repaints_with_no_request_and_draws_nothing_beyond_it(models_live_server):
+    """The E max slider (res-emax brief §5.4, §6.2; CLAUDE.md §5 "E max, the axis end") on the recorded two-shower
+    response: moved to 45 and 80 by `input` events (coalesced to one repaint a frame) and back to 20 by a `change`,
+    it sends no request; its value and its "<n> GeV" follow; both x axes end at it, ticked [0, 10, …, 40, 45] at 45
+    and at the server's 10 GeV interval at 80; at every value no series datum, no painted point on either panel and
+    no end label lies beyond it (the end labels sit at it), the curves keep their rules, and neither the y ranges nor
+    the fit table move (no fit is refitted). The slider is hidden on the 1/√E view and back, at its value, on the E
+    view. The time from one `input` event to the axes ending at the new value is measured over 12 moves and
+    printed (not asserted)."""
+    payload = _fixture_payload(RES_TWO)
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+        before = len(requests)
+        start = page.evaluate(_RES_ENERGY)
+        table = page.evaluate(_RES_TABLE)
+        assert page.evaluate(_RES_BEYOND, 20)["paint"] == []
+
+        for value, event in ((45, "input"), (80, "input"), (20, "change")):
+            where = f"E max {value} ({event})"
+            _set_emax(page, value, event)
+            page.wait_for_function(
+                """(v) => (echarts.getInstanceByDom(document.getElementById('plot-res-scaling')).getOption().xAxis || [])
+                  .every((a) => a.max === v)""", arg=value, timeout=10_000)
+            _frames(page)
+            emax = page.evaluate(_RES_EMAX_STATE, RES_EMAX)
+            assert emax["shown"] and emax["value"] == str(value) and emax["output"] == f"{value} GeV", (where, emax)
+            axes = page.evaluate(_RES_AXES)
+            for a in axes["x"]:
+                assert (a["min"], a["max"]) == (0, value) and a["ticks"] == a["values"] == E_TICKS[value], (where, a)
+            beyond = page.evaluate(_RES_BEYOND, value)
+            assert beyond["painted"] > 0 and beyond["data"] == [] and beyond["paint"] == [], (where, beyond)
+            assert beyond["endLabels"] and all(x == pytest.approx(value) for x in beyond["endLabels"]), (where, beyond)
+            view = page.evaluate(_RES_ENERGY)
+            _assert_e_view_curves(view, payload, "anchors")
+            # The ranges and the fits never depend on E max: it only cuts extrapolation.
+            assert [(a["min"], a["max"]) for a in view["y"]] == [(a["min"], a["max"]) for a in start["y"]], where
+            assert page.evaluate(_RES_TABLE) == table, where
+        assert requests[before:] == [], f"the E max slider asked the service: {requests[before:]}"
+
+        # The E view's alone: hidden on the 1/√E view, back at its value on the E view.
+        assert _res_press(page, "res-view", "linear")
+        emax = page.evaluate(_RES_EMAX_STATE, RES_EMAX)
+        assert emax["hidden"] and not emax["shown"], emax
+        assert _res_press(page, "res-view", "energy")
+        emax = page.evaluate(_RES_EMAX_STATE, RES_EMAX)
+        assert emax["shown"] and emax["value"] == "20" and emax["output"] == "20 GeV", emax
+
+        # How long one `input` takes to reach the axes: the repaint of the next animation frame.
+        times = []
+        for value in (25, 30, 35, 40, 50, 60, 70, 80, 65, 45, 30, 20):
+            got = page.evaluate(_EMAX_LATENCY, [RES_EMAX, value])
+            assert got is not None, f"the axes never reached E max {value}"
+            times.append(got)
+            _frames(page)
+        times.sort()
+        print(f"E max input to axes: median {times[len(times) // 2]:.1f} ms, max {times[-1]:.1f} ms over "
+              f"{len(times)} moves: {[round(t, 1) for t in times]}")
+        assert requests[before:] == [], f"the E max slider asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+def test_the_deposit_toggle_shows_the_deposit_and_its_range_on_both_views_with_no_request(models_live_server):
+    """The Deposit toggle (res-emax brief §5.2-§5.3, §6.2; CLAUDE.md §5 "The Deposit toggle") on the recorded XGBoost
+    aggregate's response, whose deposit sets a wider range than the XGBoost series (E view 90% against 24%, 1/√E
+    view 90% against 9%): off, on and off again in each view, no request; on, the deposit's series, legend entry and
+    fit-table row are drawn and the y range is the full one (`axis.energy.y`, `axis.y`); off, none of them, and the
+    range is the model series' own (`axis.energy.y_model`, `axis.y_model`). On the recorded deposit-only single-shower
+    hits the button is shut and pressed, its title the forced reason, and the deposit is drawn in both views."""
+    payload = _fixture_payload("xgb")
+    deposit = next(s["label"] for s in payload["series"] if s["source"] == "detector")
+    axis = payload["axis"]
+    ranges = {"energy": (axis["energy"]["y"]["hi"], axis["energy"]["y_model"]["hi"]),
+              "linear": (axis["y"]["hi"], axis["y_model"]["hi"])}
+    assert all(full != model for full, model in ranges.values()), ranges
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], MODELS_XGB_TABLE)
+        _serve_res_fixture(page, "xgb")
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        assert len(_requests_of(requests, "/api/resolution-scaling")) == 1, _urls(requests)
+        before = len(requests)
+        button = page.locator(RES_DEPOSIT)
+        for view in ("energy", "linear"):
+            assert _res_press(page, "res-view", view)
+            for on in (False, True, False):
+                where = f"{view} view, deposit {'on' if on else 'off'}"
+                assert _res_deposit(page, on) is on, where
+                assert not button.is_disabled() and button.get_attribute("title") == RES_DEPOSIT_TITLE, where
+                page.evaluate(_SCROLL_START, "res-scaling")
+                _frames(page)
+                ids = _res_ids(page)
+                assert any(str(i).startswith("detector:") for i in ids) is on, (where, ids)
+                assert any(str(i).startswith("xgb:") for i in ids), (where, ids)
+                legend = page.evaluate(_RES_LEGEND_NAMES)
+                assert (deposit in legend) is on, (where, legend)
+                rows = page.evaluate(_RES_TABLE)["rows"]
+                assert any(deposit in r for r in rows) is on and rows, (where, rows)
+                y = page.evaluate(_RES_ENERGY)["y"][0] if view == "energy" else page.evaluate(_RES_AXES)["y"][0]
+                full, model = ranges[view]
+                assert y["max"] == (full if on else model), (where, y, ranges[view])
+        assert requests[before:] == [], f"the Deposit toggle asked the service: {requests[before:]}"
+        browser.close()
+
+        # The deposit as the response's only series: forced on, the button shut and pressed with the reason.
+        browser, page, problems_single, requests = _open(p, models_live_server["base"], SINGLE_HITS_TABLE)
+        _serve_res_fixture(page, "single_hits")
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        button = page.locator(RES_DEPOSIT)
+        for view in ("energy", "linear"):
+            assert _res_press(page, "res-view", view)
+            assert button.is_disabled() and button.get_attribute("aria-pressed") == "true", view
+            assert button.get_attribute("title") == RES_DEPOSIT_FORCED, view
+            assert any(str(i).startswith("detector:") for i in _res_ids(page)), (view, _res_ids(page))
+        # A name with the deposit drawn carries no deposit-off.
+        name, _ = _download_svg(page, "res-scaling")
+        assert "deposit-off" not in name, name
+        browser.close()
+    assert problems == [], problems
+    assert problems_single == [], problems_single
+
+
+def test_with_the_deposit_hidden_and_no_literature_curve_the_ratio_panel_draws_no_ratio(models_live_server):
+    """No reference, no ratio (res-emax brief §5.5; CLAUDE.md §5 "No reference, no ratio"), on the recorded
+    two-shower response: the deposit hidden and both literature curves switched off, the ratio panel paints no mark
+    and no 1.0 rule (no `ratio|unity` series, no `|ratio|` series with data), its y axis has no labels, ticks, split
+    lines or name, and one sentence says "No ratio drawn: no reference is on show. Switch on π±, e± or the deposit
+    to draw one." (the second sentence on screen only); no hazard says the ratio range is provisional. e± back on
+    brings the ratio marks, the rule and the axis back. No request."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        before = len(requests)
+        assert not _res_deposit(page, False)
+        # Drawn first, against the farther curve: the panel holds ratio marks and the rule.
+        marks = page.evaluate(_RES_PANEL_MARKS)
+        assert any("|ratio|markers" in i for i, _ in marks["ratio"]) and any(i == "ratio|unity" for i, _ in marks["ratio"])
+        _set_literature(page, False)
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+
+        note = _res_note(page)
+        assert _flat(RATIO_NONE_TEXT + RATIO_NONE_SCREEN_TEXT) in note, note
+        assert "ratio|unity" not in _res_ids(page), _res_ids(page)
+        data = json.loads(page.evaluate(_RES_SERIES))
+        assert not [i for i, d in data if "|ratio|" in str(i) and d], [i for i, d in data if "|ratio|" in str(i)]
+        assert page.evaluate(_RES_PANEL_MARKS)["ratio"] == [], page.evaluate(_RES_PANEL_MARKS)
+        axis = page.evaluate(_RES_RATIO_AXIS)
+        assert axis["type"] == "log" and axis["name"] == "" and not axis["labels"] and not axis["ticks"] \
+            and not axis["split"], axis
+        details = page.evaluate(_DETAILS, "res-scaling")
+        assert "provisional ratio range" not in details["title"], details
+        # The same picture is not rescaled: the main panel keeps its axes.
+        view = page.evaluate(_RES_ENERGY)
+        assert view["grids"] == 2 and view["x"][1]["max"] == 20, view["x"]
+
+        # e± on: its ratio marks, the rule and a named axis come back.
+        assert _res_press(page, "res-literature", "e")
+        marks = page.evaluate(_RES_PANEL_MARKS)
+        assert any("|ratio|markers" in i for i, _ in marks["ratio"]) and any(i == "ratio|unity" for i, _ in marks["ratio"])
+        axis = page.evaluate(_RES_RATIO_AXIS)
+        assert "e±" in axis["name"] and axis["labels"], axis
+        assert RATIO_NONE_TEXT not in _res_note(page)
+        assert requests[before:] == [], f"the toggles asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+def test_the_resolution_cards_export_describes_only_what_is_on_show(models_live_server, tmp_path):
+    """The export rule (Martin's decision of 2026-11-17; CLAUDE.md §5 "The export follows it, and describes only
+    what is on show"; brief §5.7, §7) on the recorded two-shower response.
+
+    - The default card's SVG holds no text of the hidden deposit, and its name carries energy, emax-20, deposit-off
+      and est-median in that order.
+    - Shower A's energy network switched off on the legend: the SVG holds no text of its entry and not its end label
+      "A" (shower B's "B" stays); its legend lists every entry of the whole figure but that one and marks it off; no
+      series of its key is in the figure. A PNG of the same state is a PNG, laid out from the same legend.
+    - Both literature curves off with the deposit hidden: the SVG says "No ratio drawn: no reference is on show."
+      without the screen's second sentence, and the name carries ratio-none.
+    - On a copy of the response whose model-series E range is cut to 60% (so windows of both networks are off
+      scale), the entry switched off takes its off-scale values out of the SVG's note band; shower B's stay."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO)
+        page.evaluate(_WATCH_EXPORT_LEGEND)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        before = len(requests)
+        # On screen, both showers' curves end in a labelled column.
+        assert sorted(set(page.evaluate(_RES_PANEL_MARKS)["endLabels"]) & {"A", "B"}) == ["A", "B"]
+
+        name, svg = _download_svg(page, "res-scaling")
+        texts = _svg_texts(svg)
+        tokens = name.split("_")
+        assert [t for t in tokens if t in ("energy", "emax-20", "deposit-off", "est-median")] == \
+            ["energy", "emax-20", "deposit-off", "est-median"], name
+        assert tokens.index("emax-20") == tokens.index("energy") + 1, name
+        assert "_energy_emax-20_lit-pi-e_deposit-off_est-median_" in name, name
+        assert not [t for t in texts if "deposit" in t.lower()], texts
+        assert "A" in texts and "B" in texts and LEGEND_ENTRY in texts, texts
+        whole = page.evaluate("() => window.__exportLegend.at(-1)")
+        whole_listed = [n for legend in whole["legends"] for n in legend["names"]]
+
+        _click_legend(page, LEGEND_ENTRY)
+        name, svg = _download_svg(page, "res-scaling")
+        texts = _svg_texts(svg)
+        exported = page.evaluate("() => window.__exportLegend.at(-1)")
+        assert not [t for t in texts if LEGEND_ENTRY in t] and "A" not in texts, texts
+        assert "B" in texts and LEGEND_ON_SHOW in texts, texts
+        listed = [n for legend in exported["legends"] for n in legend["names"]]
+        assert listed == [n for n in whole_listed if n != LEGEND_ENTRY] and len(listed) == len(whole_listed) - 1, \
+            (whole_listed, listed)
+        assert exported["selected"].get(LEGEND_ENTRY) is False, exported["selected"]
+        assert not [sid for sid, *_ in exported["series"] if str(sid).startswith("network:a|")], exported["series"]
+        # A PNG of the same state: a PNG, built from the same legend.
+        png_name, png = _download_png(page, "res-scaling")
+        assert png[:8] == b"\x89PNG\r\n\x1a\n" and png_name.endswith(".png"), png_name
+        printed = page.evaluate("() => window.__exportLegend.at(-1)")
+        assert printed["renderer"] == "png" and printed["legends"] == exported["legends"], printed
+        _click_legend(page, LEGEND_ENTRY)
+
+        # No reference: the ratio panel's sentence, without the screen's call to act; ratio-none in the name.
+        _set_literature(page, False)
+        name, svg = _download_svg(page, "res-scaling")
+        joined = _flat(" ".join(_svg_texts(svg)))
+        assert RATIO_NONE_TEXT in joined and "Switch on" not in joined, joined[-400:]
+        assert "_energy_emax-20_ratio-none_deposit-off_est-median_" in name, name
+        assert requests[before:] == [], f"an export asked the service: {requests[before:]}"
+        browser.close()
+
+        # The off-scale list: a copy whose model-series E range ends at 60%.
+        bodies = {}
+        for est in RES_ESTIMATORS:
+            served = _fixture_payload(RES_TWO, est)
+            served["axis"]["energy"]["y_model"].update(hi=60.0, interval=10.0)
+            bodies[est] = json.dumps(served)
+        browser, page, problems_cut, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_bodies(page, bodies)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        note = _res_note(page)
+        assert "off scale" in note and "A network" in note and "B network" in note, note
+        _click_legend(page, LEGEND_ENTRY)
+        _, svg = _download_svg(page, "res-scaling")
+        joined = _flat(" ".join(_svg_texts(svg)))
+        assert "off scale" in joined and "B network" in joined, joined[:600]
+        assert "A network" not in joined, joined[:600]
+        browser.close()
+    assert problems == [], problems
+    assert problems_cut == [], problems_cut
 
 
 # ---------------------------------------------------------------- 3-D views --
