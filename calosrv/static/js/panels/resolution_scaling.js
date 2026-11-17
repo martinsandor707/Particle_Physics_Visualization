@@ -226,6 +226,69 @@
  * under the median, with a curve on, the payload's disclosure
  * (`estimator.literature.warning`) is one more line of the note band and of
  * every literature-curve tooltip and every ratio-mark tooltip against a curve.
+ *
+ * ## The Deposit toggle, and the range of the series on show
+ *
+ * The calibrated deposit is a card toggle on both views, off by default
+ * (Martin's decisions of 2026-11-17; `opts.deposit`, `shownSeries`). Hidden,
+ * its windows, its fitted curve and its fit-table rows go together, since
+ * `resolutionModel`, `energyModel` and `fitTableRows` all take their series
+ * from `shownSeries`. A response whose only series is the deposit draws it
+ * whatever the toggle says (`deposit.forced`): a card with nothing to draw
+ * would say less than one with its benchmark. The y range follows the series
+ * on show: a deposit's windows sit far above a network's on some files (on
+ * `hits_all_models`, 2026-11-17, its 36.9% set the E view's 40% top against
+ * the networks' 22.9% and 19.2%), so while it is hidden the range is the
+ * server's second one over the model series alone (`axis.y_model`,
+ * `axis.energy.y_model`), with its sentence as `y.basis`. Nothing is rescaled
+ * here: both ranges are the server's, by the windows-alone rule. Where the
+ * model series on show draw nothing, both views say so in one sentence and
+ * name the toggle (`RES_DEPOSIT_HIDDEN_EMPTY`).
+ *
+ * ## E max: the E view's axis end
+ *
+ * The server's E axis runs to 80 GeV while every stored experiment's highest
+ * window ends at 20 GeV, so three quarters of it was dashed extrapolation
+ * (lead, 2026-11-17). The card's E max slider (Martin's decision of
+ * 2026-11-17; `opts.eMax`, `res_axis.eMaxOf`) ends the axis from the data's
+ * top edge, rounded up to 5 GeV, to the server's end, in 5 GeV steps; the 1/√E
+ * view, whose right border is the origin, has none. `opts.eMax` undefined is
+ * the server's axis exactly; anything else, null included (the slider's
+ * lower end), sets `x.max`, its tick step and ticks (`eAxisTicks`, every
+ * 5 GeV up to 40 GeV, every 10 GeV above, the server's own interval at its
+ * own end), drawn on both x axes as custom values. Every curve grid,
+ * literature grid, reference domain, caret and end label already derives from
+ * `x.max`, so nothing is drawn beyond it on either panel; no fit is refitted,
+ * and a curve whose fitted windows reach the new end is solid to it, so the
+ * extrapolation rule is said only while a drawn curve keeps a dashed run.
+ *
+ * ## No reference: no ratio
+ *
+ * With the deposit hidden and no literature curve on, nothing on show can be
+ * divided by (Martin's decision of 2026-11-17): the reference is 'none', no
+ * window takes a ratio mark ("no reference is on show") and no curve a ratio.
+ * The ratio panel keeps its frame and the shared E axis, so the figure's
+ * layout does not jump, but its y axis carries no tick, label or name and no
+ * 1.0 rule is drawn, since a scale and a rule would read as a reference. One
+ * centred sentence says so; the screen adds how to draw one, which a printed
+ * figure cannot act on. No hazard: nothing is drawn that needs one.
+ *
+ * ## What an export leaves out
+ *
+ * An exported figure describes only what is on show (Martin's decision of
+ * 2026-11-17): every chart export leaves out a series switched off on the
+ * legend, with its legend entry (`chart_panel.exportHidden`, set by
+ * export/figure.js; null on screen, where nothing here changes). The 1/√E
+ * view needs nothing beyond the shared legend: every mark of a series carries
+ * its name. The E view draws text of its own, so `energyViewOption` leaves out
+ * every mark of a left-out name (`exportView`): its markers, whiskers, carets
+ * and curves on both panels, its end labels (the end column is sized and the
+ * labels spread without them), its values in the note band's off-scale list,
+ * and a left-out literature curve's lines, carets and end labels. The
+ * extrapolation rule then counts the dashed runs of the series still drawn.
+ * Two things stay: the literature disclosure while a curve is on, since the
+ * ratio may still divide by it, and a ratio axis name that says what the
+ * visible marks are divided by.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, typographic } from '../scale.js';
@@ -238,9 +301,12 @@ import { customWhiskers, customPolyline, customBand } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries, clampInterval,
-  withColour, wrappedLegend, legendTop, legibleOpacity, emptyChartOption, sigFigs,
+  withColour, wrappedLegend, legendTop, legibleOpacity, emptyChartOption, sigFigs, exportHidden, isPrintTheme,
 } from './chart_panel.js';
 import { SOURCE_ORDER, sourceColours } from './perf_bins.js';
+import {
+  isDepositSeries, depositShown, depositForced, eMaxRange, eMaxOf, eAxisTicks, eTickStep,
+} from '../res_axis.js';
 
 /** The window modes the card offers: the fits' anchors, or every eligible window. */
 export const RES_WINDOW_MODES = Object.freeze(['anchors', 'all']);
@@ -469,13 +535,62 @@ export function modeLabel(mode, gates = DEFAULT_GATES) {
     : `the ${formatInt(gates.n_anchors)} anchor windows`;
 }
 
-/** The series one shower choice admits; one-shower data admit theirs whatever is asked. */
-export function shownSeries(payload, shower = 'both') {
+/**
+ * The series one shower choice and the Deposit toggle admit: one-shower data
+ * admit theirs whatever is asked; `deposit === false` then drops the
+ * calibrated deposit, unless it is the response's only series
+ * (`res_axis.depositShown`: it is forced on there). Any other `deposit` keeps
+ * it, as before the toggle.
+ */
+export function shownSeries(payload, shower = 'both', deposit = undefined) {
   const all = payload?.series ?? [];
   const nShowers = new Set(all.map((s) => s.shower).filter(Boolean)).size;
-  if (!shower || shower === 'both' || nShowers < 2) return all;
-  return all.filter((s) => s.shower === shower);
+  const byShower = !shower || shower === 'both' || nShowers < 2 ? all : all.filter((s) => s.shower === shower);
+  return depositShown(payload, deposit) ? byShower : byShower.filter((s) => !isDepositSeries(s));
 }
+
+/**
+ * The Deposit toggle's state for a response (Martin's decision of
+ * 2026-11-17): {shown, hidden, forced}. `forced` when hiding was asked but the
+ * deposit is the response's only series, so it is drawn whatever the toggle says.
+ */
+export function depositState(payload, deposit = undefined) {
+  const shown = depositShown(payload, deposit);
+  return { shown, hidden: !shown, forced: deposit === false && depositForced(payload) };
+}
+
+/**
+ * The y range of a view in force, `full` the server's range over every series
+ * and `modelOnly` its range over the model series alone (`axis.y_model`,
+ * `axis.energy.y_model`): the latter while the deposit is hidden and the
+ * server shipped one, with its `note` as `basis`; else the former, `basis`
+ * null (the range as before the toggle).
+ */
+function rangeInForce(full, modelOnly, hidden, estimator) {
+  const useModel = hidden && modelOnly !== null && typeof modelOnly === 'object';
+  const ya = (useModel ? modelOnly : full) ?? {};
+  return {
+    lo: 0, hi: ya.hi, interval: ya.interval, provisional: Boolean(ya.provisional),
+    name: ya.name ?? estimator.axisName, n_clipped: ya.n_clipped ?? 0,
+    basis: useModel ? (modelOnly.note ?? null) : null,
+  };
+}
+
+/**
+ * What both views say when the deposit is hidden and the model series on show
+ * draw nothing, no point and no curve (brief res-emax section 5.6, verbatim).
+ */
+export const RES_DEPOSIT_HIDDEN_EMPTY = 'The calibrated deposit is hidden, and the model series have no window to draw in this selection; switch on Deposit to draw it.';
+
+/**
+ * The sentence the ratio panel shows with no reference on show (the deposit
+ * hidden and no literature curve on), and what the screen adds to it.
+ */
+export const RATIO_NONE_TEXT = 'No ratio drawn: no reference is on show.';
+export const RATIO_NONE_SCREEN_TEXT = ' Switch on π±, e± or the deposit to draw one.';
+
+/** The ratio's reference with no reference on show: no fit, no value, no ratio mark. */
+const NO_REFERENCE_REASON = 'no reference is on show';
 
 /** Each series' colour: the detector in ink, a model in its E2 hue, measured against the card in force. */
 export function seriesColours(series) {
@@ -631,12 +746,16 @@ function roleOf(payload, s, mf, mode, w, gates) {
 
 /**
  * Everything the chart, its tooltips, the table and the drawer need, decided
- * once. Pure. `opts` = {windows, shower}. Null without a resolution payload.
+ * once. Pure. `opts` = {windows, shower, deposit (false hides the calibrated
+ * deposit where a model series is left, `shownSeries`)}. Null without a
+ * resolution payload.
  *
- * {mode, gates, estimator (`estimatorOf`), y: {lo, hi, interval, provisional, name, n_clipped}, nShowers,
+ * {mode, gates, estimator (`estimatorOf`), y: {lo, hi, interval, provisional, name, n_clipped,
+ * basis (the server's `y_model.note` while the deposit is hidden and the
+ * model series' range is in force, else null)}, nShowers,
  * series: [{key, label, raw, colour, isB, offsetPx, mf, provisional, points,
  * fits: {affine, pinned}, unreported}], clipped: {markers, whiskers, fits},
- * nPoints, nLines}. A point is {w, x, value, lo, hi, n, whisker, weak,
+ * deposit {shown, hidden, forced} (`depositState`), nPoints, nLines}. A point is {w, x, value, lo, hi, n, whisker, weak,
  * subFloor, anchor, fitted, opacity, clip, over, roles}; a fit is {form, fit,
  * runs, band, provisional, misfit (`isMisfit`), faded (provisional or misfit:
  * drawn faded), span (its windows' momentum edges, GeV), xSpan (the same in x,
@@ -651,14 +770,12 @@ export function resolutionModel(payload, opts = {}) {
   const mode = windowMode(opts.windows);
   const gates = { ...DEFAULT_GATES, ...(payload.gates ?? {}) };
   const estimator = estimatorOf(payload, opts.estimator);
-  const ya = payload.axis.y ?? {};
-  const y = {
-    lo: 0, hi: ya.hi, interval: ya.interval, provisional: Boolean(ya.provisional),
-    name: ya.name ?? estimator.axisName, n_clipped: ya.n_clipped ?? 0,
-  };
+  const deposit = depositState(payload, opts.deposit);
+  // The range follows the series on show: the model series' own while the deposit is hidden (`axis.y_model`).
+  const y = rangeInForce(payload.axis.y, payload.axis.y_model, deposit.hidden, estimator);
   const all = payload.series;
   const nShowers = new Set(all.map((s) => s.shower).filter(Boolean)).size;
-  const shown = shownSeries(payload, opts.shower);
+  const shown = shownSeries(payload, opts.shower, opts.deposit);
   const colours = seriesColours(shown);
   const clipped = { markers: 0, whiskers: 0, fits: 0 };
   const hi = Number.isFinite(y.hi) ? y.hi : Infinity;
@@ -728,7 +845,7 @@ export function resolutionModel(payload, opts = {}) {
     };
   });
   return {
-    mode, gates, estimator, y, nShowers, series, clipped,
+    mode, gates, estimator, y, nShowers, series, clipped, deposit,
     nPoints: series.reduce((a, s) => a + s.points.length, 0),
     nLines: series.reduce((a, s) => a + DRAWN_FORMS.filter((f) => s.fits[f]).length, 0),
   };
@@ -1116,6 +1233,21 @@ function seriesMarks(model, s, payload) {
   return out;
 }
 
+/**
+ * The empty state of a view whose deposit is hidden (Martin's decision of
+ * 2026-11-17; brief res-emax section 5.6), or null: where the model series on
+ * show draw nothing in that view (`empty`, the view's own test of its model:
+ * no point and no curve, or no range), the one sentence that says the deposit
+ * is hidden and how to draw it. A shower choice with no series at all, the
+ * deposit included, keeps its own sentence; a forced deposit is shown, so its
+ * view keeps its own empty states.
+ */
+function depositHiddenEmpty(payload, opts, model, empty = (m) => !m.nPoints || !(m.y.hi > 0)) {
+  if (!model?.deposit?.hidden) return null;
+  if (!shownSeries(payload, opts?.shower).length) return null;
+  return !model.series.length || empty(model) ? RES_DEPOSIT_HIDDEN_EMPTY : null;
+}
+
 /** "holds two events" at the report floor N = 2; "reaches N = 20" under the robust estimator's floor. */
 function holdsText(gates) {
   return gates.report_n === 2 ? 'holds two events' : `reaches N = ${formatInt(gates.report_n)}`;
@@ -1147,14 +1279,19 @@ function topAxisPx() {
 
 /**
  * The card's option. Pure: `opts` = {view?: 'linear' | 'energy', windows:
- * 'anchors' | 'all', shower: 'a' | 'b' | 'both', reference?, palette, card,
- * tooltipPosition?}; `metrics` = {width, height}. `view: 'energy'` is the E
- * view (`energyViewOption`); any other view is the 1/√E view, unchanged.
+ * 'anchors' | 'all', shower: 'a' | 'b' | 'both', reference?, deposit?, eMax?
+ * (the E view's alone), palette, card, tooltipPosition?}; `metrics` = {width,
+ * height}. `view: 'energy'` is the E view (`energyViewOption`); any other view
+ * is the 1/√E view, whose export needs nothing beyond `chartLegend` and
+ * `legendTop`: every mark of a series carries its name, so the legend's filter
+ * leaves all of it out.
  */
 export function resolutionScalingOption(payload, opts = {}, metrics = {}) {
   if (opts?.view === 'energy') return energyViewOption(payload, opts, metrics).option;
   const model = resolutionModel(payload, opts);
   if (!model) return emptyChartOption(opts, metrics, 'This response carries no energy-resolution series.');
+  const hiddenEmpty = depositHiddenEmpty(payload, opts, model);
+  if (hiddenEmpty) return emptyChartOption(opts, metrics, hiddenEmpty);
   if (!model.series.length) {
     return emptyChartOption(opts, metrics, 'No series of the chosen shower in this response.');
   }
@@ -1348,7 +1485,8 @@ export function fitTableRows(payload, opts = {}) {
   // The plotted quantity leads the caption under the median and robust estimators; the sample caption is unchanged.
   const of = est.name === 'sample' ? '' : ` of the ${est.quantity}`;
   const text = (c) => typographic(String(c));
-  const rows = shownSeries(payload, opts?.shower).map((s) => {
+  // The Deposit toggle hides the deposit's rows with its windows and curve (`shownSeries`).
+  const rows = shownSeries(payload, opts?.shower, opts?.deposit).map((s) => {
     const mf = s.fits?.[mode] ?? null;
     // Why a fit from 4 GeV is missing, from the payload (review-ui F2, review-docs M3).
     const missing = fitMissingReason(est, s, mf, mode, gates);
@@ -2222,6 +2360,19 @@ function literatureReference(entry, shower) {
 }
 
 /**
+ * The ratio's reference for one shower with no reference on show (the deposit
+ * hidden and no literature curve on; Martin's decision of 2026-11-17): no fit
+ * and no value anywhere, so every window's ratio is undrawn with `reason`, and
+ * no curve is divided by it.
+ */
+function noReference(shower) {
+  return {
+    key: 'none', shower, literature: null, interval: null, series: null, form: null, fit: null, span: null,
+    provisional: false, misfit: false, label: 'no reference', why: null, reason: NO_REFERENCE_REASON, valueAt: () => null,
+  };
+}
+
+/**
  * The 1/√E view's provisional role in the E view's words (brief-fix m2): on
  * this view windows of N ≥ 20 below 4 GeV can be drawn, so the fallback's
  * count is said of the windows from 4 GeV, where it is taken.
@@ -2302,15 +2453,24 @@ function energyRoles(payload, s, mf, mode, w, gates, curveMin, noiseMin) {
 /**
  * Everything the E view's chart, its tooltips and the drawer need, decided
  * once. Pure. `opts` = {windows, shower, literature (the curves drawn,
- * `literatureDrawn`; the older single `reference` where it is absent)}. The
- * ratio's reference follows from them (`ratioReferenceChoice`).
+ * `literatureDrawn`; the older single `reference` where it is absent),
+ * deposit (false hides the calibrated deposit, `shownSeries`), eMax (the E
+ * max slider's value: undefined keeps the server's axis end, anything else,
+ * null included, is `res_axis.eMaxOf`'s)}. The ratio's reference follows
+ * from them (`ratioReferenceChoice`).
  * Null without a resolution payload that carries `axis.energy`.
  *
  * The returned shape (models_notes.js builds the E view's drawer from it):
  *
- * - `view` 'energy', `mode`, `gates`, `estimator` (`estimatorOf`), `nShowers`, `payload`;
- * - `x` {min, max, interval, name} and `y` {lo, hi, interval, provisional,
- *   name, n_clipped}: `axis.energy`'s, the y range the server's 2 GeV rule;
+ * - `view` 'energy', `mode`, `gates`, `estimator` (`estimatorOf`), `nShowers`, `payload`,
+ *   `deposit` {shown, hidden, forced} (`depositState`);
+ * - `x` {min, max, interval, name, serverMax (the server's axis end), ticks
+ *   (the tick values under E max, `eAxisTicks`, else null), eMax (null
+ *   without E max, else {value, min, max, step}: the slider's value and range)}
+ *   and `y` {lo, hi, interval, provisional,
+ *   name, n_clipped, basis (the server's `y_model.note` while the deposit is
+ *   hidden and the model series' range is in force, else null)}: `axis.energy`'s
+ *   (`y_model` while the deposit is hidden), the y range the server's 2 GeV rule;
  *   `curveMinGev` (no a₀/√E below it), `noiseMinGev` (the noise fit's window
  *   floor, 1 GeV), `yMinGev`, `dataMaxGev`, `rule` and
  *   `notes` (the server's sentences);
@@ -2318,8 +2478,10 @@ function energyRoles(payload, s, mf, mode, w, gates, curveMin, noiseMin) {
  * (Martin's directive of 2026-11-15): a series' a/√E ⊕ b ⊕ c/E where it has a
  * drawable one, else its origin-pinned a₀/√E, else none.
  *
- * - `reference` {key: 'deposit' | 'pi' | 'e', choice (`ratioReferenceChoice`:
- *   why this one), label (the ratio axis's
+ * - `reference` {key: 'deposit' | 'pi' | 'e' | 'none' (the deposit hidden and
+ *   no literature curve on: no ratio is taken, every byShower entry the
+ *   reason "no reference is on show"), choice (`ratioReferenceChoice`:
+ *   why this one; {key: 'none', rule: 'none', …} with none), label (the ratio axis's
  *   wording), literature: the catalogue entry or null, interval: null (the
  *   deposit's too: the reference is held exact and no band about 1 is drawn),
  *   flag: 'no interval reported' under a
@@ -2393,7 +2555,9 @@ function energyRoles(payload, s, mf, mode, w, gates, curveMin, noiseMin) {
  *   caret}, belowNotDrawn (windows below the curve
  *   floor left off the ratio panel under the deposit reference), below
  *   ([{shower, form, floorGev, n}], those windows by shower and reference
- *   form: 'noise' at 1 GeV, `noiseBelowText`), noReference ([{shower, reason}])};
+ *   form: 'noise' at 1 GeV, `noiseBelowText`), noReference ([{shower, reason}]),
+ *   none (true with no reference on show: no ratio mark, no curve ratio, k
+ *   not provisional, nothing capped or counted below, noReference [])};
  * - `twoOnShow` (two showers drawn) and `endLabels` {main, ratio}: [{key,
  *   form, name (the legend entry that hides it), text ("A", "B", "π±"),
  *   colour (the series', or the literature curve's identity colour),
@@ -2411,7 +2575,8 @@ function energyRoles(payload, s, mf, mode, w, gates, curveMin, noiseMin) {
  * - `spans` {shared, span, bySeries: [{key, label, form, span}]}: one entry
  *   per series with a curve, its fitted span, `shared` when they are one;
  * - `noteText` {offScale, extrapolation, warning}: the canvas note's strings
- *   before they are fitted to its width ('' where there is nothing to say);
+ *   before they are fitted to its width ('' where there is nothing to say;
+ *   `extrapolation` only while a drawn curve has a dashed run on either panel);
  *   `warning` the literature disclosure, under the median estimator with a
  *   literature curve on;
  * - `nPoints`, `nLines` (the series with a curve).
@@ -2422,16 +2587,26 @@ export function energyModel(payload, opts = {}) {
   const mode = windowMode(opts.windows);
   const gates = { ...DEFAULT_GATES, ...(payload.gates ?? {}) };
   const estimator = estimatorOf(payload, opts.estimator);
+  const deposit = depositState(payload, opts.deposit);
   const xa = ea.x ?? {};
+  const serverMax = Number.isFinite(xa.max) ? xa.max : 80;
+  const serverInterval = Number.isFinite(xa.interval) ? xa.interval : 10;
   const x = {
-    min: Number.isFinite(xa.min) ? xa.min : 0, max: Number.isFinite(xa.max) ? xa.max : 80,
-    interval: Number.isFinite(xa.interval) ? xa.interval : 10, name: xa.name ?? 'Energy E [GeV]',
+    min: Number.isFinite(xa.min) ? xa.min : 0, max: serverMax,
+    interval: serverInterval, name: xa.name ?? 'Energy E [GeV]',
+    serverMax, ticks: null, eMax: null,
   };
-  const ya = ea.y ?? {};
-  const y = {
-    lo: 0, hi: ya.hi, interval: ya.interval, provisional: Boolean(ya.provisional),
-    name: ya.name ?? estimator.axisName, n_clipped: ya.n_clipped ?? 0,
-  };
+  // E max (Martin's decision of 2026-11-17): any `eMax` but undefined ends the axis on the slider's value, its
+  // lower end for null; every curve grid, reference domain, end label and caret below derives from x.max.
+  const eMax = opts.eMax === undefined ? null : eMaxOf(payload, opts.eMax);
+  if (Number.isFinite(eMax)) {
+    x.max = eMax;
+    x.interval = eTickStep(eMax, serverMax, serverInterval);
+    x.ticks = eAxisTicks(eMax, serverMax, serverInterval);
+    x.eMax = { value: eMax, ...eMaxRange(payload) };
+  }
+  // The range follows the series on show: the model series' own while the deposit is hidden (`axis.energy.y_model`).
+  const y = rangeInForce(ea.y, ea.y_model, deposit.hidden, estimator);
   const hi = Number.isFinite(y.hi) ? y.hi : Infinity;
   const curveMin = Number.isFinite(ea.curve_min_gev) ? ea.curve_min_gev : gates.e_min_gev;
   // The noise fit's floor: no window below it enters a/√E ⊕ b ⊕ c/E, or takes a ratio mark against the deposit's.
@@ -2439,17 +2614,21 @@ export function energyModel(payload, opts = {}) {
   const yMinGev = Number.isFinite(ea.y_min_gev) ? ea.y_min_gev : 2;
   const all = payload.series;
   const nShowers = new Set(all.map((s) => s.shower).filter(Boolean)).size;
-  const shown = shownSeries(payload, opts.shower);
+  const shown = shownSeries(payload, opts.shower, opts.deposit);
   const colours = seriesColours(shown);
-  // The curves drawn, and what the ratio divides by: the one drawn, the farther of two, or the deposit fit.
+  // The curves drawn, and what the ratio divides by: the one drawn, the farther of two, or the deposit fit; with the
+  // deposit hidden and no curve on, nothing (Martin's decision of 2026-11-17: no ratio mark is drawn).
   const drawnKeys = literatureDrawn(opts.literature, opts.reference);
   const onShow = shown.flatMap((s) => windowsOnShow(s, mode, gates, x.max).map((w) => {
     const E = 1 / (w.x * w.x);
     return { E, value: w.value, n: w.n, pLo: Number.isFinite(w.p_lo) ? w.p_lo : E };
   }));
-  const choice = ratioReferenceChoice(drawnKeys, onShow, gates, yMinGev);
+  const none = deposit.hidden && !drawnKeys.length;
+  const choice = none
+    ? { key: 'none', rule: 'none', basis: null, n: 0, scores: [] }
+    : ratioReferenceChoice(drawnKeys, onShow, gates, yMinGev);
   const referenceKey = choice.key;
-  const entry = referenceKey === 'deposit' ? null : referenceOf(referenceKey);
+  const entry = referenceKey === 'deposit' || none ? null : referenceOf(referenceKey);
   // `fits` counts the fits that leave the top as E rises (a caret each); `entries` the curves that come down into the
   // plot from the top as E rises (a/√E ⊕ b ⊕ c/E from 0, the a₀/√E fallback from curveMin; one caret each).
   const clipped = { markers: 0, whiskers: 0, fits: 0, entries: 0, literature: 0, ratio: 0 };
@@ -2457,7 +2636,8 @@ export function energyModel(payload, opts = {}) {
 
   const byShower = {};
   for (const sh of new Set(shown.map((s) => s.shower ?? 'a'))) {
-    byShower[sh] = entry ? literatureReference(entry, sh) : depositReference(all, sh, mode, nShowers, curveMin, x.max, estimator.symbol, noiseMin);
+    if (none) byShower[sh] = noReference(sh);
+    else byShower[sh] = entry ? literatureReference(entry, sh) : depositReference(all, sh, mode, nShowers, curveMin, x.max, estimator.symbol, noiseMin);
   }
   let belowNotDrawn = 0;
   // The windows left off the ratio panel below a deposit reference's floor, by shower and reference form.
@@ -2732,30 +2912,33 @@ export function energyModel(payload, opts = {}) {
   const same = (a, b) => (a === null && b === null) || (a && b && a[0] === b[0] && a[1] === b[1]);
   const shared = bySeries.length > 0 && bySeries.every((b) => same(b.span, bySeries[0].span));
   const noteText = {
-    offScale: offScale.length ? `↑ off scale: ${offScale.map(offScaleGroupText).join('; ')}` : '',
-    extrapolation: !bySeries.length ? ''
-      : (shared && bySeries[0].span
-        ? `dashed: fit extrapolated beyond its fitted windows (${spanText(bySeries[0].span)})`
-        : 'dashed: each fit extrapolated beyond its own fitted windows (Details)'),
+    offScale: offScaleText(offScale),
+    // Said only while a drawn curve has a dashed run on either panel (Martin's decision of 2026-11-17: at E max
+    // = 20 GeV a curve fitted to 4–20 GeV is solid to the end), its span quoted where every drawn curve shares one.
+    extrapolation: extrapolationText(series),
     // The literature disclosure (brief section 2.7, Martin's override of 2026-11-12): under the median, whenever a
     // literature curve is on, the payload's own sentence, verbatim, as one line of the note band.
     warning: estimator.warning && literature.length ? estimator.warning : '',
   };
 
-  const refLabel = entry ? referenceLabel(entry)
-    : (Object.keys(byShower).length > 1 ? 'each shower\'s deposit fit' : (Object.values(byShower)[0]?.label ?? 'the deposit fit'));
+  let refLabel;
+  if (none) refLabel = 'no reference';
+  else if (entry) refLabel = referenceLabel(entry);
+  else refLabel = Object.keys(byShower).length > 1 ? 'each shower\'s deposit fit' : (Object.values(byShower)[0]?.label ?? 'the deposit fit');
   return {
-    view: 'energy', mode, gates, estimator, nShowers, payload, x, y,
+    view: 'energy', mode, gates, estimator, nShowers, payload, x, y, deposit,
     curveMinGev: curveMin, noiseMinGev: noiseMin, yMinGev, dataMaxGev: ea.data_max_gev ?? null, rule: ea.rule ?? null, notes: [...(ea.notes ?? [])],
     reference: {
       key: referenceKey, choice, label: refLabel, literature: entry, interval: null,
       flag: entry ? 'no interval reported' : null, byShower,
     },
     series, literature,
+    // With no reference on show (`none`) no window has a ratio mark and no curve a ratio, so the axis is no range.
     ratio: {
-      k, provisional: ratioProvisional, capped: ratioCapped, reference: referenceKey, clipped: ratioClipped, belowNotDrawn,
+      k, provisional: none ? false : ratioProvisional, capped: ratioCapped, reference: referenceKey, clipped: ratioClipped, belowNotDrawn,
       below: [...below.values()],
-      noReference: Object.values(byShower).filter((r) => r.reason).map((r) => ({ shower: r.shower, reason: r.reason })),
+      noReference: none ? [] : Object.values(byShower).filter((r) => r.reason).map((r) => ({ shower: r.shower, reason: r.reason })),
+      none,
     },
     twoOnShow, endLabels,
     clipped, offScale,
@@ -2769,6 +2952,28 @@ export function energyModel(payload, opts = {}) {
 /** One window's group on the canvas note: "1–2 GeV — A network 79.1%, B network 77.6%". */
 function offScaleGroupText(g) {
   return `${g.label} — ${g.entries.map((e) => `${e.short} ${pct(e.value)}`).join(', ')}`;
+}
+
+/** The canvas note's off-scale list of `groups` (`offScale`), or '' with none. */
+function offScaleText(groups) {
+  return groups.length ? `↑ off scale: ${groups.map(offScaleGroupText).join('; ')}` : '';
+}
+
+/**
+ * The canvas note's extrapolation rule for `series` (the model's, or those an
+ * export keeps), or '' where no drawn curve of theirs has a dashed run on
+ * either panel: the rule describes drawn marks only (Martin's decision of
+ * 2026-11-17). The span is quoted where every drawn curve of theirs shares one.
+ */
+function extrapolationText(series) {
+  const drawn = series.filter((s) => s.drawn);
+  const dashed = drawn.some((s) => (s.drawn.dashed ?? []).length || (s.drawn.ratio?.dashed ?? []).length);
+  if (!dashed) return '';
+  const same = (a, b) => (a === null && b === null) || (a && b && a[0] === b[0] && a[1] === b[1]);
+  const shared = drawn.every((s) => same(s.drawn.span, drawn[0].drawn.span));
+  return shared && drawn[0].drawn.span
+    ? `dashed: fit extrapolated beyond its fitted windows (${spanText(drawn[0].drawn.span)})`
+    : 'dashed: each fit extrapolated beyond its own fitted windows (Details)';
 }
 
 /* ------------------------------------------------------- E-view tips -- */
@@ -3145,7 +3350,8 @@ function referenceMisfitText(ref, gates) {
 
 /**
  * Why the ratio divides by the curve it does when both are drawn (`ratioReferenceChoice`), or null when one or
- * neither is: the median factor between the windows and each curve, over which windows.
+ * neither is, and with no reference on show (rule 'none'): the median factor between the windows and each curve,
+ * over which windows.
  */
 export function referenceChoiceText(model) {
   const c = model.reference.choice;
@@ -3704,21 +3910,26 @@ function energyEmptyText(model) {
  * Why the E view draws nothing for `model` (the empty state's sentence), or
  * null where it draws its two panels.
  */
-function energyEmptyReason(model) {
+function energyEmptyReason(model, opts = {}) {
   if (!model) return 'This response carries no energy-resolution series for the E view.';
+  const empty = (m) => (!m.nPoints && !m.nLines) || !(m.y.hi > 0);
+  const hiddenEmpty = depositHiddenEmpty(model.payload, opts, model, empty);
+  if (hiddenEmpty) return hiddenEmpty;
   if (!model.series.length) return 'No series of the chosen shower in this response.';
-  if ((!model.nPoints && !model.nLines) || !(model.y.hi > 0)) return energyEmptyText(model);
+  if (empty(model)) return energyEmptyText(model);
   return null;
 }
 
 /** Whether the E view draws its two panels for this payload and these options (else its empty state). */
 export function energyDrawsPanels(payload, opts = {}) {
-  return energyEmptyReason(energyModel(payload, opts)) === null;
+  return energyEmptyReason(energyModel(payload, opts), opts) === null;
 }
 
 /**
- * The E view's option. Pure: `opts` = {windows, shower, reference, palette,
- * card, tooltipPosition?}; `metrics` = {width, height}. Returns {option,
+ * The E view's option. Pure but for the export's legend context
+ * (`exportHidden`, null on screen): `opts` = {windows, shower, literature
+ * (or the older reference), estimator, deposit, eMax, palette, card,
+ * tooltipPosition?}; `metrics` = {width, height}. Returns {option,
  * plotGrid}: two grids, the main panel over the ratio panel, on one E axis
  * (`plotGrid` their union for the tooltip placement), the canvas note
  * between the legend and the main panel, and the end-label column beside
@@ -3726,14 +3937,19 @@ export function energyDrawsPanels(payload, opts = {}) {
  */
 export function energyViewOption(payload, opts = {}, metrics = {}) {
   const model = energyModel(payload, opts);
-  const empty = energyEmptyReason(model);
+  const empty = energyEmptyReason(model, opts);
   if (empty) return { option: emptyChartOption(opts, metrics, empty) };
   const pad = axisPadding();
   const f = THEME.fontLabel;
   const width = metrics.width || 760;
   const height = metrics.height || ENERGY_VIEW_PX;
   const gap = gridGapPx();
-  const right = pad.right + endColumnPx(model);
+  // An export leaves out every mark of a name the legend on show switched off (`exportHidden`, set by
+  // export/figure.js): its marks on both panels, its end labels and its off-scale values; on screen `view` is `model`.
+  const off = exportHidden();
+  const kept = (name) => !off?.has(name);
+  const view = exportView(model, off);
+  const right = pad.right + endColumnPx(view);
   const legendWidthPx = Math.max(80, width - pad.left - pad.right);
   const plotWidthPx = Math.max(80, width - pad.left - right);
 
@@ -3741,12 +3957,17 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
   const legend = [];
   for (const s of model.series) {
     if (!s.points.length && !s.drawn) continue;
-    series.push(...energySeriesMarks(model, s));
+    if (kept(s.label)) series.push(...energySeriesMarks(model, s));
+    // Every entry is listed: an export's legend drops a left-out one and marks it false (chartLegend, legendTop).
     legend.push({ name: s.label, icon: 'circle' });
   }
   // The literature curves drawn: each one's line, caret, legend swatch and end label in its identity colour, and
   // beside a literature reference its line divided by it on the ratio panel, with its own caret.
   for (const lit of model.literature) {
+    if (!kept(lit.legend)) {
+      legend.push({ name: lit.legend, icon: LITERATURE_ICON, itemStyle: { color: lit.colour } });
+      continue;
+    }
     series.push(literatureSeries(model, lit));
     if (lit.cut) {
       series.push({
@@ -3771,16 +3992,17 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
     }
     legend.push({ name: lit.legend, icon: LITERATURE_ICON, itemStyle: { color: lit.colour } });
   }
-  // The end labels, one series per legend entry and panel, so the legend hides them with their curves.
+  // The end labels, one series per legend entry and panel, so the legend hides them with their curves; an export
+  // places and spreads the labels it keeps alone (`view`).
   for (const panel of ['main', 'ratio']) {
-    for (const name of new Set(model.endLabels[panel].map((l) => l.name))) {
-      const labels = endLabelSeries(model, panel, name);
+    for (const name of new Set(view.endLabels[panel].map((l) => l.name))) {
+      const labels = endLabelSeries(view, panel, name);
       if (labels) series.push(labels);
     }
   }
 
   const legendBottom = legendTop(legend, legendWidthPx, { wrap: true });
-  const note = noteLayout(model, plotWidthPx, Math.max(80, width - pad.left - 2));
+  const note = noteLayout(view, plotWidthPx, Math.max(80, width - pad.left - 2));
   const mainTop = legendBottom + note.height;
   const avail = Math.max(140, height - mainTop - pad.bottom - gap);
   const ratioH = Math.max(40, Math.round(RATIO_SHARE * avail));
@@ -3790,27 +4012,36 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
     { left: pad.left, right, top: mainTop + mainH + gap, height: ratioH },
   ];
   const { k } = model.ratio;
-  series.push({
-    type: 'custom',
-    id: 'ratio|unity',
-    name: 'ratio = 1',
-    xAxisIndex: 1,
-    yAxisIndex: 1,
-    clip: true,
-    z: 3,
-    silent: false,
-    data: [[model.x.min, 1]],
-    renderItem: (params, api) => {
-      const a = api.coord([model.x.min, 1]);
-      const b = api.coord([model.x.max, 1]);
-      return { type: 'line', shape: { x1: a[0], y1: a[1], x2: b[0], y2: b[1] }, style: { stroke: THEME.text, lineWidth: THEME.lineAxis } };
-    },
-    tooltip: { formatter: () => unityTip(model) },
-  });
+  // With no reference on show the panel keeps its frame and the E axis but draws no 1.0 rule (Martin's decision
+  // of 2026-11-17): a rule would read as a reference the ratio is taken against.
+  if (!model.ratio.none) {
+    series.push({
+      type: 'custom',
+      id: 'ratio|unity',
+      name: 'ratio = 1',
+      xAxisIndex: 1,
+      yAxisIndex: 1,
+      clip: true,
+      z: 3,
+      silent: false,
+      data: [[model.x.min, 1]],
+      renderItem: (params, api) => {
+        const a = api.coord([model.x.min, 1]);
+        const b = api.coord([model.x.max, 1]);
+        return { type: 'line', shape: { x1: a[0], y1: a[1], x2: b[0], y2: b[1] }, style: { stroke: THEME.text, lineWidth: THEME.lineAxis } };
+      },
+      tooltip: { formatter: () => unityTip(model) },
+    });
+  }
 
   const xRange = { min: model.x.min, max: model.x.max, interval: model.x.interval };
-  const top = valueAxis({ ...xRange, gridIndex: 0 });
-  const bottom = valueAxis({ ...xRange, gridIndex: 1, name: model.x.name });
+  // Under E max both x axes tick at `x.ticks` (res_axis.eAxisTicks), from 0 to the slider's value; without it,
+  // the server's interval as before.
+  const ticked = (a) => (model.x.ticks
+    ? { ...a, min: 0, max: model.x.max, axisTick: { ...a.axisTick, customValues: model.x.ticks }, axisLabel: { ...a.axisLabel, customValues: model.x.ticks } }
+    : a);
+  const top = ticked(valueAxis({ ...xRange, gridIndex: 0 }));
+  const bottom = ticked(valueAxis({ ...xRange, gridIndex: 1, name: model.x.name }));
   const yBase = model.y.name;
   const yName = fitName(model.y.provisional
     ? [`${yBase} — provisional, no window from ${formatNumber(model.yMinGev)} GeV reaches N = ${formatInt(model.gates.fit_n)}`, `${yBase} — provisional`]
@@ -3820,6 +4051,10 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
     type: 'log', gridIndex: 1, name: ratioAxisName(model, ratioH), min: 1 / k, max: k, nameGap: 3.6 * f,
     formatter: ratioTickLabel,
   });
+  // No reference: the ratio axis is no scale, so it carries no tick, label, split line or name.
+  const ratioAxis = model.ratio.none
+    ? { ...valueAxis({ type: 'log', gridIndex: 1, name: '', min: 1 / k, max: k, labels: false }), logBase: 10 }
+    : { ...ratio, logBase: 10, axisTick: { ...ratio.axisTick, customValues: ticks }, axisLabel: { ...ratio.axisLabel, customValues: ticks } };
   const noteTop = legendBottom + Math.round(0.2 * THEME.fontTip);
   const noteStyle = {
     fill: THEME.muted, fontSize: THEME.fontTip, fontFamily: THEME.fontFamily, lineHeight: note.lineH, textVerticalAlign: 'top',
@@ -3838,6 +4073,18 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
       style: { ...noteStyle, x: pad.left, y: noteTop + note.warnAt * note.lineH, text: note.warning.join('\n') },
     });
   }
+  if (model.ratio.none) {
+    // One sentence centred in the ratio panel; the screen says how to draw a ratio, which a printed figure cannot.
+    // It wraps inside the plot's width (`overflow: 'break'`), so its text stays the one sentence.
+    graphic.push({
+      type: 'text', silent: true,
+      style: {
+        x: pad.left + plotWidthPx / 2, y: grid[1].top + ratioH / 2, text: `${RATIO_NONE_TEXT}${isPrintTheme() ? '' : RATIO_NONE_SCREEN_TEXT}`,
+        textAlign: 'center', textVerticalAlign: 'middle', width: Math.max(80, plotWidthPx - 8), overflow: 'break',
+        fill: THEME.muted, fontSize: THEME.fontTip, fontFamily: THEME.fontFamily, lineHeight: 1.45 * THEME.fontTip,
+      },
+    });
+  }
   return {
     option: {
       ...baseOption(),
@@ -3854,12 +4101,40 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
           name: yName, min: 0, max: model.y.hi, interval: verticalInterval(model.y.hi, model.y.interval, mainH),
           split: true, nameGap: 3.6 * f, gridIndex: 0,
         }),
-        { ...ratio, logBase: 10, axisTick: { ...ratio.axisTick, customValues: ticks }, axisLabel: { ...ratio.axisLabel, customValues: ticks } },
+        ratioAxis,
       ],
       graphic,
       series,
     },
     plotGrid: grid,
+  };
+}
+
+/**
+ * What an export draws of the E view's `model` (Martin's decision of
+ * 2026-11-17: a figure describes only what is on show): with `off`, the legend
+ * names an export leaves out (`exportHidden`), a copy whose series, literature
+ * curves, end labels and off-scale list hold none of them, and whose note text
+ * is recomputed from what is kept (the extrapolation rule from the kept
+ * series' dashed runs). The literature disclosure stays while a curve is on:
+ * the ratio may still divide by it. On screen (`off` null or empty), `model`
+ * itself.
+ */
+function exportView(model, off) {
+  if (!off || !off.size) return model;
+  const series = model.series.filter((s) => !off.has(s.label));
+  const keys = new Set(series.map((s) => s.key));
+  const offScale = model.offScale
+    .map((g) => ({ ...g, entries: g.entries.filter((e) => keys.has(e.key)) }))
+    .filter((g) => g.entries.length);
+  const keep = (l) => !off.has(l.name);
+  return {
+    ...model,
+    series,
+    literature: model.literature.filter((lit) => !off.has(lit.legend)),
+    endLabels: { main: model.endLabels.main.filter(keep), ratio: model.endLabels.ratio.filter(keep) },
+    offScale,
+    noteText: { ...model.noteText, offScale: offScaleText(offScale), extrapolation: extrapolationText(series) },
   };
 }
 
