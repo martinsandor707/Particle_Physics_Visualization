@@ -301,7 +301,7 @@ import { customWhiskers, customPolyline, customBand } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries, clampInterval,
-  withColour, wrappedLegend, legendTop, legibleOpacity, emptyChartOption, sigFigs, exportHidden, isPrintTheme,
+  withColour, wrappedLegend, legendTop, legibleOpacity, emptyChartOption, sigFigs, exportHidden, isPrintTheme, tickLabel,
 } from './chart_panel.js';
 import { SOURCE_ORDER, sourceColours } from './perf_bins.js';
 import {
@@ -4051,8 +4051,9 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
   const xRange = { min: model.x.min, max: model.x.max, interval: model.x.interval };
   // Under E max both x axes tick at `x.ticks` (res_axis.eAxisTicks), from 0 to the slider's value; without it,
   // the server's interval as before.
-  const ticked = (a) => (model.x.ticks
-    ? { ...a, min: 0, max: model.x.max, axisTick: { ...a.axisTick, customValues: model.x.ticks }, axisLabel: { ...a.axisLabel, customValues: model.x.ticks } }
+  const drawn = drawnETicks(model.x.ticks, model.x.max, plotWidthPx);
+  const ticked = (a) => (drawn
+    ? { ...a, min: 0, max: model.x.max, axisTick: { ...a.axisTick, customValues: drawn }, axisLabel: { ...a.axisLabel, customValues: drawn } }
     : a);
   const top = ticked(valueAxis({ ...xRange, gridIndex: 0 }));
   const bottom = ticked(valueAxis({ ...xRange, gridIndex: 1, name: model.x.name }));
@@ -4122,6 +4123,20 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
     },
     plotGrid: grid,
   };
+}
+
+/**
+ * The E axis's ticks as drawn on a plot `plotWidthPx` wide: `ticks` (res_axis.eAxisTicks), without the grid tick just
+ * before an end off the step grid where the two labels would touch (review R3-9: at E max 75 a single-column figure
+ * set '70' and '75' 0.2 px apart). The end stays ticked; null without ticks (the server's own axis).
+ */
+export function drawnETicks(ticks, max, plotWidthPx) {
+  if (!Array.isArray(ticks) || ticks.length < 3 || !(max > 0) || !(plotWidthPx > 0)) return ticks ?? null;
+  const end = ticks[ticks.length - 1];
+  const prev = ticks[ticks.length - 2];
+  const width = (v) => measureText(tickLabel(v), THEME.fontLabel, THEME.fontFamily);
+  const gapPx = ((end - prev) / max) * plotWidthPx;
+  return gapPx < (width(prev) + width(end)) / 2 + 0.5 * THEME.fontLabel ? [...ticks.slice(0, -2), end] : ticks;
 }
 
 /**
@@ -4213,6 +4228,15 @@ export class ResolutionScalingPanel extends ChartPanel {
   relayout() {
     if (this.syncHeight() && this.chart) this.chart.resize();
     super.relayout();
+  }
+
+  /**
+   * What the E view's ratio divides by now ('deposit', 'pi', 'e' or 'none'), or null off the E view: an export's
+   * file name says it where the legend hides the curve drawn (review R3-10).
+   */
+  ratioReferenceKey() {
+    if (!this.lastPayload || resolutionView(this.lastOpts?.view) !== 'energy') return null;
+    return energyModel(this.lastPayload, this.lastOpts ?? {})?.reference?.key ?? null;
   }
 
   /** The E view's figure is two panels tall (`energyExportMetrics`); the 1/√E view's is the base figure. */

@@ -255,3 +255,25 @@ def test_the_deposit_is_forced_where_it_is_the_only_series(result):
 def test_the_deposits_own_server_warnings_are_known_and_no_other(result):
     # Review R1-5: a shower sample's dropped events and the missing median calibration concern the deposit alone.
     assert result["warn"] == [True, True, False, False, False, False]
+
+
+def test_the_deposit_warning_phrases_are_the_servers_own():
+    """Review R3-5: isDepositWarning matches the server's two sentences on a shower sample (query/resolution_scaling.py
+    ResolutionScaling.warnings) by two phrases. Both must be in the server's warnings() source and in the client's
+    pattern, so rewording either side fails here rather than bringing the hidden deposit's warnings back."""
+    import re
+
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    server = (root / "calosrv" / "query" / "resolution_scaling.py").read_text(encoding="utf-8")
+    body = re.search(r"    def warnings\(self\) -> list\[str\]:\n(.*?)\n    def ", server, re.DOTALL)
+    assert body, "ResolutionScaling.warnings not found"
+    source = re.sub(r'"\s*\n\s*f?"', "", body.group(1))  # join the implicitly concatenated string pieces
+    client = (root / "calosrv" / "static" / "js" / "res_axis.js").read_text(encoding="utf-8")
+    pattern = re.search(r"export function isDepositWarning\(text\) \{\n\s*return .*?/(.+?)/u\.test", client)
+    assert pattern, "isDepositWarning's pattern not found"
+    phrases = pattern.group(1).split("|")
+    assert phrases == ["dropped before the ratios", "the median calibration c̃"], phrases
+    for phrase in phrases:
+        assert phrase in source, phrase

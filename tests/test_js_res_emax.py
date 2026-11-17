@@ -297,14 +297,39 @@ if (opts.part === 'emax') {
     }
   }
   // The windows set on show and the y range never depend on E max: no fit is refitted, no range recomputed.
+  // The tick before an off-grid end is dropped only where its label would touch the end's (review R3-9): at E max 75
+  // in a single-column export (321 px) the axis reads …, 60, 75; on a wide card it keeps 70.
+  {
+    const p = load('res_scaling_median_two');
+    const o = { windows: 'all', shower: 'both', literature: ['pi', 'e'], view: 'energy', eMax: 75 };
+    const ticksAt = (width) => {
+      const option = rs.energyViewOption(p, o, { width, height: rs.ENERGY_VIEW_PX }).option;
+      return [].concat(option.xAxis).map((a) => a.axisLabel?.customValues ?? null);
+    };
+    Object.assign(scale.THEME, PRINT_TOKENS);
+    let narrow;
+    try { narrow = ticksAt(321); } finally { scale.restoreScreenTheme(); }
+    out.thinned = { narrow, wide: ticksAt(1100), model: rs.energyModel(p, o).x.ticks,
+      helper: [rs.drawnETicks([0, 10, 20], 20, 400), rs.drawnETicks(null, 80, 400), rs.drawnETicks([0, 10, 20, 30, 40, 45], 45, 800)] };
+  }
   out.unchanged = [];
+  // Also the ratio's k and its reference choice and the windows on show, whatever the literature curves and the
+  // deposit, at E max = 20 against the server's end (review R3-7d; CLAUDE.md: E max can only cut extrapolation).
+  const windowsOf = (m) => m.series.map((s) => [s.key, s.points.map((pt) => pt.w.bin)]);
+  const ratioOf = (m) => ({ k: m.ratio.k, provisional: m.ratio.provisional, capped: m.ratio.capped, none: m.ratio.none,
+    key: m.reference.key, rule: m.reference.choice?.rule ?? null, basis: m.reference.choice?.basis ?? null });
   for (const name of NAMES) {
     const p = load(name);
-    const o = { windows: 'all', shower: 'both', literature: ['pi', 'e'] };
-    const a = rs.energyModel(p, o);
-    const b = rs.energyModel(p, { ...o, eMax: null });
-    out.unchanged.push({ name, y: [a.y, b.y], points: [a.nPoints, b.nPoints],
-      fits: [a.series.map((s) => JSON.stringify(s.drawn?.fit ?? null)), b.series.map((s) => JSON.stringify(s.drawn?.fit ?? null))] });
+    for (const literature of [['pi', 'e'], ['e'], []]) {
+      for (const deposit of [undefined, false]) {
+        const o = { windows: 'all', shower: 'both', literature, deposit };
+        const a = rs.energyModel(p, o);
+        const b = rs.energyModel(p, { ...o, eMax: null });
+        out.unchanged.push({ name, literature, deposit: deposit ?? 'shown', y: [a.y, b.y], points: [a.nPoints, b.nPoints],
+          fits: [a.series.map((s) => JSON.stringify(s.drawn?.fit ?? null)), b.series.map((s) => JSON.stringify(s.drawn?.fit ?? null))],
+          windows: [windowsOf(a), windowsOf(b)], ratio: [ratioOf(a), ratioOf(b)] });
+      }
+    }
   }
 }
 
@@ -712,11 +737,25 @@ def test_nothing_is_drawn_beyond_e_max_on_either_panel(emax):
         assert all(x == c["x"]["max"] for x in c["endLabels"]), c["name"]
 
 
+def test_the_tick_before_an_off_grid_end_is_dropped_only_where_the_labels_would_touch(emax):
+    # Review R3-9: the model keeps every tick (the drawer's "steps of 10 GeV; the end … is ticked too" stays true);
+    # the narrow export draws …, 60, 75 on both x axes; a wide card keeps 70.
+    t = emax["thinned"]
+    assert t["model"] == [0, 10, 20, 30, 40, 50, 60, 70, 75], t
+    assert t["narrow"] == [[0, 10, 20, 30, 40, 50, 60, 75]] * 2, t
+    assert t["wide"] == [t["model"]] * 2, t
+    assert t["helper"] == [[0, 10, 20], None, [0, 10, 20, 30, 40, 45]], t
+
+
 def test_e_max_moves_no_fit_and_no_range(emax):
     """No fit is refitted and no range recomputed: the y range, the windows on show and every drawn fit block are
     the same at the server's end and at E max = 20 GeV."""
     for c in emax["unchanged"]:
-        assert c["y"][0] == c["y"][1] and c["points"][0] == c["points"][1] and c["fits"][0] == c["fits"][1], c["name"]
+        case = (c["name"], c["literature"], c["deposit"])
+        assert c["y"][0] == c["y"][1] and c["points"][0] == c["points"][1] and c["fits"][0] == c["fits"][1], case
+        # The windows on show, the ratio's k and the curve it divides by (and why) do not move with E max either.
+        assert c["windows"][0] == c["windows"][1], case
+        assert c["ratio"][0] == c["ratio"][1], case
 
 
 # -------------------------------------------------------------------------------------------- no reference --

@@ -901,7 +901,12 @@ def test_the_energy_export_leaves_out_what_the_legend_hides(result):
     assert entry not in series["data"] and reference not in references["data"], got
     # The on-screen legends held 14 and 2 entries; one of each is left out.
     assert len(series["data"]) == 13 and len(references["data"]) == 1, got
-    assert series["selected"][entry] is False and references["selected"][reference] is False, got
+    # Exactly the left-out names are marked off, in each legend: printLegendOption marks every left-out name false on
+    # every legend, so its series is filtered whichever legend listed it; no companion or other entry with them
+    # (review R3-4).
+    left_out = {entry, reference}
+    assert {k for k, v in series["selected"].items() if v is False} == left_out, got
+    assert {k for k, v in references["selected"].items() if v is False} == left_out, got
     for legend in (series, references):
         assert legend["border"] is None and legend["line"] is None, legend
         assert legend["inactive"] == result["printBorder"], legend

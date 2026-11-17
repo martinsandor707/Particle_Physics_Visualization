@@ -1217,10 +1217,12 @@ def _default_emax(payload):
     5 GeV, at least 5, at most the server's axis end."""
     energy = payload["axis"]["energy"]
     top = energy["x"]["max"]
-    edge = energy.get("data_max_gev")
-    if edge is None or not math.isfinite(edge):
+    # The data's top edge as res_axis.js eDataTop takes it: data_max_gev and every window's own p_hi (review R3-8).
+    edges = [energy.get("data_max_gev")] + [w.get("p_hi") for s in payload.get("series", []) for w in s.get("windows", [])]
+    edges = [e for e in edges if isinstance(e, (int, float)) and math.isfinite(e)]
+    if not edges:
         return top
-    return min(top, max(5, math.ceil(edge / 5) * 5))
+    return min(top, max(5, math.ceil(max(edges) / 5) * 5))
 
 
 def _has_model_series(payload):
@@ -3569,6 +3571,10 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_a_theme_switch_and
         # labels), and no other series is filtered.
         own = [(sid, filtered) for sid, sname, filtered in exported["series"]
                if sname == LEGEND_ENTRY or str(sid).startswith("network:a|")]
+        if view == "linear":
+            # The 1/√E view names every mark of a series after its entry: they are in the export, every one filtered
+            # (never an empty list passing for a check; review R3-3).
+            assert own, exported["series"]
         assert all(filtered for _, filtered in own), own
         assert not [sid for sid, sname, filtered in exported["series"] if filtered and (sid, filtered) not in own], \
             exported["series"]
@@ -3854,8 +3860,8 @@ def test_the_e_max_slider_repaints_with_no_request_and_draws_nothing_beyond_it(m
     and at the server's 10 GeV interval at 80; at every value no series datum, no painted point on either panel and
     no end label lies beyond it (the end labels sit at it), the curves keep their rules, and neither the y ranges nor
     the fit table move (no fit is refitted). The slider is hidden on the 1/√E view and back, at its value, on the E
-    view. The time from one `input` event to the axes ending at the new value is measured over 12 moves and
-    printed (not asserted)."""
+    view. The time from one `input` event to the axes ending at the new value is measured over 12 moves, printed,
+    and its median held under the 50 ms of CLAUDE.md §3."""
     payload = _fixture_payload(RES_TWO)
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
@@ -3909,7 +3915,42 @@ def test_the_e_max_slider_repaints_with_no_request_and_draws_nothing_beyond_it(m
         times.sort()
         print(f"E max input to axes: median {times[len(times) // 2]:.1f} ms, max {times[-1]:.1f} ms over "
               f"{len(times)} moves: {[round(t, 1) for t in times]}")
+        # CLAUDE.md §3: client-side UI latency below 50 ms (review R3-7a), on the median of the moves.
+        assert times[len(times) // 2] < 50, times
         assert requests[before:] == [], f"the E max slider asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+def test_the_e_max_slider_answers_the_keyboard_keeps_its_focus_and_fits_the_toolbar_at_1024_px(models_live_server):
+    """Review R3-7: the E max slider driven by real keys (ArrowRight, End, Home) moves in its 5 GeV steps between the
+    data's edge and the server's end, the axes follow, the input keeps the focus across each repaint, and no request
+    is sent; at 1024 × 768 the card's toolbar, the slider in it, stays inside the card (brief §6.4)."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE, viewport=(1024, 768))
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+        found = page.evaluate(_OVERFLOW)
+        assert "res-scaling" not in json.dumps(found["cards"]), found
+        assert page.evaluate(_RES_EMAX_STATE, RES_EMAX)["shown"]
+        before = len(requests)
+        page.focus(f"{RES_EMAX} input")
+        steps = []
+        for key, value in (("ArrowRight", 25), ("ArrowRight", 30), ("End", 80), ("Home", 20)):
+            page.keyboard.press(key)
+            page.wait_for_function(
+                """(v) => (echarts.getInstanceByDom(document.getElementById('plot-res-scaling')).getOption().xAxis || [])
+                  .every((a) => a.max === v)""", arg=value, timeout=10_000)
+            _frames(page)
+            emax = page.evaluate(_RES_EMAX_STATE, RES_EMAX)
+            focused = page.evaluate("(sel) => document.activeElement === document.querySelector(sel + ' input')", RES_EMAX)
+            steps.append((key, emax["value"], emax["output"], focused))
+            assert (emax["value"], emax["output"]) == (str(value), f"{value} GeV"), (key, emax)
+            assert focused, (key, "the slider lost the focus in the repaint")
+        assert requests[before:] == [], f"the keyboard asked the service: {requests[before:]}"
         browser.close()
     assert problems == [], problems
 

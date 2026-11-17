@@ -588,8 +588,9 @@ def test_the_models_export_resolver_hands_over_no_page_text():
     cards = _strip_comments((STATIC / "js" / "models_cards.js").read_text(encoding="utf-8"))
     # The meta is the response's and the card's options', with the names the legend on show switched off (review
     # R2-5: the figure's name says only what it draws), never text read off the page.
-    assert ("return { panel: record.panel, meta: exportMeta(record.payload, record.opts, legendOffNames(record.panel)) };"
-            in cards)
+    # and the ratio's reference the panel draws (review R3-10).
+    assert ("meta: exportMeta(record.payload, record.opts, legendOffNames(record.panel), "
+            "record.panel?.ratioReferenceKey?.() ?? null)" in cards)
 
 
 def test_the_export_menu_is_reached_from_the_models_entry_point(client):

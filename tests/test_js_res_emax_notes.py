@@ -235,12 +235,16 @@ def test_the_ranges_basis_is_the_servers_model_only_note_verbatim(grid, name, vi
     axis = payload["axis"]
     y_model = axis["y_model"] if view == "linear" else axis["energy"]["y_model"]
     note = grid[name][f"{view}:{windows}:dep0"]
-    assert y_model["note"] in _lines(note)
+    # The server's note verbatim, followed by the fits clause the full range's sentence carries (review R3-1).
+    clause = ("A fit summarises its windows and is not more evidence, so no fitted line or band sets it."
+              if view == "linear" else
+              "No fitted curve or extrapolation sets it: one that leaves the top is clipped there with a caret.")
+    assert f'{y_model["note"]} {clause}' in _lines(note)
     # The full-range sentence the server also ships (payload notes, the E view's axis notes) is not reprinted.
     full = (axis["y"] if view == "linear" else axis["energy"]).get("note")
     assert full is None or full not in _lines(note)
     shown = grid[name][f"{view}:{windows}:base"] if view == "energy" else grid[name][f"{view}:{windows}:plain"]
-    assert y_model["note"] not in _lines(shown)
+    assert not any(line.startswith(y_model["note"]) for line in _lines(shown))
 
 
 @pytest.mark.parametrize("name,view,windows", _cases(WITH_MODELS))

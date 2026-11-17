@@ -815,7 +815,7 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
  * What an exported figure is named by: its response's meta and frame, and the
  * resolution card's estimator, view, deposit, E max and ratio reference.
  */
-export function exportMeta(payload, opts = null, legendOff = []) {
+export function exportMeta(payload, opts = null, legendOff = [], referenceKey = null) {
   // The names the legend on show has switched off (chart_panel.js `legendOffNames`): the figure leaves them out,
   // so its name does not say they are drawn (review R2-5).
   const off = new Set((legendOff ?? []).map(String));
@@ -848,7 +848,11 @@ export function exportMeta(payload, opts = null, legendOff = []) {
     const drawn = Array.isArray(opts.literature) ? opts.literature : [];
     // With both on, the name lists the curves the figure draws: a curve switched off on the legend is not one.
     const kept = drawn.filter((key) => { const e = referenceOf(key); return !e || !off.has(literatureLegendName(e)); });
-    if (drawn.length > 1) { if (kept.length) meta.literature = kept; }
+    if (drawn.length > 1) {
+      if (kept.length) meta.literature = kept;
+      // A curve left out by the legend may still be what the ratio divides by: the name says so (review R3-10).
+      if (kept.length < drawn.length && typeof referenceKey === 'string' && referenceKey) meta.reference = referenceKey;
+    }
     else if (!drawn.length && !depositShown(payload, opts.deposit)) meta.reference = 'none';
     else meta.reference = drawn[0] ?? 'deposit';
   }
@@ -1083,9 +1087,11 @@ export class ModelsSection {
     output.className = 'mini-range-value';
     label.append(name, input, output);
 
-    const built = { element: label, input, output, control, frame: null };
-    const commit = () => {
-      const value = Number(input.value);
+    // `pending` is the value of the last input event, committed at its frame: a response that lands in between
+    // re-syncs the controls, and must neither move the thumb back nor have its value committed (review R3-2).
+    const built = { element: label, input, output, control, frame: null, pending: null };
+    const commit = (raw = input.value) => {
+      const value = Number(raw);
       if (Number.isFinite(value)) this.setControl(control, value);
     };
     const raf = typeof globalThis.requestAnimationFrame === 'function' ? globalThis.requestAnimationFrame : null;
@@ -1095,10 +1101,13 @@ export class ModelsSection {
         commit();
         return;
       }
+      built.pending = input.value;
       if (built.frame !== null) return;
       built.frame = raf(() => {
         built.frame = null;
-        commit();
+        const value = built.pending;
+        built.pending = null;
+        commit(value);
       });
     });
     input.addEventListener('change', () => {
@@ -1106,6 +1115,7 @@ export class ModelsSection {
         cancel?.(built.frame);
         built.frame = null;
       }
+      built.pending = null;
       commit();
     });
     return built;
@@ -1118,11 +1128,13 @@ export class ModelsSection {
     element.hidden = shut || !range || (control.visible ? !control.visible(ctx) : false);
     if (!range) return;
     const unit = control.unit ? ` ${control.unit}` : '';
-    const shown = Number.isFinite(value) ? value : range.min;
+    // While a dragged value waits for its frame, the thumb and the text stay with the reader (review R3-2).
+    const dragging = built.frame !== null && built.pending !== null;
+    const shown = dragging ? Number(built.pending) : (Number.isFinite(value) ? value : range.min);
     input.min = String(range.min);
     input.max = String(range.max);
     input.step = String(range.step);
-    input.value = String(shown);
+    if (!dragging) input.value = String(shown);
     const text = `${shown}${unit}`;
     if (output.textContent !== text) output.textContent = text;
     const fixed = range.min === range.max;
@@ -1614,7 +1626,10 @@ export class ModelsSection {
     if (!record) return undefined;
     if (!record.spec.exportable || record.element.hidden || record.disabled || record.notice) return null;
     if (!record.panel || !record.payload) return null;
-    return { panel: record.panel, meta: exportMeta(record.payload, record.opts, legendOffNames(record.panel)) };
+    return {
+      panel: record.panel,
+      meta: exportMeta(record.payload, record.opts, legendOffNames(record.panel), record.panel?.ratioReferenceKey?.() ?? null),
+    };
   }
 
   /**

@@ -2723,6 +2723,10 @@ out.metas = {
     depositOneShowerA: cards.exportMeta(two, opt({ resDeposit: 'on', resScalingShower: 'a' }), depositLabels.filter((l) => l.startsWith('Shower A'))),
     litE: cards.exportMeta(two, opt({}), [eName]),
     litBoth: cards.exportMeta(two, opt({}), [eName, piName]),
+    // With the reference the panel draws (review R3-10): a hidden curve may still be what the ratio divides by.
+    litERef: cards.exportMeta(two, opt({}), [eName], 'e'),
+    litBothRef: cards.exportMeta(two, opt({}), [eName, piName], 'e'),
+    nothingRef: cards.exportMeta(two, opt({}), [], 'e'),
     litOneToggled: cards.exportMeta(two, opt({ resLiterature: 'e' }), [eName]),
     nothing: cards.exportMeta(two, opt({}), []),
   };
@@ -2820,6 +2824,15 @@ out.change = { stored: section.controls.resEMax, cancelled: [...cancelled], snap
 const setsBefore = sets.length;
 runFrames();
 out.change.afterFrames = sets.length - setsBefore;
+// A response landing between an input event and its frame (review R3-2): the section re-syncs its controls, as
+// draw() does; the thumb and the text stay with the reader, and the frame commits the value dragged to.
+input.value = '65'; input.dispatch('input');
+section.syncControls();
+out.race = { value: input.value, output: output.textContent, stored: section.controls.resEMax };
+const raceFrom = sets.length;
+runFrames();
+out.race.sets = sets.slice(raceFrom);
+out.race.storedAfter = section.controls.resEMax;
 // The value written back after a set is the one in force: snapped to the slider's grid.
 section.setControl(ctl.resEMax, 62);
 out.writeBack = { stored: section.controls.resEMax, snap: snap(), opts: rendered.at(-1).eMax };
@@ -2836,6 +2849,22 @@ out.backToEnergy = { hidden: label.hidden, title: card.find((el) => el.className
 out.requestsAfter = requests();
 // An export names what is drawn now.
 out.exportMeta = section.exportTarget('res-scaling').meta;
+
+// The drawer follows the controls through the card shell (review R3-6): the real notes module, through notes(),
+// which hands the builder the card's options (deposit, eMax).
+section.notesModules.models = await import(new URL('./models_notes.js', cardsUrl).href);
+const drawer = () => (section.notes('res-scaling')?.sections ?? []).flatMap((s) => s.lines ?? []);
+const emaxLine = (lines) => lines.find((l) => l.startsWith('E max: ')) ?? null;
+const hiddenSaid = (lines) => lines.some((l) => l.startsWith('Calibrated deposit: hidden'));
+out.drawer = { at62: emaxLine(drawer()), hidden: hiddenSaid(drawer()) };
+section.setControl(ctl.resEMax, 45);
+out.drawer.at45 = emaxLine(drawer());
+button.click();
+out.drawer.shownHidden = hiddenSaid(drawer());
+button.click();
+out.drawer.hiddenAgain = hiddenSaid(drawer());
+// Back to the value set before this block, so the steps below see the state they always did.
+section.setControl(ctl.resEMax, 62);
 
 // The page's banner (review R1-5): the server's warnings on the hidden deposit's sample leave with it, as in its
 // drawer; a model warning stays. The drawer is stubbed to state no warning, so the banner carries what it does not.
@@ -2917,6 +2946,23 @@ def test_the_deposit_toggle_is_one_render_only_button_shut_where_the_deposit_is_
     assert forced == "The calibrated deposit is this response's only series, so it is always drawn."
 
 
+def test_the_drawer_follows_the_slider_and_the_deposit_toggle_through_the_shell(res_card_results):
+    # Review R3-6: notes() hands the builder the card's options, so the drawer says the E max drawn (62 snaps to 60)
+    # and the deposit's state, and follows each control.
+    d = res_card_results["drawer"]
+    assert d["at62"] and d["at62"].startswith("E max: 60 GeV, set by the card's slider (20–80 GeV"), d
+    assert d["at45"] and d["at45"].startswith("E max: 45 GeV"), d
+    assert d["hidden"] is True and d["shownHidden"] is False and d["hiddenAgain"] is True, d
+
+
+def test_a_response_landing_mid_drag_keeps_the_dragged_value(res_card_results):
+    # Review R3-2: a re-sync between an input event and its frame neither moves the thumb back nor commits the stale
+    # stored value; the frame commits the value dragged to.
+    r = res_card_results["race"]
+    assert r["value"] == "65" and r["output"] == "65 GeV" and r["stored"] == 55, r
+    assert r["sets"] == [["resEMax", 65]] and r["storedAfter"] == 65, r
+
+
 def test_the_banner_leaves_out_the_hidden_deposits_own_warnings(res_card_results):
     # Review R1-5: hidden, the deposit's sample warnings leave the page with it (drawer and banner alike); shown, they
     # are back; a model series' warning stays either way.
@@ -2988,6 +3034,11 @@ def test_an_exported_figures_name_follows_what_the_legend_switched_off(res_card_
     assert "literature" not in m["litBoth"] and "reference" not in m["litBoth"]
     assert m["litOneToggled"]["reference"] == "e" and "literature" not in m["litOneToggled"]
     assert m["nothing"]["literature"] == ["pi", "e"] and m["nothing"]["deposit"] is False
+    # Review R3-10: where the legend hides a drawn curve, the ratio's reference is named too; with nothing hidden the
+    # name is today's (both curves, the reference on the ratio axis).
+    assert m["litERef"]["literature"] == ["pi"] and m["litERef"]["reference"] == "e"
+    assert "literature" not in m["litBothRef"] and m["litBothRef"]["reference"] == "e"
+    assert m["nothingRef"]["literature"] == ["pi", "e"] and "reference" not in m["nothingRef"]
 
 
 def test_the_e_max_slider_is_a_labelled_range_built_without_markup(res_card_results):

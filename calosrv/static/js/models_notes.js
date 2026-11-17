@@ -651,6 +651,15 @@ function depositSelectionLine(deposit) {
   return '';
 }
 
+/**
+ * What the full range's sentences say of the fits, said after the server's y_model note while the deposit is hidden
+ * (review R3-1): the model series' range follows their windows alone as the full one does, and no fit sets it.
+ */
+const RANGE_FITS_CLAUSE = Object.freeze({
+  linear: 'A fit summarises its windows and is not more evidence, so no fitted line or band sets it.',
+  energy: 'No fitted curve or extrapolation sets it: one that leaves the top is clipped there with a caret.',
+});
+
 /** The Marks-and-legend colour sentence; its deposit clause is left out while the deposit is hidden. */
 function colourLead(hidden) {
   return hidden
@@ -1270,7 +1279,9 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       + `${capital(w.symbol)} starts at zero and ends at ${pct(y.hi)}${y.provisional ? ' (provisional)' : ''}.`,
     // The server's own restatement of the one-curve rule is left out: the sentences above say it, and say it once.
     // While the deposit is hidden, the range's basis is the server's second one, `y.basis`, verbatim.
-    ...model.notes.map((note, i) => (i === 0 ? (y.basis ?? rangeBasis(note)) : note)).filter((note) => note && !/^Each series draws one fitted curve with no band round it/u.test(note)).map(sentence),
+    // While the deposit is hidden the basis is the server's y_model note, and the fits clause its own note carries
+    // follows it (review R3-1): no fit sets either range.
+    ...model.notes.map((note, i) => (i === 0 ? (y.basis ? `${y.basis} ${RANGE_FITS_CLAUSE.energy}` : rangeBasis(note)) : note)).filter((note) => note && !/^Each series draws one fitted curve with no band round it/u.test(note)).map(sentence),
     // With no reference on show the ratio panel draws nothing: one sentence says so, and no line describes a reference or an axis.
     ...(ratio.none
       ? ['The ratio panel shares the energy axis but draws no mark, no 1.0 rule and no scale: no reference is on show (the deposit is hidden and no literature curve is on).']
@@ -1639,7 +1650,7 @@ export function resolutionScalingNotes({
   const provisionalBasis = noteLines(payload.notes).find((line) => line.startsWith('The y range is provisional:'));
   if (model.y.basis) {
     // The deposit is hidden: the range follows the model series alone, and the server's second basis says so, verbatim.
-    disclosures.push(model.y.basis);
+    disclosures.push(`${model.y.basis} ${RANGE_FITS_CLAUSE.linear}`);
   } else if (model.y.provisional) {
     disclosures.push(provisionalBasis
       ? `${provisionalBasis.replace(/\s*No fit sets it:.*$/su, '')} No fit sets it.`
