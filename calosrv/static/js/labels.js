@@ -294,17 +294,17 @@ export const MODELS_LABELS = Object.freeze({
   // deposit is hidden by default on both views; the toggle draws it, and a response whose
   // only series it is forces it on.
   res_deposit: [
-    { value: 'on', label: 'Deposit', title: 'Draw or hide the calibrated deposit c·E_dep, the linear-sum benchmark, on both views: its windows, its fitted curve and its fit-table rows. Hidden, the error-scale range follows the model series alone, and the ratio panel divides by the literature curve on show, or draws nothing with none on.' },
+    { value: 'on', label: 'Deposit', title: 'Draw or hide the calibrated deposit c·E_dep, the linear-sum benchmark, on both views: its windows, its fitted curve and its fit-table rows. Hidden, the error-scale range follows the model series alone, and the ratio panel divides by the literature curve on show (with both on, the one the model series\' windows lie farther from), or draws nothing with none on.' },
   ],
   res_deposit_forced: 'The calibrated deposit is this response\'s only series, so it is always drawn.',
   // The E view's axis-end slider (Martin's decisions of 2026-11-17): the axis end runs from
   // the data's top window edge to the server's end; it repaints without a request.
   res_emax: {
     label: 'E max',
-    title: 'The upper end of the E view\'s energy axis, in 5 GeV steps: from the data\'s highest window edge, so every window stays on the axis, to the axis end the server sets. Nothing beyond it is drawn on either panel, and no fit is refitted; the card repaints without a request.',
+    title: 'The upper end of the E view\'s energy axis, in 5 GeV steps: from the data\'s highest window edge rounded up to 5 GeV, so every window stays on the axis, to the axis end the server sets. Nothing beyond it is drawn on either panel, and no fit is refitted; the card repaints without a request.',
     aria: 'E max, the upper end of the energy axis in GeV',
   },
-  res_emax_fixed: 'The data reach the axis end, so there is no extrapolation to cut.',
+  res_emax_fixed: 'The data\'s highest window edge is within one 5 GeV step of the axis end, so the slider has nothing to cut.',
   // The resolution card's windows: the three anchors its fits are defined on, or every
   // 1 GeV window from 4 GeV. Both are fitted in one response, so the choice repaints.
   res_windows: [

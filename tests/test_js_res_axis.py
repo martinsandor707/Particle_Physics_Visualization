@@ -37,8 +37,11 @@ const ra = await import(`${jsRoot}/res_axis.js`);
 const load = (name) => JSON.parse(fs.readFileSync(`${fixtureDir}/${name}.json`, 'utf8'));
 const two = load('res_scaling_median_two');
 const single = load('res_scaling_median_single_events');
-// A response with an axis end and no data edge, and one with no E axis at all.
+// A response with an axis end and no data edge (its windows still bound the slider: eDataTop), one with neither a
+// data edge nor a window, a data edge below a window's own top (review R1-12), and one with no E axis at all.
 const noEdge = { axis: { energy: { x: { min: 0, max: 80, interval: 10 } } }, series: two.series };
+const noData = { axis: { energy: { x: { min: 0, max: 80, interval: 10 } } }, series: [] };
+const windowAbove = { axis: { energy: { x: { max: 80 }, data_max_gev: 18 } }, series: [{ windows: [{ p_hi: 17 }, { p_hi: 21.5 }] }] };
 const noEnergy = { axis: { y: { min: 0, max: 30 } }, series: two.series };
 const out = {
   constants: { step: ra.E_MAX_STEP_GEV, fine: ra.E_TICK_FINE_MAX_GEV },
@@ -54,6 +57,17 @@ const out = {
     edgeBeyond: ra.eMaxRange({ axis: { energy: { x: { max: 80 }, data_max_gev: 93 } } }),
     edgeTiny: ra.eMaxRange({ axis: { energy: { x: { max: 80 }, data_max_gev: 0.5 } } }),
     edgeOnGrid: ra.eMaxRange({ axis: { energy: { x: { max: 80 }, data_max_gev: 25 } } }),
+    noData: ra.eMaxRange(noData), windowAbove: ra.eMaxRange(windowAbove),
+  },
+  warn: [
+    'Shower A: 3 events were dropped before the ratios (a deposit or momentum that is not finite), counted.',
+    'Shower B: no event of the selection deposits energy (E_dep > 0), so the median calibration c̃ = 1 / median(E_dep / p) does not exist.',
+    'Shower A · Energy network · absolute frame: no event of the selection has a finite prediction and truth.',
+    'No events match the current selection.', null, 42,
+  ].map((w) => ra.isDepositWarning(w)),
+  top: {
+    two: ra.eDataTop(two), single: ra.eDataTop(single), noEdge: ra.eDataTop(noEdge), noData: ra.eDataTop(noData),
+    windowAbove: ra.eDataTop(windowAbove), none: ra.eDataTop(null),
   },
   of: {
     lower: [null, undefined, Number.NaN, Number.POSITIVE_INFINITY].map((v) => ra.eMaxOf(two, v)),
@@ -124,8 +138,18 @@ def test_the_slider_runs_from_the_data_edge_rounded_up_to_the_axis_end(result):
     assert got["single"] == {"min": 20, "max": 80, "step": 5}
 
 
-def test_without_a_data_edge_the_slider_ends_meet(result):
-    assert result["range"]["noEdge"] == {"min": 80, "max": 80, "step": 5}
+def test_without_a_data_edge_the_windows_bound_the_slider_and_without_either_its_ends_meet(result):
+    # No data_max_gev: the windows' own top edges (18 GeV on the two-shower recording) set the lower end.
+    assert result["range"]["noEdge"] == {"min": 20, "max": 80, "step": 5}
+    assert result["range"]["noData"] == {"min": 80, "max": 80, "step": 5}
+
+
+def test_a_window_whose_top_lies_above_the_last_edge_still_bounds_the_slider(result):
+    # Review R1-12: data_max_gev is the momentum axis's last edge; a window's own p_hi above it is never cut.
+    assert result["range"]["windowAbove"] == {"min": 25, "max": 80, "step": 5}
+    top = result["top"]
+    assert top["two"] == 18 and top["single"] == 20 and top["noEdge"] == 18
+    assert top["windowAbove"] == 21.5 and top["noData"] is None and top["none"] is None
 
 
 def test_without_an_e_axis_there_is_no_slider(result):
@@ -164,7 +188,8 @@ def test_an_off_grid_value_snaps_to_the_grid_half_up(result):
 
 def test_eMaxOf_follows_the_range(result):
     got = result["of"]
-    assert got["noEdge"] == [80, 80]
+    # The windows' top edge (18 GeV) bounds the slider: null is its lower end, 20; 40 is on its grid.
+    assert got["noEdge"] == [20, 40]
     assert got["none"] == [None, None, None]
 
 
@@ -225,3 +250,8 @@ def test_the_deposit_is_forced_where_it_is_the_only_series(result):
     assert got["forced"]["single"] is True
     # No series at all: nothing to force.
     assert got["forced"]["empty"] is False and got["forced"]["none"] is False
+
+
+def test_the_deposits_own_server_warnings_are_known_and_no_other(result):
+    # Review R1-5: a shower sample's dropped events and the missing median calibration concern the deposit alone.
+    assert result["warn"] == [True, True, False, False, False, False]

@@ -60,18 +60,39 @@ export function depositShown(payload, asked) {
   return !hasModelSeries(payload);
 }
 
+/**
+ * Whether a server warning of the resolution response concerns the calibrated deposit alone
+ * (query/resolution_scaling.py `warnings`): a shower sample's events dropped before the deposit's ratios, or a
+ * selection without the median calibration c̃. While the deposit is hidden the drawer and the page's banner leave
+ * them out with the deposit's other lines (review R1-5).
+ */
+export function isDepositWarning(text) {
+  return typeof text === 'string' && /dropped before the ratios|the median calibration c̃/u.test(text);
+}
+
 /** Whether the deposit is the response's only series, so no toggle can hide it. */
 export function depositForced(payload) {
   return (payload?.series ?? []).length > 0 && !hasModelSeries(payload);
 }
 
-/** The E max slider's {min, max, step} in GeV: from the data's top edge, rounded up to the step, to the axis end; null without an axis end. */
+/**
+ * The data's highest window edge in GeV: the larger of the server's `data_max_gev` (its momentum axis's last
+ * edge) and every window's own `p_hi`, so a window whose found range ends above the last bin's still bounds the
+ * slider (review R1-12); null with neither.
+ */
+export function eDataTop(payload) {
+  const edges = [payload?.axis?.energy?.data_max_gev,
+    ...(payload?.series ?? []).flatMap((s) => (s?.windows ?? []).map((w) => w?.p_hi))].filter(Number.isFinite);
+  return edges.length ? Math.max(...edges) : null;
+}
+
+/** The E max slider's {min, max, step} in GeV: from the data's top edge (`eDataTop`), rounded up to the step, to the axis end; null without an axis end. */
 export function eMaxRange(payload) {
   const energy = payload?.axis?.energy;
   const max = energy?.x?.max;
   if (!Number.isFinite(max)) return null;
   const step = E_MAX_STEP_GEV;
-  const dataMax = energy?.data_max_gev;
+  const dataMax = eDataTop(payload);
   const min = Number.isFinite(dataMax)
     ? Math.min(max, Math.max(step, Math.ceil(dataMax / step) * step))
     : max;

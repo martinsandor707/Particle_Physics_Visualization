@@ -3364,9 +3364,12 @@ export function referenceChoiceText(model) {
   if (!c.basis || !(ref?.factor > 0) || !(other?.factor > 0)) {
     return `${head}: no window on show reports ${model.estimator?.quantity ?? 'σ/E'}, so it is ${name(c.key)}, the catalogue's first.`;
   }
+  // With the deposit hidden the choice is judged on the model series' windows alone, the marks the ratio divides
+  // (review R1-2): said, since showing the deposit can turn the choice to the other curve.
+  const whose = model.deposit?.hidden ? ' of the model series (the deposit is hidden)' : '';
   const over = c.basis === 'robust'
-    ? `the ${plural(c.n, 'window')} of N ≥ ${formatInt(model.gates.fit_n)} from ${formatNumber(model.yMinGev)} GeV`
-    : `the ${plural(c.n, 'window')} on show, none of N ≥ ${formatInt(model.gates.fit_n)} from ${formatNumber(model.yMinGev)} GeV`;
+    ? `the ${plural(c.n, 'window')}${whose} of N ≥ ${formatInt(model.gates.fit_n)} from ${formatNumber(model.yMinGev)} GeV`
+    : `the ${plural(c.n, 'window')}${whose} on show, none of N ≥ ${formatInt(model.gates.fit_n)} from ${formatNumber(model.yMinGev)} GeV`;
   if (ref.factor <= other.factor * (1 + 1e-12)) {
     return `${head}: ${over} sit a median ×${sig(ref.factor)} from both, so it is ${name(c.key)}, the catalogue's first.`;
   }

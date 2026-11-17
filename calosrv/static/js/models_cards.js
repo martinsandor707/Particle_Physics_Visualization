@@ -63,7 +63,7 @@ import { describeError } from './page_common.js';
 import { viewFrame, effectiveSpecies } from './capabilities.js';
 import { MODELS_LABELS, featureChoices } from './labels.js';
 import { RESOLUTION_REFERENCES, REFERENCE_UNITS, referenceEquation } from './catalog/resolution_refs.js';
-import { depositShown, depositForced, eMaxRange, eMaxOf } from './res_axis.js';
+import { depositShown, depositForced, eMaxRange, eMaxOf, isDepositWarning } from './res_axis.js';
 
 /** Where each panel class lives; fetched on first use. Literal specifiers, so the server stamps them. */
 const PANEL_MODULES = {
@@ -1616,7 +1616,10 @@ export class ModelsSection {
       if (record.element.hidden || !record.payload) continue;
       if (typeof include === 'function' && !include(record.spec.id)) continue;
       const said = notesText(this.notes(record.spec.id));
-      out.push(...warningsNotShown(record.payload.meta?.warnings ?? [], said));
+      // The resolution card's warnings on its hidden deposit leave with it, here as in its drawer (review R1-5).
+      const hiddenDeposit = record.spec.id === 'res-scaling' && !depositShown(record.payload, record.opts?.deposit);
+      const warnings = (record.payload.meta?.warnings ?? []).filter((w) => !(hiddenDeposit && isDepositWarning(w)));
+      out.push(...warningsNotShown(warnings, said));
     }
     return out;
   }

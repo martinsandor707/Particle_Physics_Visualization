@@ -29,7 +29,7 @@ import {
 } from './panels/resolution_scaling.js';
 import { REFERENCE_SOURCE, RESOLUTION_REFERENCES, REFERENCE_UNITS, referenceEquation } from './catalog/resolution_refs.js';
 import { LITERATURE_HUES } from './palette.js';
-import { isDepositSeries } from './res_axis.js';
+import { isDepositSeries, eDataTop, isDepositWarning } from './res_axis.js';
 import { perfModel, perfQuantities, SOURCE_LABELS, isEnergyMedianRel, MEDIAN_REL_RECONCILIATION } from './panels/perf_bins.js';
 import { residualModel, featureHistModel, HISTOGRAM_FLOOR } from './panels/distribution.js';
 import { hist2dModel, countRamp, DENSITY2D_FLOOR } from './panels/hist2d.js';
@@ -1194,8 +1194,14 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   selection.push(`View: ${w.symbol} against the energy E in GeV, 0 to ${formatNumber(x.max)} GeV, with a ratio panel underneath on the same energy axis.`);
   if (x.eMax) {
     const em = x.eMax;
+    // The lower end is the data's top edge rounded up to the step: the edge is named where the rounding moved it
+    // (review R1-6: 18 GeV on the two-shower files, whose slider starts at 20).
+    const top = eDataTop(payload);
+    const edge = Number.isFinite(top) && top <= em.max + 1e-9 && Math.abs(top - em.min) > 1e-9
+      ? `the data's highest window edge, ${formatNumber(top)} GeV, rounded up to ${formatNumber(em.step)} GeV`
+      : 'the data\'s highest window edge';
     selection.push(`E max: ${formatNumber(x.max)} GeV, set by the card's slider (${formatNumber(em.min)}–${formatNumber(em.max)} GeV in ${formatNumber(em.step)} GeV steps; `
-      + 'its lower end is the data\'s highest window edge, so every window is on the axis). Nothing beyond it is drawn on either panel.');
+      + `its lower end is ${edge}, so every window is on the axis). Nothing beyond it is drawn on either panel.`);
   }
   selection.push(depositSelectionLine(model.deposit));
   if (ratio.none) {
@@ -1297,12 +1303,15 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       unweighted && `the markers of the ${plural(unweighted, 'window')} of N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV without a fit weight`,
       belowFloor && `the markers of the ${plural(belowFloor, 'window')} below ${yMin} GeV`,
     ].filter(Boolean);
+    // While the deposit is hidden the range is the model series' alone (review R1-4): "no window" is said of them.
+    const whose = hidden ? ' of the model series' : '';
+    const owner = hidden ? 'the model series' : 'the response';
     const cause = unweighted
-      ? `no window from ${yMin} GeV of N ≥ ${formatInt(gates.fit_n)} carries a fit weight (What is drawn names the causes)`
-      : `no window from ${yMin} GeV reaches N = ${formatInt(gates.fit_n)}`;
+      ? `no window${whose} from ${yMin} GeV of N ≥ ${formatInt(gates.fit_n)} carries a fit weight (What is drawn names the causes)`
+      : `no window${whose} from ${yMin} GeV reaches N = ${formatInt(gates.fit_n)}`;
     dis.push(`The y range is provisional: ${cause}${by.length
-      ? `, so it is set by weaker windows of the response, ${by.join(' and ')}`
-      : `, and no window of the response reports ${w.symbol}, so nothing on the plot sets it`}.`);
+      ? `, so it is set by weaker windows of ${owner}, ${by.join(' and ')}`
+      : `, and no window of ${owner} reports ${w.symbol}, so nothing on the plot sets it`}.`);
   } else {
     dis.push(`The y range follows the windows alone, from zero: those with N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV, whiskers included. A fit summarises its windows and is not more evidence, `
       + `so no fitted curve or extrapolation sets it; a window below ${yMin} GeV never sets it, whatever its N.`);
@@ -1431,8 +1440,8 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   if (lowRange.length) {
     const they = lowRange.length === 1 ? 'it' : 'they';
     dis.push(`${plural(lowRange.length, 'drawn window')} start${lowRange.length === 1 ? 's' : ''} below ${yMin} GeV: ${y.provisional
-      ? `${they} set the y range only provisionally, by ${lowRange.length === 1 ? 'its marker' : 'their markers'}, while no window from ${yMin} GeV reaches N = ${formatInt(gates.fit_n)}, and never the ratio range`
-      : `${they} never set the y range or the ratio range`}.`);
+      ? `${they} set the y range only provisionally, by ${lowRange.length === 1 ? 'its marker' : 'their markers'}, while no window from ${yMin} GeV reaches N = ${formatInt(gates.fit_n)}${ratio.none ? '' : ', and never the ratio range'}`
+      : `${they} never set the y range${ratio.none ? '' : ' or the ratio range'}`}.`);
   }
   const belowAnchors = model.series.filter((s) => s.points.some((p) => p.fitted && (p.w.p_lo ?? 0) < gates.anchor_low_gev));
   if (mode === 'all' && belowAnchors.length) {
@@ -1535,7 +1544,8 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     dis.push(`Shower B's lines are drawn at 70% strength, raised where the card needs it to keep 3:1 (${raised.length ? `${raised.join(', ')} on this card` : 'no hue needs it on this card'})`
       + `${model.twoOnShow ? ', so the end labels "A" and "B" name the shower' : ''}; on this view the dash means extrapolation, so shower B gives up the long dash the 1/√E view gives it.`);
   }
-  dis.push(...metaDisclosures(payload));
+  // The server's warnings, those on the hidden deposit's sample left out with it (review R1-5).
+  dis.push(...metaDisclosures(payload).filter((line) => !(hidden && isDepositWarning(line))));
   notes.section(SECTION.disclosures, dis.filter(Boolean));
 
   // ---- Marks and legend
@@ -1733,7 +1743,7 @@ export function resolutionScalingNotes({
   disclosures.push(w.sample ? '' : sentence(w.est.relation ?? ''), RES_DECOMPOSITION, ...(hidden ? [] : calibrationLines(w)), robustFloorLine(w, model), ...responseRangeLines(w, model));
   if (m.source === 'xgb' && !hidden) disclosures.push('The detector series uses every selected event; the XGBoost series only its validation split, so the two series do not share their events.');
   disclosures.push('E on both axes is the incident momentum p as the producer writes it; for a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.');
-  disclosures.push(...metaDisclosures(payload));
+  disclosures.push(...metaDisclosures(payload).filter((line) => !(hidden && isDepositWarning(line))));
   notes.section(SECTION.disclosures, disclosures.filter(Boolean));
 
   // ---- Marks and legend

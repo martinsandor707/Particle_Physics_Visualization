@@ -57,6 +57,7 @@ ALLOWED_REMAINING = [
     re.escape(NONE_RATIO_TO), re.escape(NONE_DRAWN),             # the no-reference sentences name what is off
     r"^With the calibrated deposit hidden, ",                    # the server's y_model.note, verbatim
     r"with neither, nothing, since the deposit is hidden",       # the literature legend line
+    r"of the model series \(the deposit is hidden\)",            # whose windows chose the ratio's curve (review R1-2)
     r"3 XGBoost and 4 the deposit, shower 0 for A and 1 for B",  # the server's bootstrap seed key, in the whisker's label
     r"not that the detector has none",                           # the held-term caveat: the physical detector
     r"not this dataset's detector",                              # the literature curves' scope: the physical detector
@@ -116,6 +117,17 @@ if (spec.part === 'grid') {
     for (const k of ['y', 'y_model']) payload.axis.energy[k].provisional = true;
     out[name] = { hidden: run(payload, 'energy', 'all', { deposit: false, literature: [] }),
       shown: run(payload, 'energy', 'all', { literature: ['pi', 'e'] }) };
+  }
+} else if (spec.part === 'warnings') {
+  // The server's warnings on the deposit's own sample, and one on a model series (review R1-5).
+  for (const name of spec.names) {
+    const payload = load(name);
+    payload.meta = { ...(payload.meta ?? {}), warnings: [...spec.deposit, spec.model] };
+    out[name] = {};
+    for (const view of ['linear', 'energy']) {
+      out[name][view] = { hidden: run(payload, view, 'anchors', { deposit: false, literature: ['pi', 'e'] }),
+        shown: run(payload, view, 'anchors', { deposit: true, literature: ['pi', 'e'] }) };
+    }
   }
 }
 process.stdout.write(JSON.stringify(out));
@@ -368,8 +380,12 @@ def test_e_max_null_says_the_slider_line_with_its_range_and_a_5_gev_axis(grid, n
     payload = _load(name)
     low, top, step = _emax_range(payload)
     note = grid[name][f"energy:{windows}:emax_null"]
-    line = (f"E max: {low} GeV, set by the card's slider ({low}–{top} GeV in {step} GeV steps; its lower end is the data's "
-            "highest window edge, so every window is on the axis). Nothing beyond it is drawn on either panel.")
+    # The data's top edge is named where rounding it up to the step moved it (18 GeV on the two-shower files; review R1-6).
+    data_top = payload["axis"]["energy"].get("data_max_gev")
+    edge = ("the data's highest window edge" if data_top == low
+            else f"the data's highest window edge, {data_top:g} GeV, rounded up to {step} GeV")
+    line = (f"E max: {low} GeV, set by the card's slider ({low}–{top} GeV in {step} GeV steps; its lower end is {edge}, "
+            "so every window is on the axis). Nothing beyond it is drawn on either panel.")
     assert _e_max_line(note) == [line]
     selection = _lines(note, "Selection")
     view = [i for i, s in enumerate(selection) if s.startswith("View: ")]
@@ -477,3 +493,33 @@ def test_the_deposit_only_recordings_never_state_no_reference(grid):
         for variant in ("dep0", "none", "emax_null_none"):
             text = _text(grid[name][f"energy:all:{variant}"])
             assert NONE_RATIO_TO not in text and NONE_DRAWN not in text and NONE_MARKS not in text, (name, variant)
+
+
+# ---------------------------------------------------------------------------- the deposit's own warnings ---
+
+#: The server's two warnings on a shower sample, which feeds the deposit alone (query/resolution_scaling.py
+#: `warnings`), and one on a model series.
+DEPOSIT_WARNINGS = [
+    "Shower A: 3 events were dropped before the ratios (a deposit or momentum that is not finite, a negative deposit, "
+    "or a momentum that is not positive), counted and never zero-filled.",
+    "Shower B: no event of the selection deposits energy (E_dep > 0), so the median calibration c̃ = 1 / median(E_dep / p) "
+    "does not exist and the deposit has no windows under Median |rel. err.| (their values are null); Robust σ (IQR) and "
+    "Sample σ/μ do not depend on the calibration.",
+]
+MODEL_WARNING = ("Shower A · Energy network · absolute frame: no event of the selection has a finite prediction and "
+                 "truth; every one is counted in n_missing and none is drawn.")
+
+
+def test_the_hidden_deposits_own_warnings_leave_the_drawer_with_it():
+    """Review R1-5: hidden, the server's warnings on the deposit's sample are not stated (the page's banner leaves them
+    out too: test_js_models_shell.py); a model series' warning stays; shown, all three are back."""
+    names = ["res_scaling_median_two", "res_scaling_two", "res_scaling_median_xgb"]
+    got = _run({"part": "warnings", "names": names, "deposit": DEPOSIT_WARNINGS, "model": MODEL_WARNING})
+    for name in names:
+        for view in ("linear", "energy"):
+            hidden = _lines(got[name][view]["hidden"], "Disclosures")
+            shown = _lines(got[name][view]["shown"], "Disclosures")
+            assert MODEL_WARNING in hidden and MODEL_WARNING in shown, (name, view)
+            for w in DEPOSIT_WARNINGS:
+                assert w not in hidden, (name, view, w[:40])
+                assert w in shown, (name, view, w[:40])

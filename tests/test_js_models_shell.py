@@ -2820,6 +2820,24 @@ out.requestsAfter = requests();
 // An export names what is drawn now.
 out.exportMeta = section.exportTarget('res-scaling').meta;
 
+// The page's banner (review R1-5): the server's warnings on the hidden deposit's sample leave with it, as in its
+// drawer; a model warning stays. The drawer is stubbed to state no warning, so the banner carries what it does not.
+const DEPOSIT_WARNINGS = [
+  'Shower A: 3 events were dropped before the ratios (a deposit or momentum that is not finite, a negative deposit, or a momentum that is not positive), counted and never zero-filled.',
+  'Shower B: no event of the selection deposits energy (E_dep > 0), so the median calibration c̃ = 1 / median(E_dep / p) does not exist and the deposit has no windows under Median |rel. err.| (their values are null); Robust σ (IQR) and Sample σ/μ do not depend on the calibration.',
+];
+const MODEL_WARNING = 'Shower A · Energy network · absolute frame: no event of the selection has a finite prediction and truth; every one is counted in n_missing and none is drawn.';
+section.notesModules.models = { resolutionScalingNotes: () => ({ title: 'stub', hazards: [], sections: [] }) };
+section.reset();
+body = { ...two, meta: { ...(two.meta ?? {}), warnings: [...DEPOSIT_WARNINGS, MODEL_WARNING] } };
+await one.open('two_shower_hits', 'experiment_baseline');
+out.banner = { hidden: section.warnings(), stored: section.controls.resDeposit };
+button.click();
+out.banner.shown = section.warnings();
+button.click();
+out.banner.hiddenAgain = section.warnings();
+out.banner.expected = { deposit: DEPOSIT_WARNINGS, model: MODEL_WARNING };
+
 // The data reach the axis end: the slider is shut with its reason.
 section.reset();
 body = flat;
@@ -2880,6 +2898,16 @@ def test_the_deposit_toggle_is_one_render_only_button_shut_where_the_deposit_is_
     forced = res_card_results["labels"]["forced"]
     assert d["disabled"] == {"two": None, "single": forced, "none": None}
     assert forced == "The calibrated deposit is this response's only series, so it is always drawn."
+
+
+def test_the_banner_leaves_out_the_hidden_deposits_own_warnings(res_card_results):
+    # Review R1-5: hidden, the deposit's sample warnings leave the page with it (drawer and banner alike); shown, they
+    # are back; a model series' warning stays either way.
+    b = res_card_results["banner"]
+    deposit, model = b["expected"]["deposit"], b["expected"]["model"]
+    assert b["stored"] == "off"
+    assert b["hidden"] == [model] and b["hiddenAgain"] == [model]
+    assert b["shown"] == [*deposit, model]
 
 
 def test_the_e_max_slider_runs_from_the_datas_top_edge_to_the_axis_end(res_card_results):
