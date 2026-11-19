@@ -49,6 +49,9 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("CALOSRV_BROWSER_TESTS") != "1",
     reason="set CALOSRV_BROWSER_TESTS=1 to run the Chromium tooltip check",
 )
+#: --dist loadgroup (README's testing section): one worker runs this module's tests and boots its server once.
+#: A test with a group mark of its own is sent apart: xdist joins its name to this one.
+pytestmark = [pytestmark, pytest.mark.xdist_group("tooltip")]
 
 VIEWPORTS = ((1600, 900), (1280, 800), (1024, 768))
 PLOTS = ("plot-xy", "plot-yz", "plot-xz", "plot-energy")
@@ -209,7 +212,8 @@ def _beside(tip, x, y) -> bool:
     return horizontal or vertical
 
 
-@pytest.mark.parametrize("viewport", VIEWPORTS, ids=lambda v: f"{v[0]}x{v[1]}")
+@pytest.mark.parametrize("viewport", [pytest.param(v, marks=pytest.mark.xdist_group(f"readable-{v[0]}"))
+                                      for v in VIEWPORTS], ids=lambda v: f"{v[0]}x{v[1]}")
 @pytest.mark.parametrize(
     "fragment", ["", "#frame=trans", "#frame=local", "#frame=canonical"],
     ids=["default-lab", "trans", "local", "canonical"],
@@ -326,7 +330,8 @@ def _measure_channels(live_server, viewport, fragment):
     return results
 
 
-@pytest.mark.parametrize("viewport", [(1600, 900), (1024, 768)], ids=lambda v: f"{v[0]}x{v[1]}")
+@pytest.mark.parametrize("viewport", [pytest.param(v, marks=pytest.mark.xdist_group(f"channels-{v[0]}"))
+                                      for v in ((1600, 900), (1024, 768))], ids=lambda v: f"{v[0]}x{v[1]}")
 @pytest.mark.parametrize(
     "fragment", ["#lgmode=bounds", "#frame=trans&lgmode=bounds", "#frame=canonical&lgmode=bounds", "#lgmode=pool"],
     ids=["lab-bounds", "trans-bounds", "canonical-bounds", "lab-pooled"],

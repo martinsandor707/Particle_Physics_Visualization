@@ -59,6 +59,9 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("CALOSRV_BROWSER_TESTS") != "1",
     reason="set CALOSRV_BROWSER_TESTS=1 to run the Chromium physics-section check",
 )
+#: --dist loadgroup (README's testing section): one worker runs this module's tests and boots its server once.
+#: A test with a group mark of its own is sent apart: xdist joins its name to this one.
+pytestmark = [pytestmark, pytest.mark.xdist_group("physics")]
 
 #: The routes only the physics cards ask (B3 is the energy route sliced by momentum).
 PHYSICS_ROUTES = ("/api/profiles", "/api/response", "/api/distributions", "/api/correlations",
@@ -1053,6 +1056,7 @@ def test_every_physics_card_exports_its_plot_alone(physics_live_server, table):
 
 @pytest.mark.parametrize("viewport", [(1600, 900), (1024, 768)], ids=lambda v: f"{v[0]}x{v[1]}")
 @pytest.mark.parametrize("table", [BASELINE_TABLE, SINGLE_HITS_TABLE, SINGLE_EVENTS_TABLE])
+@pytest.mark.xdist_group("physics-tips")
 def test_physics_tooltips_are_readable_and_keep_the_hovered_plot_visible(physics_live_server, table, viewport):
     with physics_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, physics_live_server["base"], table, viewport=viewport)
