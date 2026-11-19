@@ -123,6 +123,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from browser_settle import move_pointer
 from conftest import BASELINE_TABLE, MODELS_XGB_TABLE, SINGLE_HITS_TABLE
 from test_browser_physics import (
     _PROBE, _RECORD_CANVAS_TEXT, _WATCH_EXPORTS, _WATCH_HOVER, _assert_sections, _beside, _check_tips,
@@ -347,7 +348,8 @@ def _open(p, base, table, *, fragment=None, viewport=(1600, 900), init=(), brows
         "&& document.getElementById('stat-kind')?.textContent.trim() !== '—'",
         arg=table, timeout=30_000,
     )
-    page.wait_for_timeout(600)
+    # The cards in view have asked and drawn: the observers' frame, no card on show loading, the repaint's frame.
+    _quiet(page)
     return browser, page, problems, requests
 
 
@@ -362,7 +364,14 @@ def _settled(page, card_id, timeout=30_000):
           return s && !s.loading && (s.message !== null || s.table || (s.canvas && (s.series || s.graphic))); }}""",
         timeout=timeout,
     )
-    page.wait_for_timeout(150)
+    if page.evaluate(_CARD, card_id)["canvas"]:
+        # A chart: a repaint the draw coalesced to the next frame (a resize, a legend repaint) has run.
+        _frames(page)
+    else:
+        # A DOM card (the PySR matrix's MathML grid, the feature table) or a message: its layout can still grow
+        # after two frames (measured: the PySR matrix's height changed within the next 150 ms), so the fixed
+        # settle stays.
+        page.wait_for_timeout(150)
     return page.evaluate(_CARD, card_id)
 
 
@@ -524,7 +533,7 @@ def _requests_of(requests, route, **params):
 def _hover_chart(page, plot_id, columns=9, rows=6):
     """Hover a grid of points over a chart's plot; every tooltip that showed, probed."""
     page.locator(f"#{plot_id}").scroll_into_view_if_needed()
-    page.wait_for_timeout(200)
+    _frames(page)
     page.evaluate(_WATCH_HOVER, plot_id)
     boxes = page.evaluate(_BOXES, plot_id)
     plot = boxes["plot"]
@@ -533,13 +542,11 @@ def _hover_chart(page, plot_id, columns=9, rows=6):
         for j in range(rows):
             x = plot["left"] + (i + 0.5) / columns * (plot["right"] - plot["left"])
             y = plot["top"] + (j + 0.5) / rows * (plot["bottom"] - plot["top"])
-            page.mouse.move(x, y)
-            page.wait_for_timeout(40)
+            move_pointer(page, x, y)
             probe = page.evaluate(_PROBE)
             if probe is not None:
                 found.append(((x, y), probe, boxes))
-    page.mouse.move(2, 2)
-    page.wait_for_timeout(60)
+    move_pointer(page, 2, 2)
     return found
 
 
@@ -567,20 +574,19 @@ _MARK_POINTS = """([plotId, cap]) => {
 
 def _hover_marks(page, plot_id, cap=30):
     """Hover a chart's own data items; every tooltip that showed, probed (as `_hover_chart` returns them). The
-    tooltips have no show delay and no transition (panels/tooltip.js), so a frame after each move is enough."""
+    tooltips have no show delay and no transition (panels/tooltip.js), so a move the page has dispatched is settled
+    (browser_settle.move_pointer)."""
     page.locator(f"#{plot_id}").scroll_into_view_if_needed()
     _frames(page)
     page.evaluate(_WATCH_HOVER, plot_id)
     boxes = page.evaluate(_BOXES, plot_id)
     found = []
     for x, y in page.evaluate(_MARK_POINTS, [plot_id, cap]):
-        page.mouse.move(x, y)
-        _frames(page)
+        move_pointer(page, x, y)
         probe = page.evaluate(_PROBE)
         if probe is not None:
             found.append(((x, y), probe, boxes))
-    page.mouse.move(2, 2)
-    _frames(page)
+    move_pointer(page, 2, 2)
     return found
 
 
@@ -1161,7 +1167,9 @@ def _res_press(page, attr, value):
     """Click one of the resolution card's segmented buttons; whether it is then the pressed one."""
     button = page.locator(f'.main .card[data-panel="res-scaling"] button[data-{attr}="{value}"]')
     button.click()
-    page.wait_for_timeout(250)
+    # The click's handler sets the control, repaints and starts any load at once (models_cards.js setControl); two
+    # frames let the paint and anything coalesced to the next frame run before a probe or a "no request" check.
+    _frames(page)
     return button.get_attribute("aria-pressed") == "true"
 
 
@@ -2306,13 +2314,11 @@ def _hover_windows(page):
         marks = again
     found = []
     for x, y in marks:
-        page.mouse.move(x, y)
-        _frames(page)
+        move_pointer(page, x, y)
         probe = page.evaluate(_PROBE)
         if probe is not None:
             found.append(((x, y), probe, boxes))
-    page.mouse.move(2, 2)
-    _frames(page)
+    move_pointer(page, 2, 2)
     return found
 
 
@@ -2783,13 +2789,11 @@ def _hover_points(page, points, where):
     boxes = page.evaluate(_BOXES, "plot-res-scaling")
     found = []
     for x, y in points:
-        page.mouse.move(x, y)
-        _frames(page)
+        move_pointer(page, x, y)
         probe = page.evaluate(_PROBE)
         if probe is not None:
             found.append(((x, y), probe, boxes))
-    page.mouse.move(2, 2)
-    _frames(page)
+    move_pointer(page, 2, 2)
     return found
 
 
