@@ -15,18 +15,18 @@ from __future__ import annotations
 #: Installs, once per page, a passive capture listener counting the document's mousemove dispatches
 #: and keeping the last one's position; returns the count so far.
 _WATCH_MOVES = """() => {
-  if (!window.__bsMoves) {
-    window.__bsMoves = { n: 0, x: null, y: null };
+  if (!window.__browserSettleMoves) {
+    window.__browserSettleMoves = { n: 0, x: null, y: null };
     document.addEventListener('mousemove', (e) => {
-      const w = window.__bsMoves;
+      const w = window.__browserSettleMoves;
       w.n += 1; w.x = e.clientX; w.y = e.clientY;
     }, { capture: true, passive: true });
   }
-  return window.__bsMoves.n;
+  return window.__browserSettleMoves.n;
 }"""
 
 #: A move dispatched after count `n`, at (x, y) to the pixel.
-_MOVED = """([n, x, y]) => { const w = window.__bsMoves;
+_MOVED = """([n, x, y]) => { const w = window.__browserSettleMoves;
   return Boolean(w) && w.n > n && Math.abs(w.x - x) <= 1 && Math.abs(w.y - y) <= 1; }"""
 
 
@@ -35,5 +35,7 @@ def move_pointer(page, x, y, *, steps=1):
     move to (x, y): every mousemove listener, the tooltip's included, has run. A move the page never
     dispatches fails after 10 s rather than letting a probe read a stale tooltip."""
     n = page.evaluate(_WATCH_MOVES)
+    if not isinstance(n, int):
+        raise RuntimeError(f"window.__browserSettleMoves is taken by something else on the page ({n!r})")
     page.mouse.move(x, y, steps=steps)
     page.wait_for_function(_MOVED, arg=[n, x, y], timeout=10_000)
