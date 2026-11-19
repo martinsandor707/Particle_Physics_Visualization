@@ -503,22 +503,59 @@ def cursor(ingested):
 # themselves on CALOSRV_BROWSER_TESTS=1.
 
 
-def _free_port() -> int:
+def _listening_socket(port: int = 0):
+    """A TCP socket bound on 127.0.0.1 (port 0: a free one), for a live server to listen on.
+
+    The port is held from the moment it is chosen until the server stops, so two servers booting at
+    once (pytest-xdist workers) can never be handed the same port. Closing a probe socket and letting
+    uvicorn bind the number later left a window in which another process could take it.
+    """
     import socket
 
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", port))
+    except OSError:
+        sock.close()
+        raise
+    return sock
+
+
+def _start_uvicorn(app, sock, timeout_s: float = 60.0):
+    """Serve ``app`` on ``sock`` in a daemon thread; return ``(server, thread)`` once uvicorn says it started.
+
+    If the thread ends first (a failed startup) or ``timeout_s`` passes, the server is stopped, the
+    socket closed and ``RuntimeError`` raised naming the cause.
+    """
+    import threading
+    import time
+
+    import uvicorn
+
+    port = int(sock.getsockname()[1])
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + timeout_s
+    while not server.started:
+        alive = thread.is_alive()
+        if not alive or time.monotonic() > deadline:
+            cause = "its thread ended" if not alive else f"it had not started after {timeout_s:.0f} s"
+            server.should_exit = True
+            thread.join(timeout=10)
+            sock.close()
+            raise RuntimeError(f"the test server on 127.0.0.1:{port} never started: {cause}")
+        time.sleep(0.02)
+    return server, thread
 
 
 @pytest.fixture(scope="module")
 def live_server(tmp_path_factory):
     """The real app on a real port, seeded from the demonstration CSV."""
-    import threading
     import time
 
     playwright = pytest.importorskip("playwright.sync_api")
-    import uvicorn
 
     from calosrv.app import create_app
     from calosrv.config import load_settings
@@ -541,16 +578,15 @@ def live_server(tmp_path_factory):
     os.environ["DUCKDB_MEMORY_GB"] = "2"
     os.environ["CALOSRV_SEED_CSV"] = str(SEED_FILE)
 
-    port = _free_port()
-    server = uvicorn.Server(uvicorn.Config(
-        create_app(load_settings()), host="127.0.0.1", port=port, log_level="warning",
-    ))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
+    sock = _listening_socket()
+    try:
+        server, thread = _start_uvicorn(create_app(load_settings()), sock)
+    except RuntimeError as error:
+        pytest.fail(str(error))
 
     import httpx
 
-    base = f"http://127.0.0.1:{port}"
+    base = f"http://127.0.0.1:{sock.getsockname()[1]}"
     for _ in range(240):
         try:
             payload = httpx.get(f"{base}/api/experiments", timeout=2).json()
@@ -561,12 +597,15 @@ def live_server(tmp_path_factory):
         time.sleep(0.25)
     else:
         server.should_exit = True
+        thread.join(timeout=10)
+        sock.close()
         pytest.fail("the server never reported a ready experiment")
 
     yield {"base": base, "playwright": playwright, "drop": drop}
 
     server.should_exit = True
     thread.join(timeout=10)
+    sock.close()
     reset_database()
     reset_job_store()
     reset_cache()
@@ -591,12 +630,10 @@ def physics_live_server(tmp_path_factory):
     rebuild notice. A separate server from ``live_server``: the existing
     browser modules keep their one-experiment page.
     """
-    import threading
     import time
 
     playwright = pytest.importorskip("playwright.sync_api")
     import httpx
-    import uvicorn
 
     from calosrv.app import create_app
     from calosrv.config import load_settings
@@ -623,12 +660,13 @@ def physics_live_server(tmp_path_factory):
     os.environ["CALOSRV_SEED_CSV"] = str(SEED_FILE)
 
     app = create_app(load_settings())
-    port = _free_port()
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
+    sock = _listening_socket()
+    try:
+        server, thread = _start_uvicorn(app, sock)
+    except RuntimeError as error:
+        pytest.fail(str(error))
 
-    base = f"http://127.0.0.1:{port}"
+    base = f"http://127.0.0.1:{sock.getsockname()[1]}"
     for _ in range(240):
         try:
             payload = httpx.get(f"{base}/api/experiments", timeout=2).json()
@@ -639,6 +677,8 @@ def physics_live_server(tmp_path_factory):
         time.sleep(0.25)
     else:
         server.should_exit = True
+        thread.join(timeout=10)
+        sock.close()
         pytest.fail("the server never reported a ready experiment")
 
     database = app.state.database
@@ -654,6 +694,7 @@ def physics_live_server(tmp_path_factory):
 
     server.should_exit = True
     thread.join(timeout=10)
+    sock.close()
     reset_database()
     reset_job_store()
     reset_cache()
@@ -674,15 +715,14 @@ def start_models_server(data_dir: Path, drop: Path, sources: dict, *, port: int 
     folder, so the whole lifecycle runs: the ingest worker builds it, the queue
     hook hands it to the model-run worker, and this waits - through the read-only
     ``GET /api/admin/model-runs`` - until its analysis is done. Returns
-    ``{base, server, thread, app}``; :func:`stop_models_server` stops it.
-    A function, not only a fixture, so a scratch script can boot the same server.
+    ``{base, server, thread, app, socket}``; :func:`stop_models_server` stops it.
+    A function, not only a fixture, so a scratch script can boot the same server
+    (on ``port``, else on a free port the socket holds).
     """
     import shutil
-    import threading
     import time
 
     import httpx
-    import uvicorn
 
     from calosrv.app import create_app
     from calosrv.config import load_settings
@@ -709,12 +749,10 @@ def start_models_server(data_dir: Path, drop: Path, sources: dict, *, port: int 
     })
 
     app = create_app(load_settings())
-    port = port or _free_port()
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    base = f"http://127.0.0.1:{port}"
-    handle = {"base": base, "server": server, "thread": thread, "app": app}
+    sock = _listening_socket(port or 0)
+    server, thread = _start_uvicorn(app, sock)
+    base = f"http://127.0.0.1:{sock.getsockname()[1]}"
+    handle = {"base": base, "server": server, "thread": thread, "app": app, "socket": sock}
 
     def ready() -> set[str]:
         try:
@@ -760,6 +798,8 @@ def stop_models_server(handle: dict) -> None:
 
     handle["server"].should_exit = True
     handle["thread"].join(timeout=15)
+    if handle.get("socket") is not None:
+        handle["socket"].close()
     reset_model_runs()
     reset_database()
     reset_job_store()
