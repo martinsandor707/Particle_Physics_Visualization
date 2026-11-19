@@ -81,6 +81,37 @@ def pytest_collection_modifyitems(session, config, items):
     ]
     booted_ids = {id(item) for item in booted}
     items[:] = booted + [item for item in items if id(item) not in booted_ids]
+    if getattr(config.option, "dist", "no") == "loadgroup":
+        _longest_groups_first(items)
+
+
+#: The browser suite's slowest xdist groups, in seconds as measured with five workers (browser-speed, 2026-11-19,
+#: data/dev/design/browser-speed/cap_n5), keyed by the name pytest-xdist gives a group: every xdist_group name on
+#: a test, sorted and joined with "_". Under --dist loadgroup the collection is sorted by them, longest first, and
+#: with --no-loadscope-reorder xdist hands the groups out in collection order, so the longest start first and no
+#: slow group starts last to run alone at the end (by default xdist hands out the most tests first, which put the
+#: one-test E-view sweeps last). Ordering only: a stale or missing entry costs time, never a test.
+XDIST_GROUP_SECONDS = {
+    "theme": 142, "models_models-c": 141, "models_models-b": 133, "eview-light_models": 132,
+    "eview-dark_models": 124, "models": 117, "physics": 90, "layer_groups": 79, "physics_physics-tips": 62,
+    "models_restips-sample": 51, "physics_subpages": 48, "models_noise-light": 38, "readable-1024_tooltip": 34,
+    "models_noise-dark": 32, "readable-1600_tooltip": 32, "models_tips-baseline": 32, "models_screens-dark": 32,
+    "models_screens-light": 31, "models_restips-robust": 29, "layout": 28, "readable-1280_tooltip": 28,
+    "models_tips-single": 28, "models_restips-median": 27, "models_tips-xgb": 26,
+}
+
+
+def _xdist_group(item) -> str:
+    """The group pytest-xdist 3.8 puts ``item`` in under --dist loadgroup (remote.py), or '' with no mark."""
+    names = {str(mark.args[0] if mark.args else mark.kwargs.get("name", "default"))
+             for mark in item.iter_markers("xdist_group")}
+    return "_".join(sorted(names))
+
+
+def _longest_groups_first(items) -> None:
+    """Sort by XDIST_GROUP_SECONDS, longest first; stable, so each group keeps its tests' order and the
+    unlisted groups keep theirs after the listed ones. Every browser test is booted, so booted still come first."""
+    items.sort(key=lambda item: -XDIST_GROUP_SECONDS.get(_xdist_group(item), 0))
 
 
 def rewrite_parquet(source: Path, destination: Path, event_shift: int = 0,
