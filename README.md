@@ -5735,27 +5735,95 @@ CALOSRV_DATA_DIR=./data DUCKDB_MEMORY_GB=4 .venv/bin/python -m calosrv
 
 | Variable | Effect |
 |---|---|
-| `CALOSRV_BROWSER_TESTS=1` | runs the browser modules (`tests/test_browser_*.py`: admin, anchor, event, layout, models, physics, tooltip, upload, window axis) against a live server, in Playwright's Chromium. `test_browser_physics.py` drives the Physics page on a seeded single-shower server, and `test_browser_models.py` the Models page on the `models_live_server` fixture (see below); the 3-D cards draw there in Chromium's SwiftShader WebGL (`--use-angle=swiftshader`) |
+| `CALOSRV_BROWSER_TESTS=1` | runs the browser modules (`tests/test_browser_*.py`: admin, anchor, event, layer groups, layout, methodology, models, physics, physics subpages, theme, tooltip, upload, window axis, zoom) against a live server, in Playwright's Chromium; run them in parallel as below. `test_browser_physics.py` drives the Physics page on a seeded single-shower server, and `test_browser_models.py` the Models page on the `models_live_server` fixture (see below); the 3-D cards draw there in Chromium's SwiftShader WebGL (`--use-angle=swiftshader`) |
 | `CALOSRV_TEST_SUBSET_CSV=<path>` | runs `tests/test_canonical_subset.py` on a production subset |
 | `CALOSRV_XGB_REAL=1` | runs `tests/test_xgboost_real.py`, which reads the four 100,000-event aggregates in `ingest/` |
 | `CALOSRV_WRITE_PAYLOAD_FIXTURES=1` | rewrites `tests/fixtures/payloads/` instead of comparing |
 | `CALOSRV_WRITE_GOLDEN=1` | rewrites the energy panel's golden (`tests/test_energy_momentum_api.py::test_default_d_payload_is_byte_identical`) |
 
-**The browser tests need Playwright and its Chromium.** The `playwright` package
-is not in the `dev` extras: the live-server fixtures `importorskip` it, so
-without it the browser modules skip. Install the package into the virtual
-environment and then fetch the browser it drives:
+**The browser tests need Playwright, its Chromium and pytest-xdist.**
+- The `dev` extra holds `playwright` and `pytest-xdist`, with xdist's `execnet`. The live-server fixtures
+  `importorskip` Playwright, so without it the browser modules skip.
+- Fetch the browser once:
 
 ```bash
-uv pip install --python .venv/bin/python playwright
 .venv/bin/python -m playwright install chromium
-CALOSRV_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests/test_browser_models.py
 ```
+
+**The fast run: the whole browser suite in parallel.** It takes about 6 minutes on the 24-core, 31 GB
+workstation, against about 41 minutes serially before this round:
+
+```bash
+CALOSRV_BROWSER_TESTS=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
+  -n 5 --dist loadgroup --no-loadscope-reorder --basetemp data/dev/pytest/browser tests/test_browser_*.py
+```
+
+**The serial fallback** runs one file at a time; any single file, or `-k`, runs the same way:
+
+```bash
+for f in tests/test_browser_*.py; do
+  CALOSRV_BROWSER_TESTS=1 .venv/bin/python -m pytest -q -p no:cacheprovider --basetemp data/dev/pytest/browser "$f"
+done
+```
+
+- **How many workers: `-n` is set by memory, not by cores.**
+  - Each worker holds its own live server and up to two Chromiums; the heaviest peaked at about 1.6 GB on
+    2026-11-19.
+  - Choose N so that N × 1.6 GB stays under 60% of `MemAvailable` with the desktop running: N =
+    ⌊0.6 × `MemAvailable` / 1.6 GB⌋. Here that allows 5 from 13.4 GB and 6 from 16 GB; the command uses 5,
+    because six ran no faster (below). With less memory free, lower N.
+  - Never `-n auto`: 24 workers would exhaust the RAM.
+  - A run is sound when swap-in stays under 64 MB and `MemAvailable` stays at or above 2 GB throughout.
+    zram's swap-out of cold pages (swappiness 133) is benign.
+- **CPU.** Without sleeps the hover sweeps are CPU-bound, so more workers than that buy little. On
+  2026-11-19, before the longest-first order, six workers took 410 s and five 378 s.
+  - Inside a worker, `conftest.py` caps the OpenBLAS and OpenMP pools at the worker's share of the cores
+    (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS`, unless already set).
+  - With every worker's pools taking all 24 cores, four Models servers booting at once took 184 s each
+    instead of 3.6 s.
+  - The cap can move a computed value in its last bit, because OpenBLAS sums in an order set by its thread
+    count. No browser test compares a value with a recording. The default suite does, so it stays serial: at
+    8 threads (`-n 3` here) one value of `tests/test_golden_two_shower.py` moves by one unit in the last place,
+    serially too (2026-11-19).
+- **Groups (`--dist loadgroup`).** Every browser module marks itself `xdist_group("<module>")`, so one worker
+  runs it and boots its server once.
+  - A test that takes about 30 s or more on its own has a group of its own: a decorator, or
+    `pytest.param(…, marks=pytest.mark.xdist_group(…))` per parameter.
+  - pytest-xdist (3.8, the pinned minimum) joins every group name on a test, sorted, with `_`, so such a test
+    runs apart from its module.
+  - Under `--dist loadgroup` xdist appends `@<group>` to each node id in its report.
+  - A new test joins its module's group. Give it its own when `--durations` shows it is slow, and add a slow
+    group to `XDIST_GROUP_SECONDS`.
+- **Order (`--no-loadscope-reorder`).** Under `--dist loadgroup`, `conftest.py` sorts the collection by
+  `XDIST_GROUP_SECONDS`, longest first.
+  - With `--no-loadscope-reorder`, xdist hands the groups out in that order.
+  - Without it, xdist hands out the groups with the most tests first. The one-test E-view sweeps then start
+    last and run alone at the end.
+  - A serial run's order is unchanged.
+- **One Chromium per module, a fresh context per page.**
+  - The live servers hand the tests `tests/browser_pool.py`'s pool in place of the `playwright.sync_api`
+    module.
+  - `sync_playwright()` and `chromium.launch(args=…)` keep their spelling, but a launch returns a handle on a
+    shared Chromium, one per set of launch arguments.
+  - Its `new_page()` and `new_context()` each open a fresh context: storage, permissions, colour scheme,
+    viewport, init scripts, routes, downloads and cache are as fresh as on a new browser. The clipboard and the
+    GPU process are shared within a module.
+  - A session closes every context it opened, pass or fail, and a context still open at its end fails that
+    test.
+  - A failed test relaunches the browsers.
+  - The pool lives for one module, because a running sync Playwright marks the main thread's asyncio loop as
+    running.
+- **Waits.** A pointer move in the hover sweeps settles with `tests/browser_settle.py`'s `move_pointer`, which
+  waits until the page has dispatched the move, not on a fixed sleep. A fixed wait stays only where it gives a
+  wrong request, repaint or change time to happen before a test asserts it did not.
+- **Ports.** Each live server binds its socket before uvicorn starts on it, so parallel workers never race for a
+  port.
 
 The Node tests need `node` on the `PATH` and skip silently without it, so check
 `command -v node` first. The booted fixtures share one process-wide DuckDB, and
 each boot resets it: group a module's tests by fixture, and never interleave two.
-`conftest.py` orders the collected tests by fixture for exactly this reason.
+`conftest.py` orders the collected tests by fixture for exactly this reason. Each
+pytest-xdist worker is a process of its own, with its own DuckDB.
 
 | Fixture | What it boots |
 |---|---|
@@ -5764,7 +5832,7 @@ each boot resets it: group a module's tests by fixture, and never interleave two
 | `single_client` | all three kinds: the baseline, a single-shower hit experiment and an aggregate |
 | `xgb_client` | the baseline and the five XGBoost aggregates of `xgb_sources`, which arrive through the drop folder so the whole lifecycle runs (the ingest worker builds each, the queue hook hands the paired ones to the model-run worker); it waits until every analysis has settled. The models folder is `CALOSRV_MODEL_DIR` |
 | `xgb_boot` | no server: it only cleans the environment, for a test that boots, stops and boots again itself through the `booted_app` context manager |
-| `live_server`, `physics_live_server`, `models_live_server` | the real app on a real port in a thread of this process, for Playwright. `live_server` holds the seeded baseline and `physics_live_server` every kind the Physics page draws. `models_live_server` holds the two-shower demonstration, the synthetic single-shower hits and the electron aggregate paired with its models, whose analysis has finished before the first page opens; `start_models_server` and `stop_models_server` are plain functions so a scratch script can boot the same server |
+| `live_server`, `physics_live_server`, `models_live_server` | the real app on a real port in a thread of this process, for Playwright. `live_server` holds the seeded baseline and `physics_live_server` every kind the Physics page draws. `models_live_server` holds the two-shower demonstration, the synthetic single-shower hits and the electron aggregate paired with its models, whose analysis has finished before the first page opens; `start_models_server` and `stop_models_server` are plain functions so a scratch script can boot the same server. Each binds its socket before uvicorn starts on it, and hands the tests the module's browser pool (`browser_pool`) under `"playwright"` |
 
 `wait_for_model_runs` polls the read-only admin list until the named analyses
 have settled, and `train_xgb_models` trains the tiny models.
