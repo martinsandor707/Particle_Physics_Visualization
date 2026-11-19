@@ -16,6 +16,9 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("CALOSRV_BROWSER_TESTS") != "1",
     reason="set CALOSRV_BROWSER_TESTS=1 to run the Chromium upload-dialog check",
 )
+#: --dist loadgroup (README's testing section): one worker runs this module's tests and boots its server once.
+#: A test with a group mark of its own is sent apart: xdist joins its name to this one.
+pytestmark = [pytestmark, pytest.mark.xdist_group("upload")]
 
 
 def _page(p, base):

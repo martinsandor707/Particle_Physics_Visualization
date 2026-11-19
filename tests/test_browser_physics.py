@@ -53,12 +53,16 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
+from browser_settle import move_pointer
 from conftest import BASELINE_TABLE, SINGLE_EVENTS_TABLE, SINGLE_HITS_TABLE, STALE_TWO_TABLE
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("CALOSRV_BROWSER_TESTS") != "1",
     reason="set CALOSRV_BROWSER_TESTS=1 to run the Chromium physics-section check",
 )
+#: --dist loadgroup (README's testing section): one worker runs this module's tests and boots its server once.
+#: A test with a group mark of its own is sent apart: xdist joins its name to this one.
+pytestmark = [pytestmark, pytest.mark.xdist_group("physics")]
 
 #: The routes only the physics cards ask (B3 is the energy route sliced by momentum).
 PHYSICS_ROUTES = ("/api/profiles", "/api/response", "/api/distributions", "/api/correlations",
@@ -308,7 +312,7 @@ def _beside(tip, x, y) -> bool:
 def _hover_chart(page, plot_id, columns=9, rows=6):
     """Hover a grid of points over a chart's plot area; every tooltip that showed, probed."""
     page.locator(f"#{plot_id}").scroll_into_view_if_needed()
-    page.wait_for_timeout(150)
+    _frames(page)
     page.evaluate(_WATCH_HOVER, plot_id)
     boxes = page.evaluate(_BOXES, plot_id)
     plot = boxes["plot"]
@@ -317,13 +321,11 @@ def _hover_chart(page, plot_id, columns=9, rows=6):
         for j in range(rows):
             x = plot["left"] + (i + 0.5) / columns * (plot["right"] - plot["left"])
             y = plot["top"] + (j + 0.5) / rows * (plot["bottom"] - plot["top"])
-            page.mouse.move(x, y)
-            page.wait_for_timeout(35)
+            move_pointer(page, x, y)
             probe = page.evaluate(_PROBE)
             if probe is not None:
                 found.append(((x, y), probe, boxes))
-    page.mouse.move(2, 2)
-    page.wait_for_timeout(60)
+    move_pointer(page, 2, 2)
     return found
 
 
@@ -1053,6 +1055,7 @@ def test_every_physics_card_exports_its_plot_alone(physics_live_server, table):
 
 @pytest.mark.parametrize("viewport", [(1600, 900), (1024, 768)], ids=lambda v: f"{v[0]}x{v[1]}")
 @pytest.mark.parametrize("table", [BASELINE_TABLE, SINGLE_HITS_TABLE, SINGLE_EVENTS_TABLE])
+@pytest.mark.xdist_group("physics-tips")
 def test_physics_tooltips_are_readable_and_keep_the_hovered_plot_visible(physics_live_server, table, viewport):
     with physics_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, physics_live_server["base"], table, viewport=viewport)
@@ -1123,7 +1126,12 @@ def _land(p, base, query, table, fragment="", outcome="drawer"):
         "(table) => document.getElementById('experiment-select')?.value === table && !location.search", arg=table,
         timeout=30_000)
     if outcome == "drawer":
-        page.wait_for_function("() => !document.getElementById('inspector').hidden", timeout=30_000)
+        # Landed: the drawer is open and holds its card's notes. The landing opens it at once and the notes follow
+        # the card's payload (shell.js renderNotes shows "Panel details" until then); read under load before they
+        # had arrived, a title assertion failed (browser-speed, 2026-11-19).
+        page.wait_for_function(
+            "() => !document.getElementById('inspector').hidden"
+            " && document.getElementById('inspector-title').textContent !== 'Panel details'", timeout=30_000)
     else:
         page.wait_for_function(
             "() => (document.getElementById('kind-banner-text')?.textContent ?? '').includes('The Methodology linked')",

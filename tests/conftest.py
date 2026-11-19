@@ -12,6 +12,23 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+# Every test process runs OpenBLAS on one thread, serial or under xdist, whatever the shell exports. OpenBLAS
+# splits a reduction by its thread count, so a value can move in its last bit with the count, while the goldens
+# compare bit for bit: tests/test_golden_two_shower.py moved one value at exactly 8 threads and held at 1-6, 12
+# and 24 (browser-speed, 2026-11-19). One thread is the one count every machine runs, and it did not slow the
+# default suite. Set before anything imports numpy; pytest_collection_finish below fails the run if an OpenBLAS
+# was loaded first.
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
+# Under pytest-xdist every worker is a whole process whose OpenMP pools would each take every core; with
+# OpenBLAS's, several busy-waiting at once stalled a Models server's boot from 3.6 s to over 180 s (browser-speed,
+# 2026-11-19: four boots at once, 3.3 s each once capped). A worker therefore takes its share of the cores,
+# unless the variable is already set. Serial runs are untouched.
+if os.environ.get("PYTEST_XDIST_WORKER_COUNT"):
+    _CORE_SHARE = str(max(1, (os.cpu_count() or 1) // int(os.environ["PYTEST_XDIST_WORKER_COUNT"])))
+    for _pool in ("OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.setdefault(_pool, _CORE_SHARE)
+
 import seed  # noqa: E402  (tests/ is on sys.path: pytest's rootdir insertion)
 
 #: The two-event demonstration file every booted server seeds from, as the image does.
@@ -52,6 +69,7 @@ def clean_boot_env() -> None:
         os.environ.pop(name, None)
 
 
+@pytest.hookimpl(tryfirst=True)  # before pytest-xdist's own hook, which names each test's group from its marks
 def pytest_collection_modifyitems(session, config, items):
     """Run every booted-server test before the ingested-database tests.
 
@@ -72,6 +90,69 @@ def pytest_collection_modifyitems(session, config, items):
     ]
     booted_ids = {id(item) for item in booted}
     items[:] = booted + [item for item in items if id(item) not in booted_ids]
+    # Only xdist's workers collect, and their setup (xdist remote.py setup_config) records --dist loadgroup as
+    # option.loadgroup before it resets option.dist to "no".
+    if getattr(config.option, "loadgroup", False):
+        _group_unmarked(items, booted_ids)
+        _longest_groups_first(items)
+
+
+def _group_unmarked(items, booted_ids) -> None:
+    """Under --dist loadgroup, give every test without an xdist_group mark its module as its group, booted tests apart.
+
+    pytest-xdist sends a test without a group out on its own, so a module's fixtures would be set up once per test
+    and worker. And the DuckDB singleton every booted fixture resets is the one the session fixture `ingested`
+    holds, so a module holding both kinds (test_voxels, test_reingest and eight more) is split: its booted tests go
+    to `<module>:booted`. Booted tests come first in the collection, so with --no-loadscope-reorder every booted
+    group is handed out before any other, and each worker runs its booted groups before its first `ingested` test,
+    as a serial run does. The browser modules carry their own marks and are left alone.
+    """
+    for item in items:
+        if item.get_closest_marker("xdist_group"):
+            continue
+        module = item.nodeid.split("::")[0]
+        item.add_marker(pytest.mark.xdist_group(f"{module}:booted" if id(item) in booted_ids else module))
+
+
+#: The browser suite's slowest xdist groups, in seconds as measured with five workers (browser-speed, 2026-11-19,
+#: data/dev/design/browser-speed/cap_n5), keyed by the name pytest-xdist gives a group: every xdist_group name on
+#: a test, sorted and joined with "_". Under --dist loadgroup the collection is sorted by them, longest first, and
+#: with --no-loadscope-reorder xdist hands the groups out in collection order, so the longest start first and no
+#: slow group starts last to run alone at the end (by default xdist hands out the most tests first, which put the
+#: one-test E-view sweeps last). Ordering only: a stale or missing entry costs time, never a test.
+XDIST_GROUP_SECONDS = {
+    "theme": 142, "models_models-c": 141, "models_models-b": 133, "eview-light_models": 132,
+    "eview-dark_models": 124, "models": 117, "physics": 90, "layer_groups": 79, "physics_physics-tips": 62,
+    "models_restips-sample": 51, "physics_subpages": 48, "models_noise-light": 38, "readable-1024_tooltip": 34,
+    "models_noise-dark": 32, "readable-1600_tooltip": 32, "models_tips-baseline": 32, "models_screens-dark": 32,
+    "models_screens-light": 31, "models_restips-robust": 29, "layout": 28, "readable-1280_tooltip": 28,
+    "models_tips-single": 28, "models_restips-median": 27, "models_tips-xgb": 26,
+}
+
+
+def _xdist_group(item) -> str:
+    """The group pytest-xdist 3.8 puts ``item`` in under --dist loadgroup (remote.py), or '' with no mark."""
+    names = {str(mark.args[0] if mark.args else mark.kwargs.get("name", "default"))
+             for mark in item.iter_markers("xdist_group")}
+    return "_".join(sorted(names))
+
+
+def _longest_groups_first(items) -> None:
+    """Sort by XDIST_GROUP_SECONDS, longest first; stable, so each group keeps its tests' order and the
+    unlisted groups keep theirs after the listed ones. Every browser test is booted, so booted still come first."""
+    items.sort(key=lambda item: -XDIST_GROUP_SECONDS.get(_xdist_group(item), 0))
+
+
+def pytest_collection_finish(session):
+    """Fail the run when an OpenBLAS runs more than the one thread the top of this file pins. One loaded before the
+    pin (a plugin that imported numpy first) would make the goldens depend on the machine's core count again."""
+    from threadpoolctl import threadpool_info  # scikit-learn's dependency, so installed wherever calosrv is
+
+    loose = sorted({lib["filepath"] for lib in threadpool_info()
+                    if lib.get("internal_api") == "openblas" and lib.get("num_threads") != 1})
+    if loose:
+        raise pytest.UsageError(f"OpenBLAS runs more than one thread in {', '.join(loose)}: it was loaded before "
+                                "tests/conftest.py pinned OPENBLAS_NUM_THREADS=1")
 
 
 def rewrite_parquet(source: Path, destination: Path, event_shift: int = 0,
@@ -502,23 +583,101 @@ def cursor(ingested):
 # Shared by the opt-in Chromium tests (``test_browser_*.py``), which gate
 # themselves on CALOSRV_BROWSER_TESTS=1.
 
+#: The browser pool lives for one test module, not the session. Measured (2026-11-19, Playwright 1.64.1):
+#: while a sync Playwright is started, the main thread keeps Playwright's loop marked as running
+#: between calls (``_greenlets.wait_for_future`` sets it), so ``asyncio.get_running_loop()`` returns
+#: it and ``asyncio.run()`` raises "cannot be called from a running event loop". A session-scoped pool
+#: would leave that state over every later non-browser test of a mixed run in the same process; a
+#: module-scoped one stops Playwright at the module's end, which clears it.
+BROWSER_POOL_SCOPE = "module"
 
-def _free_port() -> int:
+
+@pytest.fixture(scope=BROWSER_POOL_SCOPE)
+def browser_pool():
+    """One Playwright driver and one Chromium per launch flavour (``tests/browser_pool.py``).
+
+    The live-server fixtures yield it under ``"playwright"`` in place of the
+    ``playwright.sync_api`` module; it skips, as they did, when Playwright is missing.
+    """
+    sync_api = pytest.importorskip("playwright.sync_api")
+    from browser_pool import BrowserPool
+
+    pool = BrowserPool(sync_api).activate()
+    try:
+        yield pool
+    finally:
+        pool.close()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """A failed setup, call or teardown marks the active browser pools dirty.
+
+    Their next ``sync_playwright()`` session then closes every pool browser
+    first, so a failed test always relaunches the browsers before the next one.
+    """
+    outcome = yield
+    report = outcome.get_result()
+    if report.failed:
+        from browser_pool import active_pools
+
+        for pool in active_pools():
+            pool.mark_dirty()
+
+
+def _listening_socket(port: int = 0):
+    """A TCP socket bound on 127.0.0.1 (port 0: a free one), for a live server to listen on.
+
+    The port is held from the moment it is chosen until the server stops, so two servers booting at
+    once (pytest-xdist workers) can never be handed the same port. Closing a probe socket and letting
+    uvicorn bind the number later left a window in which another process could take it.
+    """
     import socket
 
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", port))
+    except OSError:
+        sock.close()
+        raise
+    return sock
 
 
-@pytest.fixture(scope="module")
-def live_server(tmp_path_factory):
-    """The real app on a real port, seeded from the demonstration CSV."""
+def _start_uvicorn(app, sock, timeout_s: float = 60.0):
+    """Serve ``app`` on ``sock`` in a daemon thread; return ``(server, thread)`` once uvicorn says it started.
+
+    If the thread ends first (a failed startup) or ``timeout_s`` passes, the server is stopped, the
+    socket closed and ``RuntimeError`` raised naming the cause.
+    """
     import threading
     import time
 
-    playwright = pytest.importorskip("playwright.sync_api")
     import uvicorn
+
+    port = int(sock.getsockname()[1])
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + timeout_s
+    while not server.started:
+        alive = thread.is_alive()
+        if not alive or time.monotonic() > deadline:
+            cause = "its thread ended" if not alive else f"it had not started after {timeout_s:.0f} s"
+            server.should_exit = True
+            thread.join(timeout=10)
+            sock.close()
+            raise RuntimeError(f"the test server on 127.0.0.1:{port} never started: {cause}")
+        time.sleep(0.02)
+    return server, thread
+
+
+@pytest.fixture(scope="module")
+def live_server(tmp_path_factory, browser_pool):
+    """The real app on a real port, seeded from the demonstration CSV."""
+    import time
+
+    playwright = browser_pool  # the pool stands in for playwright.sync_api
 
     from calosrv.app import create_app
     from calosrv.config import load_settings
@@ -541,16 +700,15 @@ def live_server(tmp_path_factory):
     os.environ["DUCKDB_MEMORY_GB"] = "2"
     os.environ["CALOSRV_SEED_CSV"] = str(SEED_FILE)
 
-    port = _free_port()
-    server = uvicorn.Server(uvicorn.Config(
-        create_app(load_settings()), host="127.0.0.1", port=port, log_level="warning",
-    ))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
+    sock = _listening_socket()
+    try:
+        server, thread = _start_uvicorn(create_app(load_settings()), sock)
+    except RuntimeError as error:
+        pytest.fail(str(error))
 
     import httpx
 
-    base = f"http://127.0.0.1:{port}"
+    base = f"http://127.0.0.1:{sock.getsockname()[1]}"
     for _ in range(240):
         try:
             payload = httpx.get(f"{base}/api/experiments", timeout=2).json()
@@ -561,12 +719,15 @@ def live_server(tmp_path_factory):
         time.sleep(0.25)
     else:
         server.should_exit = True
+        thread.join(timeout=10)
+        sock.close()
         pytest.fail("the server never reported a ready experiment")
 
     yield {"base": base, "playwright": playwright, "drop": drop}
 
     server.should_exit = True
     thread.join(timeout=10)
+    sock.close()
     reset_database()
     reset_job_store()
     reset_cache()
@@ -579,7 +740,7 @@ STALE_TWO_TABLE = "stale_two"
 
 
 @pytest.fixture(scope="module")
-def physics_live_server(tmp_path_factory):
+def physics_live_server(tmp_path_factory, browser_pool):
     """The real app on a real port, holding every kind the Physics page draws.
 
     Seeded like ``live_server`` (the two-shower baseline), then given
@@ -591,12 +752,10 @@ def physics_live_server(tmp_path_factory):
     rebuild notice. A separate server from ``live_server``: the existing
     browser modules keep their one-experiment page.
     """
-    import threading
     import time
 
-    playwright = pytest.importorskip("playwright.sync_api")
+    playwright = browser_pool  # the pool stands in for playwright.sync_api
     import httpx
-    import uvicorn
 
     from calosrv.app import create_app
     from calosrv.config import load_settings
@@ -623,12 +782,13 @@ def physics_live_server(tmp_path_factory):
     os.environ["CALOSRV_SEED_CSV"] = str(SEED_FILE)
 
     app = create_app(load_settings())
-    port = _free_port()
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
+    sock = _listening_socket()
+    try:
+        server, thread = _start_uvicorn(app, sock)
+    except RuntimeError as error:
+        pytest.fail(str(error))
 
-    base = f"http://127.0.0.1:{port}"
+    base = f"http://127.0.0.1:{sock.getsockname()[1]}"
     for _ in range(240):
         try:
             payload = httpx.get(f"{base}/api/experiments", timeout=2).json()
@@ -639,6 +799,8 @@ def physics_live_server(tmp_path_factory):
         time.sleep(0.25)
     else:
         server.should_exit = True
+        thread.join(timeout=10)
+        sock.close()
         pytest.fail("the server never reported a ready experiment")
 
     database = app.state.database
@@ -654,6 +816,7 @@ def physics_live_server(tmp_path_factory):
 
     server.should_exit = True
     thread.join(timeout=10)
+    sock.close()
     reset_database()
     reset_job_store()
     reset_cache()
@@ -674,15 +837,14 @@ def start_models_server(data_dir: Path, drop: Path, sources: dict, *, port: int 
     folder, so the whole lifecycle runs: the ingest worker builds it, the queue
     hook hands it to the model-run worker, and this waits - through the read-only
     ``GET /api/admin/model-runs`` - until its analysis is done. Returns
-    ``{base, server, thread, app}``; :func:`stop_models_server` stops it.
-    A function, not only a fixture, so a scratch script can boot the same server.
+    ``{base, server, thread, app, socket}``; :func:`stop_models_server` stops it.
+    A function, not only a fixture, so a scratch script can boot the same server
+    (on ``port``, else on a free port the socket holds).
     """
     import shutil
-    import threading
     import time
 
     import httpx
-    import uvicorn
 
     from calosrv.app import create_app
     from calosrv.config import load_settings
@@ -709,12 +871,10 @@ def start_models_server(data_dir: Path, drop: Path, sources: dict, *, port: int 
     })
 
     app = create_app(load_settings())
-    port = port or _free_port()
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    base = f"http://127.0.0.1:{port}"
-    handle = {"base": base, "server": server, "thread": thread, "app": app}
+    sock = _listening_socket(port or 0)
+    server, thread = _start_uvicorn(app, sock)
+    base = f"http://127.0.0.1:{sock.getsockname()[1]}"
+    handle = {"base": base, "server": server, "thread": thread, "app": app, "socket": sock}
 
     def ready() -> set[str]:
         try:
@@ -760,6 +920,8 @@ def stop_models_server(handle: dict) -> None:
 
     handle["server"].should_exit = True
     handle["thread"].join(timeout=15)
+    if handle.get("socket") is not None:
+        handle["socket"].close()
     reset_model_runs()
     reset_database()
     reset_job_store()
@@ -768,14 +930,14 @@ def stop_models_server(handle: dict) -> None:
 
 
 @pytest.fixture(scope="module")
-def models_live_server(tmp_path_factory, xgb_sources):
+def models_live_server(tmp_path_factory, xgb_sources, browser_pool):
     """The real app on a real port for the Models page (``start_models_server``).
 
     A separate server from ``live_server`` and ``physics_live_server``: the
     existing browser modules keep their own experiments, and this one adds the
     paired XGBoost aggregate the Models page's model sections need.
     """
-    playwright = pytest.importorskip("playwright.sync_api")
+    playwright = browser_pool  # the pool stands in for playwright.sync_api
     if not SEED_FILE.is_file():
         pytest.skip("Demonstration file not present")
     handle = start_models_server(tmp_path_factory.mktemp("models-browser-data"),

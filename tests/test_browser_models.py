@@ -123,6 +123,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from browser_settle import move_pointer
 from conftest import BASELINE_TABLE, MODELS_XGB_TABLE, SINGLE_HITS_TABLE
 from test_browser_physics import (
     _PROBE, _RECORD_CANVAS_TEXT, _WATCH_EXPORTS, _WATCH_HOVER, _assert_sections, _beside, _check_tips,
@@ -134,6 +135,9 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("CALOSRV_BROWSER_TESTS") != "1",
     reason="set CALOSRV_BROWSER_TESTS=1 to run the Chromium Models-page check",
 )
+#: --dist loadgroup (README's testing section): one worker runs this module's tests and boots its server once.
+#: A test with a group mark of its own is sent apart: xdist joins its name to this one.
+pytestmark = [pytestmark, pytest.mark.xdist_group("models")]
 
 #: SwiftShader's software WebGL, as the 3-D spike measured it (design/two-page/spike).
 GL_ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
@@ -344,7 +348,8 @@ def _open(p, base, table, *, fragment=None, viewport=(1600, 900), init=(), brows
         "&& document.getElementById('stat-kind')?.textContent.trim() !== '—'",
         arg=table, timeout=30_000,
     )
-    page.wait_for_timeout(600)
+    # The cards in view have asked and drawn: the observers' frame, no card on show loading, the repaint's frame.
+    _quiet(page)
     return browser, page, problems, requests
 
 
@@ -359,6 +364,10 @@ def _settled(page, card_id, timeout=30_000):
           return s && !s.loading && (s.message !== null || s.table || (s.canvas && (s.series || s.graphic))); }}""",
         timeout=timeout,
     )
+    # Kept a fixed settle (browser-speed review S1): callers assert that nothing was asked right after it, and a
+    # request the page routes (page.route) reaches the test's request list only once the browser's
+    # Fetch.requestPaused has arrived, which nothing orders before a frame wait's reply. A DOM card (the PySR
+    # matrix) also kept growing for longer than two frames.
     page.wait_for_timeout(150)
     return page.evaluate(_CARD, card_id)
 
@@ -521,7 +530,7 @@ def _requests_of(requests, route, **params):
 def _hover_chart(page, plot_id, columns=9, rows=6):
     """Hover a grid of points over a chart's plot; every tooltip that showed, probed."""
     page.locator(f"#{plot_id}").scroll_into_view_if_needed()
-    page.wait_for_timeout(200)
+    _frames(page)
     page.evaluate(_WATCH_HOVER, plot_id)
     boxes = page.evaluate(_BOXES, plot_id)
     plot = boxes["plot"]
@@ -530,13 +539,11 @@ def _hover_chart(page, plot_id, columns=9, rows=6):
         for j in range(rows):
             x = plot["left"] + (i + 0.5) / columns * (plot["right"] - plot["left"])
             y = plot["top"] + (j + 0.5) / rows * (plot["bottom"] - plot["top"])
-            page.mouse.move(x, y)
-            page.wait_for_timeout(40)
+            move_pointer(page, x, y)
             probe = page.evaluate(_PROBE)
             if probe is not None:
                 found.append(((x, y), probe, boxes))
-    page.mouse.move(2, 2)
-    page.wait_for_timeout(60)
+    move_pointer(page, 2, 2)
     return found
 
 
@@ -564,20 +571,19 @@ _MARK_POINTS = """([plotId, cap]) => {
 
 def _hover_marks(page, plot_id, cap=30):
     """Hover a chart's own data items; every tooltip that showed, probed (as `_hover_chart` returns them). The
-    tooltips have no show delay and no transition (panels/tooltip.js), so a frame after each move is enough."""
+    tooltips have no show delay and no transition (panels/tooltip.js), so a move the page has dispatched is settled
+    (browser_settle.move_pointer)."""
     page.locator(f"#{plot_id}").scroll_into_view_if_needed()
     _frames(page)
     page.evaluate(_WATCH_HOVER, plot_id)
     boxes = page.evaluate(_BOXES, plot_id)
     found = []
     for x, y in page.evaluate(_MARK_POINTS, [plot_id, cap]):
-        page.mouse.move(x, y)
-        _frames(page)
+        move_pointer(page, x, y)
         probe = page.evaluate(_PROBE)
         if probe is not None:
             found.append(((x, y), probe, boxes))
-    page.mouse.move(2, 2)
-    _frames(page)
+    move_pointer(page, 2, 2)
     return found
 
 
@@ -685,6 +691,7 @@ def test_the_page_tabs_carry_the_view_across_both_pages(models_live_server):
 # -------------------------------------------------------------- the loading --
 
 
+@pytest.mark.xdist_group("models-b")
 def test_no_card_asks_before_it_scrolls_into_view(models_live_server):
     """Views is the cold boot's subpage: the cards at its top load at open, and nothing on Distillations or
     Performance asks until its tab is chosen (a card on a hidden subpage never meets `.main`)."""
@@ -748,6 +755,7 @@ _DETAILS = """(id) => { const b = document.querySelector(`.main button[data-insp
 
 
 @pytest.mark.parametrize("table", [BASELINE_TABLE, SINGLE_HITS_TABLE, MODELS_XGB_TABLE])
+@pytest.mark.xdist_group("models-c")
 def test_every_2d_card_renders_without_a_console_error(models_live_server, table):
     """Every card on every subpage draws (or states the server's reason), opens its drawer, and draws U+2212.
 
@@ -831,6 +839,7 @@ _OVERFLOW = """() => {
 
 @pytest.mark.parametrize("viewport", [(1600, 900), (1280, 800)], ids=lambda v: f"{v[0]}x{v[1]}")
 @pytest.mark.parametrize("table", [BASELINE_TABLE, SINGLE_HITS_TABLE, MODELS_XGB_TABLE])
+@pytest.mark.xdist_group("models-b")
 def test_no_card_runs_past_its_edge(models_live_server, table, viewport):
     """The toolbars wrap inside their cards (models.css): unwrapped, the feature histogram's ran 212 px
     past its card at 1280 px, and the 3-D event's past its column on two showers."""
@@ -857,7 +866,11 @@ def test_no_card_runs_past_its_edge(models_live_server, table, viewport):
 # --------------------------------------------------------------- tooltips --
 
 
-@pytest.mark.parametrize("table", [BASELINE_TABLE, SINGLE_HITS_TABLE, MODELS_XGB_TABLE])
+@pytest.mark.parametrize("table", [
+    pytest.param(BASELINE_TABLE, marks=pytest.mark.xdist_group("tips-baseline")),
+    pytest.param(SINGLE_HITS_TABLE, marks=pytest.mark.xdist_group("tips-single")),
+    pytest.param(MODELS_XGB_TABLE, marks=pytest.mark.xdist_group("tips-xgb")),
+])
 def test_tooltips_use_the_layer_and_never_cover_the_hovered_plot(models_live_server, table):
     base = models_live_server["base"]
     totals = {"readouts": 0, "explanations": 0}
@@ -929,6 +942,7 @@ def test_tooltips_use_the_layer_and_never_cover_the_hovered_plot(models_live_ser
 
 
 @pytest.mark.parametrize("table", [SINGLE_HITS_TABLE, MODELS_XGB_TABLE])
+@pytest.mark.xdist_group("models-b")
 def test_the_2d_cards_export_their_plot_alone_and_the_3d_cards_have_no_export(models_live_server, table):
     base = models_live_server["base"]
     exported, series = {}, {}
@@ -1150,6 +1164,9 @@ def _res_press(page, attr, value):
     """Click one of the resolution card's segmented buttons; whether it is then the pressed one."""
     button = page.locator(f'.main .card[data-panel="res-scaling"] button[data-{attr}="{value}"]')
     button.click()
+    # Kept a fixed settle (browser-speed review S1): a "no request" check follows, and the resolution card's tests
+    # route its responses (page.route), so a wrong request reaches the request list only once the browser's
+    # Fetch.requestPaused has arrived, which nothing orders before a frame wait's reply.
     page.wait_for_timeout(250)
     return button.get_attribute("aria-pressed") == "true"
 
@@ -2024,6 +2041,7 @@ def _without(query, *keys):
     return {k: v for k, v in query.items() if k not in keys}
 
 
+@pytest.mark.xdist_group("models-b")
 def test_the_estimator_control_reloads_the_card_once_and_keeps_every_other_choice(models_live_server):
     """The res-scaling card's Estimator control (Martin's decision 1 of 2026-11-12; brief §4), on the recorded
     two-shower responses served by the request's estimator.
@@ -2131,6 +2149,7 @@ def test_the_estimator_control_reloads_the_card_once_and_keeps_every_other_choic
     assert problems == [], problems
 
 
+@pytest.mark.xdist_group("models-b")
 def test_the_median_estimator_discloses_its_comparison_with_the_literature_curves(models_live_server):
     """Martin's override (brief §1 decision 2, §2.7, §4): the literature curves stay on under every estimator, and
     under the median, in the E view with a curve on, the comparison is disclosed.
@@ -2293,17 +2312,16 @@ def _hover_windows(page):
         marks = again
     found = []
     for x, y in marks:
-        page.mouse.move(x, y)
-        _frames(page)
+        move_pointer(page, x, y)
         probe = page.evaluate(_PROBE)
         if probe is not None:
             found.append(((x, y), probe, boxes))
-    page.mouse.move(2, 2)
-    _frames(page)
+    move_pointer(page, 2, 2)
     return found
 
 
-@pytest.mark.parametrize("estimator", RES_ESTIMATORS)
+@pytest.mark.parametrize("estimator", [pytest.param(e, marks=pytest.mark.xdist_group(f"restips-{e}"))
+                                       for e in RES_ESTIMATORS])
 def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_live_server, estimator):
     """Every tooltip over the resolution card's windows, curves and ratio marks, under each estimator, in both
     views and both window modes of the recorded two-shower response: on the tooltip layer, beside or off the plot,
@@ -2394,6 +2412,7 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
     assert problems == [], problems
 
 
+@pytest.mark.xdist_group("models-c")
 def test_the_robust_single_shower_card_names_its_decline_in_both_views(models_live_server):
     """Brief-fix F4 on the live single-shower hit experiment: under Robust σ (IQR) its one series, the calibrated
     deposit, has a single fittable window (N ≥ 20, from 5 GeV, with a fit weight), and the robust estimator fits no
@@ -2479,7 +2498,8 @@ def _res_screens(tmp_path):
     return folder
 
 
-@pytest.mark.parametrize("scheme", ["dark", "light"])
+@pytest.mark.parametrize("scheme", [pytest.param(s, marks=pytest.mark.xdist_group(f"screens-{s}"))
+                                    for s in ("dark", "light")])
 def test_the_resolution_card_screens_under_each_estimator(models_live_server, scheme, tmp_path):
     """The resolution card at 1600 × 900 under the three estimators, on the recorded two-shower responses, saved as
     PNG (CALOSRV_RES_SCREENS, else the temporary folder) for a reader's eye: the 1/√E view once per estimator (3
@@ -2767,13 +2787,11 @@ def _hover_points(page, points, where):
     boxes = page.evaluate(_BOXES, "plot-res-scaling")
     found = []
     for x, y in points:
-        page.mouse.move(x, y)
-        _frames(page)
+        move_pointer(page, x, y)
         probe = page.evaluate(_PROBE)
         if probe is not None:
             found.append(((x, y), probe, boxes))
-    page.mouse.move(2, 2)
-    _frames(page)
+    move_pointer(page, 2, 2)
     return found
 
 
@@ -2800,7 +2818,8 @@ def _assert_capped(page, found, where):
 NOISE_ESTIMATORS = ("median", "sample")
 
 
-@pytest.mark.parametrize("scheme", ["dark", "light"])
+@pytest.mark.parametrize("scheme", [pytest.param(s, marks=pytest.mark.xdist_group(f"noise-{s}"))
+                                    for s in ("dark", "light")])
 def test_the_noise_fit_comes_down_from_the_top_and_the_ratio_marks_start_at_one_gev(models_live_server, scheme):
     """The res-noise change on the recorded two-shower response, in both themes (brief §0, §4; Martin's decisions
     of 2026-11-13), under the median and the sample estimators, both literature curves off.
@@ -3133,7 +3152,8 @@ def _curve_families(option_series, payload, mode, where):
     return {k: next(iter(v)) for k, v in families.items()}
 
 
-@pytest.mark.parametrize("scheme", ["dark", "light"])
+@pytest.mark.parametrize("scheme", [pytest.param(s, marks=pytest.mark.xdist_group(f"eview-{s}"))
+                                    for s in ("dark", "light")])
 def test_the_e_view_draws_one_curve_per_series_with_no_band_and_one_pooled_scale(models_live_server, scheme):
     """The single-curve round (Martin's directive of 2026-11-15; CLAUDE.md §2 "Recorded exception: the E view's fitted
     curves carry no band", §5 "One fitted curve per series", "Retired: the envelope band", "One pooled scale") on the
@@ -3794,6 +3814,7 @@ def _download_png(page, panel_id):
 
 
 @pytest.mark.parametrize("scheme", ["dark", "light"])
+@pytest.mark.xdist_group("models-c")
 def test_the_resolution_card_opens_on_the_e_view_with_the_deposit_hidden_and_e_max_at_the_datas_edge(
         models_live_server, scheme):
     """res-emax (Martin's decisions of 2026-11-17; brief §6.1, CLAUDE.md §5 "Its defaults"), on the recorded
@@ -3854,6 +3875,7 @@ def test_the_resolution_card_opens_on_the_e_view_with_the_deposit_hidden_and_e_m
     assert problems == [], problems
 
 
+@pytest.mark.xdist_group("models-b")
 def test_the_e_max_slider_repaints_with_no_request_and_draws_nothing_beyond_it(models_live_server):
     """The E max slider (res-emax brief §5.4, §6.2; CLAUDE.md §5 "E max, the axis end") on the recorded two-shower
     response: moved to 45 and 80 by `input` events (coalesced to one repaint a frame) and back to 20 by a `change`,
@@ -4017,6 +4039,7 @@ def test_the_deposit_toggle_shows_the_deposit_and_its_range_on_both_views_with_n
     assert problems_single == [], problems_single
 
 
+@pytest.mark.xdist_group("models-b")
 def test_with_the_deposit_hidden_and_no_literature_curve_the_ratio_panel_draws_no_ratio(models_live_server):
     """No reference, no ratio (res-emax brief §5.5; CLAUDE.md §5 "No reference, no ratio"), on the recorded
     two-shower response: the deposit hidden and both literature curves switched off, the ratio panel paints no mark
@@ -4065,6 +4088,7 @@ def test_with_the_deposit_hidden_and_no_literature_curve_the_ratio_panel_draws_n
     assert problems == [], problems
 
 
+@pytest.mark.xdist_group("models-c")
 def test_the_resolution_cards_export_describes_only_what_is_on_show(models_live_server, tmp_path):
     """The export rule (Martin's decision of 2026-11-17; CLAUDE.md §5 "The export follows it, and describes only
     what is on show"; brief §5.7, §7) on the recorded two-shower response.
@@ -4234,6 +4258,7 @@ def test_a_resolution_entry_switched_off_takes_its_end_label_and_off_scale_value
 # ---------------------------------------------------------------- 3-D views --
 
 
+@pytest.mark.xdist_group("models-b")
 def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_live_server):
     base = models_live_server["base"]
     with models_live_server["playwright"].sync_playwright() as p:
@@ -4326,6 +4351,7 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
     assert problems == [] and problems2 == [], problems + problems2
 
 
+@pytest.mark.xdist_group("models-b")
 def test_both_showers_draw_in_the_absolute_frame_and_are_shut_with_a_reason_elsewhere(models_live_server):
     """"Both" draws the event's two showers where one coordinate system holds them, and only there.
 
@@ -4433,6 +4459,7 @@ _PAIRS_SHOWN = """() => Object.fromEntries([...document.querySelectorAll('.voxel
 _FRAME_NOTE = """() => { const n = document.querySelector('.voxels-frame-note'); return n && !n.hidden ? n.textContent : null; }"""
 
 
+@pytest.mark.xdist_group("models-b")
 def test_views_draws_the_3d_pair_of_the_selected_frame_only(models_live_server):
     """Martin's directives (2026-11-06): one coordinate system at a time. The Absolute frame draws the event pair
     alone (the cloud would fall back to Local), the D-frame the cloud alone (the event view would fall back to
@@ -4583,6 +4610,7 @@ _SCOPE = """() => {
 }"""
 
 
+@pytest.mark.xdist_group("models-c")
 def test_the_absolute_3d_card_opens_on_the_selection_and_one_event_is_a_click_away(models_live_server):
     """Martin's directive (2026-10-31): in the Absolute frame the 3-D event card draws the whole selection by
     default - its cells from /api/selection-cells, its projections the Physics page's - with no pick and no event
@@ -4866,6 +4894,7 @@ def test_an_empty_pool_shows_the_empty_line_on_the_3d_event_pair_and_asks_for_no
     assert problems == [], problems
 
 
+@pytest.mark.xdist_group("models-c")
 def test_a_link_opened_on_an_empty_pool_asks_for_no_pick_and_no_event(models_live_server):
     """Brief particle-filter §8.3: "Page 2 with no voxel_event shows the emptyLine in place of the event pair's
     plots and requests neither /api/event/pick nor /api/event", here for a link that opens the One event scope on
@@ -4887,6 +4916,7 @@ def test_a_link_opened_on_an_empty_pool_asks_for_no_pick_and_no_event(models_liv
     assert problems == [], problems
 
 
+@pytest.mark.xdist_group("models-b")
 def test_the_particle_block_shows_on_views_only(models_live_server):
     """The block belongs to the 3-D event pair's pickers: shown on Views, hidden (by CSS) on Distillations and
     Performance, and shown again on Views with its count kept."""
@@ -4933,6 +4963,7 @@ def _paths_of(urls, path):
     return [{k: v[0] for k, v in parse_qs(urlparse(u).query).items()} for u in urls if urlparse(u).path == path]
 
 
+@pytest.mark.xdist_group("models-c")
 def test_an_e1_commit_on_views_leaves_the_3d_event_and_reloads_the_selection_and_the_cloud(models_live_server):
     """On the One event scope, two Pick for me draws (seed 42, draws 0 and 1: events 1 then 0 on this file) leave
     event 0, whose E₁ = 2.71 GeV a cut at 4 GeV takes out of the selection. The commit sends no /api/event*
@@ -5013,6 +5044,7 @@ def test_an_e1_commit_on_views_leaves_the_3d_event_and_reloads_the_selection_and
     assert problems == [], problems
 
 
+@pytest.mark.xdist_group("models-c")
 def test_every_one_event_request_draws_on_the_whole_experiment(models_live_server):
     """With an E₁/E₂/D cut and a p bound in the link, the One event scope's every request - the Densest pick, the
     raster and the cubes, Pick for me, Most tilted, Densest again, previous / next - carries basis=experiment, the
@@ -5104,6 +5136,7 @@ SHUT_LINES = [
 
 @pytest.mark.parametrize("scheme", ["dark", "light"])
 @pytest.mark.parametrize(("table", "fragment", "card", "prefix"), SHUT_LINES, ids=["single-event", "single-cloud"])
+@pytest.mark.xdist_group("models-b")
 def test_the_3d_card_states_the_channels_the_experiment_cannot_serve(models_live_server, table, fragment, card,
                                                                      prefix, scheme):
     """The standing "Unavailable for this experiment" line (brief §10.2): visible text between the caption and the
@@ -5130,6 +5163,7 @@ def test_the_3d_card_states_the_channels_the_experiment_cannot_serve(models_live
     assert line["ratio"] >= 4.5, (scheme, line)
 
 
+@pytest.mark.xdist_group("models-c")
 def test_a_two_shower_card_has_no_line_and_the_species_option_its_title(models_live_server):
     """Martin's decision of 2026-11-16: the standing line names the network channels alone. The two-shower baseline
     serves every network channel and lacks only the species columns, so its 3-D event card shows no line, and the
@@ -5151,6 +5185,7 @@ def test_a_two_shower_card_has_no_line_and_the_species_option_its_title(models_l
     assert species["title"].startswith("Needs the particle_type and is_secondary columns"), species
 
 
+@pytest.mark.xdist_group("models-c")
 def test_open_in_3d_from_the_event_viewer_and_2d_back_land_on_the_same_event_and_shower(models_live_server):
     """The round trip of brief physics-subpages §5.2 and §13: the Physics page's Event viewer on event 1, shower B;
     its "Open in 3-D →" carries the event and shower as voxel_event / voxel_shower with the One event scope, and
@@ -5223,6 +5258,7 @@ def test_open_in_3d_from_the_event_viewer_and_2d_back_land_on_the_same_event_and
     assert problems == [], problems
 
 
+@pytest.mark.xdist_group("models-c")
 def test_the_3d_slices_step_with_no_request_and_keep_the_turned_and_zoomed_camera(models_live_server):
     """The slice mode (plan §3.4-§3.6) on the two-shower event in the Absolute frame (37 layers) and on the
     co-registered cloud, in Chromium with SwiftShader WebGL.
@@ -5361,6 +5397,7 @@ def _xgb_view(requests, view, task=None):
     return _requests_of(requests, "/api/xgboost", **params)
 
 
+@pytest.mark.xdist_group("models-c")
 def test_the_xgboost_cards_render_for_both_tasks_with_the_output_switch(models_live_server):
     base = models_live_server["base"]
     with models_live_server["playwright"].sync_playwright() as p:
@@ -5439,6 +5476,7 @@ def _residual_series(page):
                          ".getOption().series.map((s) => ({ name: s.name, type: s.type }))")
 
 
+@pytest.mark.xdist_group("models-c")
 def test_the_phi_residual_card_draws_no_mean_marker_whisker_or_sigma_band(models_live_server):
     """φ wraps: its residual is drawn on (−π, π] with no arithmetic-mean mark (CLAUDE.md section 2)."""
     base = models_live_server["base"]
@@ -5469,6 +5507,7 @@ def test_the_phi_residual_card_draws_no_mean_marker_whisker_or_sigma_band(models
 # ------------------------------------------------------ the shower toggle --
 
 
+@pytest.mark.xdist_group("models-b")
 def test_the_feature_explorer_asks_for_one_shower_and_keeps_it_in_the_link(models_live_server):
     base = models_live_server["base"]
     with models_live_server["playwright"].sync_playwright() as p:
@@ -5509,6 +5548,7 @@ def test_the_feature_explorer_asks_for_one_shower_and_keeps_it_in_the_link(model
 # ------------------------------------------------------------------- admin --
 
 
+@pytest.mark.xdist_group("models-b")
 def test_admin_lists_the_model_runs_and_rescans_them(models_live_server):
     base = models_live_server["base"]
     with models_live_server["playwright"].sync_playwright() as p:
@@ -5558,6 +5598,7 @@ def test_admin_lists_the_model_runs_and_rescans_them(models_live_server):
 # ------------------------------------------- landing a Methodology badge link --
 
 
+@pytest.mark.xdist_group("models-b")
 def test_a_badge_link_lands_on_its_models_card_with_the_way_back(models_live_server):
     base = models_live_server["base"]
     with models_live_server["playwright"].sync_playwright() as p:
@@ -5747,6 +5788,7 @@ def test_the_subpage_tabs_switch_by_click_and_keyboard_and_keep_their_scroll(mod
 
 
 @pytest.mark.parametrize("table", [BASELINE_TABLE, SINGLE_HITS_TABLE, MODELS_XGB_TABLE])
+@pytest.mark.xdist_group("models-c")
 def test_the_sidebar_follows_the_subpage(models_live_server, table):
     """Martin's decision 3: the Longitudinal Channels on Views only (hidden by CSS, their own `hidden` untouched);
     the Colour Map on Views, on Distillations while the XGBoost surrogate shows, on Performance while the
@@ -5909,6 +5951,7 @@ def _wait_options(page, cards, ok, *, any_of=False, timeout=10_000):
 
 
 @pytest.mark.parametrize("scheme", ["dark", "light"])
+@pytest.mark.xdist_group("models-c")
 def test_the_catalogue_draws_opens_its_drawers_and_switches_species_task_and_theme_without_a_request(
         models_live_server, scheme):
     """The seven catalogue cards (training report, catalog/select.js) in either theme: each draws (the PySR matrix
@@ -6036,6 +6079,7 @@ _LANDED = """(id) => {
 @pytest.mark.parametrize("panel,msub,hash_msub", [
     ("perf-catalog", "perf", None), ("distill-pysr", "distill", None), ("feat-corr", "views", "perf"),
 ], ids=["perf-catalog", "distill-pysr", "feat-corr-over-msub-perf"])
+@pytest.mark.xdist_group("models-c")
 def test_a_deep_link_opens_its_cards_subpage_first(models_live_server, panel, msub, hash_msub):
     """A badge link (`?panel=…&from=…&from_sec=…`) switches to its card's subpage before anything loads, even
     over a link whose own `msub` names another; the card comes into view with its drawer open and the way back,
@@ -6074,6 +6118,7 @@ def test_a_deep_link_opens_its_cards_subpage_first(models_live_server, panel, ms
 # -------------------------------------------------------------- the theme --
 
 
+@pytest.mark.xdist_group("models-b")
 def test_the_species_legend_and_cubes_follow_a_theme_switch(models_live_server):
     """The 3-D event's species legend (the HTML swatches under the card) and its cubes take the screen
     theme's qualitative palette (scale.js `speciesPalette`: `species` on dark, `species_print` on light),
@@ -6130,6 +6175,7 @@ def _assert_pinned(got, msub, where):
 
 
 @pytest.mark.parametrize("viewport", [(1024, 768), (1600, 900)], ids=lambda v: f"{v[0]}x{v[1]}")
+@pytest.mark.xdist_group("models-b")
 def test_the_tab_bar_and_the_species_bar_stay_in_view_and_no_card_lands_under_them(models_live_server, viewport):
     """Martin's decision 6 (2026-11-05): the tab bar is sticky at the top of `.main` on every subpage, with the
     catalogue's species bar under it on Distillations and Performance. Once `.main` has scrolled both are still
@@ -6339,6 +6385,7 @@ def _svg_height(svg):
     return float(re.search(r'<svg[^>]*?\sheight="([\d.]+)', svg).group(1))
 
 
+@pytest.mark.xdist_group("models-c")
 def test_the_catalogue_card_lays_out_its_facets_without_a_frame_switched_off(models_live_server):
     """Review R2-7 on screen and in the export (legend-sliders, 2026-11-17; bench_catalog.js benchCatalogModel): the
     Local frame switched off on the accuracy card's legend takes its rows out of every facet, so no empty, unlabelled

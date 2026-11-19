@@ -43,12 +43,16 @@ import re
 
 import pytest
 
+from browser_settle import move_pointer
 from conftest import SEED_CSV
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("CALOSRV_BROWSER_TESTS") != "1",
     reason="set CALOSRV_BROWSER_TESTS=1 to run the Chromium tooltip check",
 )
+#: --dist loadgroup (README's testing section): one worker runs this module's tests and boots its server once.
+#: A test with a group mark of its own is sent apart: xdist joins its name to this one.
+pytestmark = [pytestmark, pytest.mark.xdist_group("tooltip")]
 
 VIEWPORTS = ((1600, 900), (1280, 800), (1024, 768))
 PLOTS = ("plot-xy", "plot-yz", "plot-xz", "plot-energy")
@@ -133,16 +137,45 @@ _DOCUMENT = """() => ({ sw: document.documentElement.scrollWidth, sh: document.d
   cw: document.documentElement.clientWidth, ch: document.documentElement.clientHeight })"""
 
 
+#: The first refresh has answered and drawn: the status bar holds its event count, no panel is busy, no card
+#: on show is loading, and no CSS transition (`.is-busy`'s opacity fade) is still running.
+_SETTLED = """() => document.getElementById('stat-events')?.textContent.trim() !== '\u2014'
+  && !document.querySelector('.is-busy')
+  && [...document.querySelectorAll('.main .card')].filter((c) => !c.hidden && c.offsetParent !== null)
+    .every((c) => !c.classList.contains('is-loading'))
+  && document.getAnimations().every((a) => !(a instanceof CSSTransition) || a.playState !== 'running')"""
+
+
+def _frames(page, n=2):
+    """Let the page run `n` animation frames: what a scroll or a draw schedules for the next frame has run."""
+    page.evaluate("""(n) => new Promise((done) => {
+      const step = (k) => (k > 0 ? requestAnimationFrame(() => step(k - 1)) : done());
+      step(n);
+    })""", n)
+
+
 def _open(p, live_server, viewport, fragment):
     browser = p.chromium.launch()
     page = browser.new_page(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
+    pending = set()
+    page.on("request", lambda r: pending.add(r))
+    page.on("requestfinished", lambda r: pending.discard(r))
+    page.on("requestfailed", lambda r: pending.discard(r))
     page.goto(f"{live_server['base']}/{fragment}")
     page.wait_for_function(
         "() => ['plot-xy','plot-yz','plot-xz','plot-energy'].every((id) => "
         "document.getElementById(id)?.querySelector('canvas'))",
         timeout=30_000,
     )
-    page.wait_for_timeout(1500)  # the three projections and plot 4 settle
+    # The three projections and plot 4 settle: the first refresh has answered and drawn, nothing is
+    # in flight, and the frame after it has painted.
+    page.wait_for_function(_SETTLED, timeout=30_000)
+    for _ in range(1800):
+        if not pending:
+            break
+        _frames(page, 1)
+    assert not pending, f"requests still in flight: {[r.url for r in pending]}"
+    _frames(page)
     return browser, page
 
 
@@ -153,7 +186,7 @@ def _measure(live_server, viewport, fragment):
         for plot in PLOTS:
             element = page.locator(f"#{plot}")
             element.scroll_into_view_if_needed()
-            page.wait_for_timeout(100)
+            _frames(page)
             box = element.bounding_box()
             assert box, plot
             targets = [("grid", box["x"] + fx * box["width"], box["y"] + fy * box["height"])
@@ -167,13 +200,11 @@ def _measure(live_server, viewport, fragment):
                     x += SWEEP_STEP_PX
                 targets += [(f"mark {m['name']}", m["x"], m["y"]) for m in page.evaluate(_MARKS, plot)]
             for kind, x, y in targets:
-                page.mouse.move(x, y)
-                page.wait_for_timeout(40)
+                move_pointer(page, x, y)
                 probe = page.evaluate(_PROBE, [plot, x, y])
                 if probe is not None:
                     results.append((plot, kind, (x, y), probe))
-            page.mouse.move(1, 1)
-            page.wait_for_timeout(100)
+            move_pointer(page, 1, 1)
         browser.close()
     return results
 
@@ -209,7 +240,8 @@ def _beside(tip, x, y) -> bool:
     return horizontal or vertical
 
 
-@pytest.mark.parametrize("viewport", VIEWPORTS, ids=lambda v: f"{v[0]}x{v[1]}")
+@pytest.mark.parametrize("viewport", [pytest.param(v, marks=pytest.mark.xdist_group(f"readable-{v[0]}"))
+                                      for v in VIEWPORTS], ids=lambda v: f"{v[0]}x{v[1]}")
 @pytest.mark.parametrize(
     "fragment", ["", "#frame=trans", "#frame=local", "#frame=canonical"],
     ids=["default-lab", "trans", "local", "canonical"],
@@ -298,11 +330,11 @@ def _measure_channels(live_server, viewport, fragment):
             "() => ['plot-yz','plot-xz'].every((id) => (echarts.getInstanceByDom(document.getElementById(id))"
             ".getOption().series || []).some((s) => s.id === 'layer-groups-strip' && s.data.length === 13))",
             timeout=30_000)
-        page.wait_for_timeout(300)
+        _frames(page)
         for plot in ("plot-yz", "plot-xz"):
             element = page.locator(f"#{plot}")
             element.scroll_into_view_if_needed()
-            page.wait_for_timeout(100)
+            _frames(page)
             box = element.bounding_box()
             targets = [(t["kind"], t["x"], t["y"]) for t in page.evaluate(_CHANNEL_TARGETS, plot)]
             assert sum(k.startswith("strip") for k, *_ in targets) == 13, targets
@@ -315,18 +347,17 @@ def _measure_channels(live_server, viewport, fragment):
             targets += [("grid", box["x"] + fx * box["width"], box["y"] + fy * box["height"])
                         for fx in GRID_X[::2] for fy in GRID_Y[::2]]
             for kind, x, y in targets:
-                page.mouse.move(x, y)
-                page.wait_for_timeout(40)
+                move_pointer(page, x, y)
                 probe = page.evaluate(_PROBE, [plot, x, y])
                 if probe is not None:
                     results.append((plot, kind, (x, y), probe))
-            page.mouse.move(1, 1)
-            page.wait_for_timeout(100)
+            move_pointer(page, 1, 1)
         browser.close()
     return results
 
 
-@pytest.mark.parametrize("viewport", [(1600, 900), (1024, 768)], ids=lambda v: f"{v[0]}x{v[1]}")
+@pytest.mark.parametrize("viewport", [pytest.param(v, marks=pytest.mark.xdist_group(f"channels-{v[0]}"))
+                                      for v in ((1600, 900), (1024, 768))], ids=lambda v: f"{v[0]}x{v[1]}")
 @pytest.mark.parametrize(
     "fragment", ["#lgmode=bounds", "#frame=trans&lgmode=bounds", "#frame=canonical&lgmode=bounds", "#lgmode=pool"],
     ids=["lab-bounds", "trans-bounds", "canonical-bounds", "lab-pooled"],
@@ -358,8 +389,7 @@ def _hover_readout(page, plot, fractions=(0.5, 0.4, 0.6, 0.3, 0.7)):
         for fx in fractions:
             x = rect["left"] + fx * (rect["right"] - rect["left"])
             y = rect["top"] + fy * (rect["bottom"] - rect["top"])
-            page.mouse.move(x, y)
-            page.wait_for_timeout(60)
+            move_pointer(page, x, y)
             probe = page.evaluate(_PROBE, [plot, x, y])
             if probe and _is_readout(plot, probe):
                 return (x, y), probe
