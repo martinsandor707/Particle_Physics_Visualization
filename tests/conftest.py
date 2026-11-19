@@ -69,6 +69,7 @@ def clean_boot_env() -> None:
         os.environ.pop(name, None)
 
 
+@pytest.hookimpl(tryfirst=True)  # before pytest-xdist's own hook, which names each test's group from its marks
 def pytest_collection_modifyitems(session, config, items):
     """Run every booted-server test before the ingested-database tests.
 
@@ -92,7 +93,25 @@ def pytest_collection_modifyitems(session, config, items):
     # Only xdist's workers collect, and their setup (xdist remote.py setup_config) records --dist loadgroup as
     # option.loadgroup before it resets option.dist to "no".
     if getattr(config.option, "loadgroup", False):
+        _group_unmarked(items, booted_ids)
         _longest_groups_first(items)
+
+
+def _group_unmarked(items, booted_ids) -> None:
+    """Under --dist loadgroup, give every test without an xdist_group mark its module as its group, booted tests apart.
+
+    pytest-xdist sends a test without a group out on its own, so a module's fixtures would be set up once per test
+    and worker. And the DuckDB singleton every booted fixture resets is the one the session fixture `ingested`
+    holds, so a module holding both kinds (test_voxels, test_reingest and eight more) is split: its booted tests go
+    to `<module>:booted`. Booted tests come first in the collection, so with --no-loadscope-reorder every booted
+    group is handed out before any other, and each worker runs its booted groups before its first `ingested` test,
+    as a serial run does. The browser modules carry their own marks and are left alone.
+    """
+    for item in items:
+        if item.get_closest_marker("xdist_group"):
+            continue
+        module = item.nodeid.split("::")[0]
+        item.add_marker(pytest.mark.xdist_group(f"{module}:booted" if id(item) in booted_ids else module))
 
 
 #: The browser suite's slowest xdist groups, in seconds as measured with five workers (browser-speed, 2026-11-19,
