@@ -81,7 +81,9 @@ def pytest_collection_modifyitems(session, config, items):
     ]
     booted_ids = {id(item) for item in booted}
     items[:] = booted + [item for item in items if id(item) not in booted_ids]
-    if getattr(config.option, "dist", "no") == "loadgroup":
+    # Only xdist's workers collect, and their setup (xdist remote.py setup_config) records --dist loadgroup as
+    # option.loadgroup before it resets option.dist to "no".
+    if getattr(config.option, "loadgroup", False):
         _longest_groups_first(items)
 
 
