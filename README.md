@@ -5777,14 +5777,11 @@ done
     zram's swap-out of cold pages (swappiness 133) is benign.
 - **CPU.** Without sleeps the hover sweeps are CPU-bound, so more workers than that buy little. On
   2026-11-19, before the longest-first order, six workers took 410 s and five 378 s.
-  - Inside a worker, `conftest.py` caps the OpenBLAS and OpenMP pools at the worker's share of the cores
-    (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS`, unless already set).
+  - Inside a worker, `conftest.py` caps the OpenMP pools at the worker's share of the cores
+    (`OMP_NUM_THREADS` and `MKL_NUM_THREADS`, unless already set). OpenBLAS runs on one thread everywhere
+    (below).
   - With every worker's pools taking all 24 cores, four Models servers booting at once took 184 s each
     instead of 3.6 s.
-  - The cap can move a computed value in its last bit, because OpenBLAS sums in an order set by its thread
-    count. No browser test compares a value with a recording. The default suite does, so it stays serial: at
-    8 threads (`-n 3` here) one value of `tests/test_golden_two_shower.py` moves by one unit in the last place,
-    serially too (2026-11-19).
 - **Groups (`--dist loadgroup`).** Every browser module marks itself `xdist_group("<module>")`, so one worker
   runs it and boots its server once.
   - A test that takes about 30 s or more on its own has a group of its own: a decorator, or
@@ -5818,6 +5815,32 @@ done
   wrong request, repaint or change time to happen before a test asserts it did not.
 - **Ports.** Each live server binds its socket before uvicorn starts on it, so parallel workers never race for a
   port.
+
+**The default suite in parallel.** Without `CALOSRV_BROWSER_TESTS` it takes about 1.5 minutes, against about
+5.5 serially:
+
+```bash
+.venv/bin/python -m pytest -q -p no:cacheprovider -n 5 --dist loadgroup --no-loadscope-reorder \
+  --basetemp data/dev/pytest/default
+```
+
+- **Groups.** Under `--dist loadgroup`, `conftest.py` gives every test without an `xdist_group` mark its module as
+  its group, with a module's booted tests apart (`<module>:booted`).
+  - Booted tests come first in the collection, and `--no-loadscope-reorder` hands the groups out in that order.
+  - So each worker runs its booted tests before its first `ingested` one, as a serial run does (the DuckDB rule
+    below).
+- **Workers.** A default-suite worker peaked at 1.4–1.9 GB on 2026-11-19, so the rule above with P = 1.9 GB gives
+  5 from 15.9 GB.
+
+**OpenBLAS runs on one thread in every test process,** serial or parallel. `conftest.py` sets
+`OPENBLAS_NUM_THREADS=1` before anything imports numpy, whatever the shell exports.
+- **Why:** OpenBLAS sums in an order set by its thread count, and the goldens compare bit for bit.
+  - At exactly 8 threads one value of `tests/test_golden_two_shower.py` moved by one unit in the last place
+    (2026-11-19). OpenBLAS defaults to the cores it sees, so the goldens depended on the machine.
+  - One thread is the one count every machine runs.
+- **Cost:** none. The serial default suite took 311 s pinned, against 324 s at the default 24 threads.
+- **Guard:** a run fails at collection, naming the library, if an OpenBLAS was loaded before the pin (a plugin
+  that imported numpy first).
 
 The Node tests need `node` on the `PATH` and skip silently without it, so check
 `command -v node` first. The booted fixtures share one process-wide DuckDB, and
