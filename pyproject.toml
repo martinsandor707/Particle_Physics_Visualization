@@ -22,7 +22,7 @@ dev = [
     # `python -m playwright install chromium`.
     "playwright>=1.62",
     # Runs the browser suite in parallel (`-n <N> --dist loadgroup`, README's testing section).
-    "pytest-xdist>=3.6",
+    "pytest-xdist>=3.8",  # 3.8 joins every xdist_group name on a test (remote.py)
 ]
 
 [project.scripts]

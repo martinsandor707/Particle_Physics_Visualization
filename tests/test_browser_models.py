@@ -364,14 +364,11 @@ def _settled(page, card_id, timeout=30_000):
           return s && !s.loading && (s.message !== null || s.table || (s.canvas && (s.series || s.graphic))); }}""",
         timeout=timeout,
     )
-    if page.evaluate(_CARD, card_id)["canvas"]:
-        # A chart: a repaint the draw coalesced to the next frame (a resize, a legend repaint) has run.
-        _frames(page)
-    else:
-        # A DOM card (the PySR matrix's MathML grid, the feature table) or a message: its layout can still grow
-        # after two frames (measured: the PySR matrix's height changed within the next 150 ms), so the fixed
-        # settle stays.
-        page.wait_for_timeout(150)
+    # Kept a fixed settle (browser-speed review S1): callers assert that nothing was asked right after it, and a
+    # request the page routes (page.route) reaches the test's request list only once the browser's
+    # Fetch.requestPaused has arrived, which nothing orders before a frame wait's reply. A DOM card (the PySR
+    # matrix) also kept growing for longer than two frames.
+    page.wait_for_timeout(150)
     return page.evaluate(_CARD, card_id)
 
 
@@ -1167,9 +1164,10 @@ def _res_press(page, attr, value):
     """Click one of the resolution card's segmented buttons; whether it is then the pressed one."""
     button = page.locator(f'.main .card[data-panel="res-scaling"] button[data-{attr}="{value}"]')
     button.click()
-    # The click's handler sets the control, repaints and starts any load at once (models_cards.js setControl); two
-    # frames let the paint and anything coalesced to the next frame run before a probe or a "no request" check.
-    _frames(page)
+    # Kept a fixed settle (browser-speed review S1): a "no request" check follows, and the resolution card's tests
+    # route its responses (page.route), so a wrong request reaches the request list only once the browser's
+    # Fetch.requestPaused has arrived, which nothing orders before a frame wait's reply.
+    page.wait_for_timeout(250)
     return button.get_attribute("aria-pressed") == "true"
 
 

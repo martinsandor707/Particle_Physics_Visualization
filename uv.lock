@@ -75,7 +75,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.0,<3" },
     { name = "playwright", marker = "extra == 'dev'", specifier = ">=1.62" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.6" },
+    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.8" },
     { name = "python-multipart", specifier = ">=0.0.12" },
     { name = "scikit-learn", specifier = ">=1.5,<2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32,<1" },

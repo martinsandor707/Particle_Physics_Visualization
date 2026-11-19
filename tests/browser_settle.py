@@ -12,12 +12,13 @@ after it were identical to probes taken after the old sleep, and to a second pro
 """
 from __future__ import annotations
 
-#: Installs, once per page, a passive capture listener counting the document's mousemove dispatches
+#: Installs, once per page, a passive capture listener counting the document's trusted mousemove dispatches
 #: and keeping the last one's position; returns the count so far.
 _WATCH_MOVES = """() => {
   if (!window.__browserSettleMoves) {
     window.__browserSettleMoves = { n: 0, x: null, y: null };
     document.addEventListener('mousemove', (e) => {
+      if (!e.isTrusted) return;  // the pointer's own moves only, never one a script dispatched
       const w = window.__browserSettleMoves;
       w.n += 1; w.x = e.clientX; w.y = e.clientY;
     }, { capture: true, passive: true });

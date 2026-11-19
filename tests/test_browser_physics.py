@@ -1126,7 +1126,12 @@ def _land(p, base, query, table, fragment="", outcome="drawer"):
         "(table) => document.getElementById('experiment-select')?.value === table && !location.search", arg=table,
         timeout=30_000)
     if outcome == "drawer":
-        page.wait_for_function("() => !document.getElementById('inspector').hidden", timeout=30_000)
+        # Landed: the drawer is open and holds its card's notes. The landing opens it at once and the notes follow
+        # the card's payload (shell.js renderNotes shows "Panel details" until then); read under load before they
+        # had arrived, a title assertion failed (browser-speed, 2026-11-19).
+        page.wait_for_function(
+            "() => !document.getElementById('inspector').hidden"
+            " && document.getElementById('inspector-title').textContent !== 'Panel details'", timeout=30_000)
     else:
         page.wait_for_function(
             "() => (document.getElementById('kind-banner-text')?.textContent ?? '').includes('The Methodology linked')",
