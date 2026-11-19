@@ -12,13 +12,21 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-# Under pytest-xdist every worker is a whole process whose BLAS and OpenMP pools would each take every core;
-# several busy-waiting at once stalled a Models server's boot from 3.6 s to over 180 s (browser-speed,
+# Every test process runs OpenBLAS on one thread, serial or under xdist, whatever the shell exports. OpenBLAS
+# splits a reduction by its thread count, so a value can move in its last bit with the count, while the goldens
+# compare bit for bit: tests/test_golden_two_shower.py moved one value at exactly 8 threads and held at 1-6, 12
+# and 24 (browser-speed, 2026-11-19). One thread is the one count every machine runs, and it did not slow the
+# default suite. Set before anything imports numpy; pytest_collection_finish below fails the run if an OpenBLAS
+# was loaded first.
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
+# Under pytest-xdist every worker is a whole process whose OpenMP pools would each take every core; with
+# OpenBLAS's, several busy-waiting at once stalled a Models server's boot from 3.6 s to over 180 s (browser-speed,
 # 2026-11-19: four boots at once, 3.3 s each once capped). A worker therefore takes its share of the cores,
-# unless the variable is already set. Set before anything imports numpy; serial runs are untouched.
+# unless the variable is already set. Serial runs are untouched.
 if os.environ.get("PYTEST_XDIST_WORKER_COUNT"):
     _CORE_SHARE = str(max(1, (os.cpu_count() or 1) // int(os.environ["PYTEST_XDIST_WORKER_COUNT"])))
-    for _pool in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    for _pool in ("OMP_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(_pool, _CORE_SHARE)
 
 import seed  # noqa: E402  (tests/ is on sys.path: pytest's rootdir insertion)
@@ -114,6 +122,18 @@ def _longest_groups_first(items) -> None:
     """Sort by XDIST_GROUP_SECONDS, longest first; stable, so each group keeps its tests' order and the
     unlisted groups keep theirs after the listed ones. Every browser test is booted, so booted still come first."""
     items.sort(key=lambda item: -XDIST_GROUP_SECONDS.get(_xdist_group(item), 0))
+
+
+def pytest_collection_finish(session):
+    """Fail the run when an OpenBLAS runs more than the one thread the top of this file pins. One loaded before the
+    pin (a plugin that imported numpy first) would make the goldens depend on the machine's core count again."""
+    from threadpoolctl import threadpool_info  # scikit-learn's dependency, so installed wherever calosrv is
+
+    loose = sorted({lib["filepath"] for lib in threadpool_info()
+                    if lib.get("internal_api") == "openblas" and lib.get("num_threads") != 1})
+    if loose:
+        raise pytest.UsageError(f"OpenBLAS runs more than one thread in {', '.join(loose)}: it was loaded before "
+                                "tests/conftest.py pinned OPENBLAS_NUM_THREADS=1")
 
 
 def rewrite_parquet(source: Path, destination: Path, event_shift: int = 0,
