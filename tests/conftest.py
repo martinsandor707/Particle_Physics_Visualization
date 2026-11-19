@@ -12,6 +12,15 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+# Under pytest-xdist every worker is a whole process whose BLAS and OpenMP pools would each take every core;
+# several busy-waiting at once stalled a Models server's boot from 3.6 s to over 180 s (browser-speed,
+# 2026-11-19: four boots at once, 3.3 s each once capped). A worker therefore takes its share of the cores,
+# unless the variable is already set. Set before anything imports numpy; serial runs are untouched.
+if os.environ.get("PYTEST_XDIST_WORKER_COUNT"):
+    _CORE_SHARE = str(max(1, (os.cpu_count() or 1) // int(os.environ["PYTEST_XDIST_WORKER_COUNT"])))
+    for _pool in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.setdefault(_pool, _CORE_SHARE)
+
 import seed  # noqa: E402  (tests/ is on sys.path: pytest's rootdir insertion)
 
 #: The two-event demonstration file every booted server seeds from, as the image does.
