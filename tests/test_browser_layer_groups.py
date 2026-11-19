@@ -57,6 +57,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
+from browser_settle import move_pointer
 from conftest import BASELINE_TABLE, SINGLE_EVENTS_TABLE
 
 pytestmark = pytest.mark.skipif(
@@ -392,13 +393,18 @@ def _readouts(page, plot_id, want=4, columns=23, rows=9):
     own explanation); their first lines."""
     lg = _lg(page, plot_id)
     g, h = lg["grid"], lg["host"]
+    viewport = page.viewport_size
     found = []
     for j in range(rows):
         for i in range(columns):
             x = h["left"] + g["x"] + (i + 0.5) / columns * g["w"]
             y = h["top"] + g["y"] + (j + 0.5) / rows * g["h"]
-            page.mouse.move(x, y)
-            page.wait_for_timeout(40)
+            if 0 <= x < viewport["width"] and 0 <= y < viewport["height"]:
+                move_pointer(page, x, y)
+            else:
+                # Below the fold (the sweep does not scroll): the page dispatches no move to wait for.
+                page.mouse.move(x, y)
+                page.wait_for_timeout(40)
             tip = page.evaluate(_TIP)
             if tip and not tip.startswith(("Seam ", "Layer plane ")):
                 line = tip.splitlines()[0]

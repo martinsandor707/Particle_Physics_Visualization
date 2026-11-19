@@ -53,6 +53,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
+from browser_settle import move_pointer
 from conftest import BASELINE_TABLE, SINGLE_EVENTS_TABLE, SINGLE_HITS_TABLE, STALE_TWO_TABLE
 
 pytestmark = pytest.mark.skipif(
@@ -311,7 +312,7 @@ def _beside(tip, x, y) -> bool:
 def _hover_chart(page, plot_id, columns=9, rows=6):
     """Hover a grid of points over a chart's plot area; every tooltip that showed, probed."""
     page.locator(f"#{plot_id}").scroll_into_view_if_needed()
-    page.wait_for_timeout(150)
+    _frames(page)
     page.evaluate(_WATCH_HOVER, plot_id)
     boxes = page.evaluate(_BOXES, plot_id)
     plot = boxes["plot"]
@@ -320,13 +321,11 @@ def _hover_chart(page, plot_id, columns=9, rows=6):
         for j in range(rows):
             x = plot["left"] + (i + 0.5) / columns * (plot["right"] - plot["left"])
             y = plot["top"] + (j + 0.5) / rows * (plot["bottom"] - plot["top"])
-            page.mouse.move(x, y)
-            page.wait_for_timeout(35)
+            move_pointer(page, x, y)
             probe = page.evaluate(_PROBE)
             if probe is not None:
                 found.append(((x, y), probe, boxes))
-    page.mouse.move(2, 2)
-    page.wait_for_timeout(60)
+    move_pointer(page, 2, 2)
     return found
 
 
