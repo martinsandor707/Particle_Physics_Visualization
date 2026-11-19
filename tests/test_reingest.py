@@ -502,8 +502,15 @@ class _Blob:
 
 
 def _await(job, timeout: float = 120.0) -> None:
+    """Wait until the worker has finished the job.
+
+    A job turns ``done`` at its commit, and the optional steps (warming, queueing the analysis) and a re-ingest's
+    "Re-ingest complete" label follow; ``finished_at`` is set last (``JobStore._finish``). Waiting on the status
+    alone returned inside that window under parallel load (browser-speed, 2026-11-19).
+    """
     end = time.time() + timeout
-    while job.status in (jobs_mod.JOB_QUEUED, jobs_mod.JOB_RUNNING) and time.time() < end:
+    while ((job.finished_at is None or job.status in (jobs_mod.JOB_QUEUED, jobs_mod.JOB_RUNNING))
+           and time.time() < end):
         time.sleep(0.05)
     assert job.finished_at is not None, "the job did not finish"
 
