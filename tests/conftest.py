@@ -502,6 +502,47 @@ def cursor(ingested):
 # Shared by the opt-in Chromium tests (``test_browser_*.py``), which gate
 # themselves on CALOSRV_BROWSER_TESTS=1.
 
+#: The browser pool lives for one test module, not the session. Measured (2026-11-19, Playwright 1.64.1):
+#: while a sync Playwright is started, the main thread keeps Playwright's loop marked as running
+#: between calls (``_greenlets.wait_for_future`` sets it), so ``asyncio.get_running_loop()`` returns
+#: it and ``asyncio.run()`` raises "cannot be called from a running event loop". A session-scoped pool
+#: would leave that state over every later non-browser test of a mixed run in the same process; a
+#: module-scoped one stops Playwright at the module's end, which clears it.
+BROWSER_POOL_SCOPE = "module"
+
+
+@pytest.fixture(scope=BROWSER_POOL_SCOPE)
+def browser_pool():
+    """One Playwright driver and one Chromium per launch flavour (``tests/browser_pool.py``).
+
+    The live-server fixtures yield it under ``"playwright"`` in place of the
+    ``playwright.sync_api`` module; it skips, as they did, when Playwright is missing.
+    """
+    sync_api = pytest.importorskip("playwright.sync_api")
+    from browser_pool import BrowserPool
+
+    pool = BrowserPool(sync_api).activate()
+    try:
+        yield pool
+    finally:
+        pool.close()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """A failed setup, call or teardown marks the active browser pools dirty.
+
+    Their next ``sync_playwright()`` session then closes every pool browser
+    first, so a failed test always relaunches the browsers before the next one.
+    """
+    outcome = yield
+    report = outcome.get_result()
+    if report.failed:
+        from browser_pool import active_pools
+
+        for pool in active_pools():
+            pool.mark_dirty()
+
 
 def _listening_socket(port: int = 0):
     """A TCP socket bound on 127.0.0.1 (port 0: a free one), for a live server to listen on.
@@ -551,11 +592,11 @@ def _start_uvicorn(app, sock, timeout_s: float = 60.0):
 
 
 @pytest.fixture(scope="module")
-def live_server(tmp_path_factory):
+def live_server(tmp_path_factory, browser_pool):
     """The real app on a real port, seeded from the demonstration CSV."""
     import time
 
-    playwright = pytest.importorskip("playwright.sync_api")
+    playwright = browser_pool  # the pool stands in for playwright.sync_api
 
     from calosrv.app import create_app
     from calosrv.config import load_settings
@@ -618,7 +659,7 @@ STALE_TWO_TABLE = "stale_two"
 
 
 @pytest.fixture(scope="module")
-def physics_live_server(tmp_path_factory):
+def physics_live_server(tmp_path_factory, browser_pool):
     """The real app on a real port, holding every kind the Physics page draws.
 
     Seeded like ``live_server`` (the two-shower baseline), then given
@@ -632,7 +673,7 @@ def physics_live_server(tmp_path_factory):
     """
     import time
 
-    playwright = pytest.importorskip("playwright.sync_api")
+    playwright = browser_pool  # the pool stands in for playwright.sync_api
     import httpx
 
     from calosrv.app import create_app
@@ -808,14 +849,14 @@ def stop_models_server(handle: dict) -> None:
 
 
 @pytest.fixture(scope="module")
-def models_live_server(tmp_path_factory, xgb_sources):
+def models_live_server(tmp_path_factory, xgb_sources, browser_pool):
     """The real app on a real port for the Models page (``start_models_server``).
 
     A separate server from ``live_server`` and ``physics_live_server``: the
     existing browser modules keep their own experiments, and this one adds the
     paired XGBoost aggregate the Models page's model sections need.
     """
-    playwright = pytest.importorskip("playwright.sync_api")
+    playwright = browser_pool  # the pool stands in for playwright.sync_api
     if not SEED_FILE.is_file():
         pytest.skip("Demonstration file not present")
     handle = start_models_server(tmp_path_factory.mktemp("models-browser-data"),
